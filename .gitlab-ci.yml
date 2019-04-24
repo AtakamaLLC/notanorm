@@ -1,0 +1,18 @@
+stages:
+  - test
+
+include:
+  - project: 'vidaid/Build-Tools'
+    ref: master
+    file: sonarscan.yml
+
+test:ubuntu:
+  stage: test
+  tags:
+    - ubuntu
+  scripts:
+    - python3 -m venv env
+    - . ./env/bin/activate
+    - make requirements
+    - make lint
+    - make test
