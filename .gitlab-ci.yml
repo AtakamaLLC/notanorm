@@ -10,7 +10,7 @@ test:ubuntu:
   stage: test
   tags:
     - ubuntu
-  scripts:
+  script:
     - python3 -m venv env
     - . ./env/bin/activate
     - make requirements
