@@ -56,7 +56,7 @@ class TestDb(unittest.TestCase):
         db = SqliteDb(fname)
         db.query("create table foo (bar)")
         db.query("insert into foo (bar) values (?)", "hi")
-        
+
         class Foo:
             def __init__(self, bar=None):
                 self.bar = bar
@@ -65,12 +65,11 @@ class TestDb(unittest.TestCase):
 
         self.assertEqual(type(obj), Foo)
 
-
         db.register_class("foo", Foo)
 
         obj = db.select_one("foo", bar="hi")
 
-        self.assertEqual(obj.bar,"hi")
+        self.assertEqual(obj.bar, "hi")
         self.assertEqual(type(obj), Foo)
 
     def test_db_select_in(self):
@@ -81,7 +80,7 @@ class TestDb(unittest.TestCase):
         db.query("insert into foo (bar) values (?)", "hi")
         db.query("insert into foo (bar) values (?)", "ho")
 
-        res = [DbRow({'bar':'hi'}),DbRow({'bar':'ho'})]
+        res = [DbRow({'bar': 'hi'}), DbRow({'bar': 'ho'})]
 
         self.assertEqual(db.select("foo", ["bar"], {"bar": ["hi", "ho"]}), res)
 
@@ -93,7 +92,7 @@ class TestDb(unittest.TestCase):
         db.query("create table baz (col, d)")
         db.query("insert into foo (col, d) values (?, ?)", "hi", "foo")
         db.query("insert into baz (col, d) values (?, ?)", "hi", "baz")
-        res = db.select("foo inner join baz on foo.col=baz.col", ["baz.d"], {"foo.col":"hi"})
+        res = db.select("foo inner join baz on foo.col=baz.col", ["baz.d"], {"foo.col": "hi"})
         self.assertEqual(res[0].d, "baz")
 
     def test_db_update_and_select(self):
@@ -158,7 +157,7 @@ class TestDb(unittest.TestCase):
         db._DbBase__conn_p.close()
 
         with self.assertRaises(sqlite3.ProgrammingError):
-           db.query("create table bar (x)")
+            db.query("create table bar (x)")
 
         db.retry_errors = (sqlite3.ProgrammingError, )
         db.query("create table bar (x)")
@@ -167,7 +166,7 @@ class TestDb(unittest.TestCase):
         # test that in memory db's are relatively safe
 
         db = SqliteDb(":memory:")
-        
+
         db.query("create table foo (bar primary key)")
         db.query("insert into foo (bar) values (?)", 0)
 
