@@ -9,6 +9,7 @@ from .base import DbBase
 class MySqlDb(DbBase):
     placeholder = "%s"
     retry_errors = (MySQLdb.OperationalError, )
+    integrity_errors = (MySqlDb.IntegrityError, )
 
     def _connect(self, *args, **kws):
         conn = MySQLdb.connect(*args, **kws)
