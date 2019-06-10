@@ -8,7 +8,7 @@ class SqliteDb(DbBase):
 
     # if you get one of these, you can retry
     retry_errors = (sqlite3.OperationalError, sqlite3.ProgrammingError)
-    
+
     # if you get one of these, it might be a duplicate key
     integrity_errors = (sqlite3.IntegrityError, )
 
