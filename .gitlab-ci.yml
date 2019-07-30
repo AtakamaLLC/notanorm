@@ -11,7 +11,7 @@ test:ubuntu:
   tags:
     - ubuntu
   script:
-    - python3 -m venv env
+    - python3 -m virtualenv env
     - . ./env/bin/activate
     - make requirements
     - make lint

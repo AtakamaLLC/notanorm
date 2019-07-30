@@ -7,7 +7,7 @@ class SqliteDb(DbBase):
     placeholder = "?"
 
     # if you get one of these, you can retry
-    retry_errors = (sqlite3.OperationalError, sqlite3.ProgrammingError)
+    retry_errors = (sqlite3.OperationalError, )
 
     # if you get one of these, it might be a duplicate key
     integrity_errors = (sqlite3.IntegrityError, )

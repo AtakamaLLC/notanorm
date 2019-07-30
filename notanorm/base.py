@@ -3,6 +3,7 @@
 NOTE: Make sure to close the db handle when you are done.
 """
 
+import time
 import threading
 
 from abc import ABC, abstractmethod
@@ -42,6 +43,9 @@ class DbRow():
 class DbBase(ABC):
     placeholder = '?'
     retry_errors = ()
+    max_reconnect_attempts = 5
+    reconnect_backoff_start = 0.1  # seconds
+    reconnect_backoff_factor = 2
 
     def __init__(self, *args, **kws):
         self.__conn_p = None
@@ -77,14 +81,18 @@ class DbBase(ABC):
     def execute(self, sql, parameters=()):
         try:
             with self.__lock:
-                try:
-                    cursor = self._cursor(self._conn())
-                    cursor.execute(sql, parameters)
-                except self.retry_errors:
-                    # retry try one more time in the event of a connection error
-                    self.__conn_p = None
-                    cursor = self._cursor(self._conn())
-                    cursor.execute(sql, parameters)
+                backoff = self.reconnect_backoff_start
+                for i in range(self.max_reconnect_attempts):
+                    try:
+                        cursor = self._cursor(self._conn())
+                        cursor.execute(sql, parameters)
+                        break
+                    except self.retry_errors:
+                        self.__conn_p = None
+                        if i == self.max_reconnect_attempts - 1:
+                            raise
+                        time.sleep(backoff)
+                        backoff *= self.reconnect_backoff_factor
             return cursor
         except self.retry_errors as e:
             # convert annoying connection errors to an easily caught ConnectionError
