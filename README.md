@@ -8,38 +8,40 @@ often confusing semantics.
 
 Example:
 
-    from notanorm import SqliteDb 
-    from notanorm import MysqlDb 
+```
+from notanorm import SqliteDb 
+from notanorm import MysqlDb 
 
-    fname = ":memory:"
+fname = ":memory:"
 
-    # default options are 
-    db = SqliteDb(fname)
+# default options are 
+db = SqliteDb(fname)
 
-    # no special create support, just use a string
-    db.query("create table foo (bar text, iv integer primary key)")
+# no special create support, just use a string
+db.query("create table foo (bar text, iv integer primary key)")
 
-    # insert, select, update, and upsert are convenient and do the right thing
-    # preventing injection, normalizing across db types, etc.
+# insert, select, update, and upsert are convenient and do the right thing
+# preventing injection, normalizing across db types, etc.
 
-    db.insert(bar="hi", iv=1)
-    db.insert(bar="hi", iv=2)
-    db.insert(bar="ho", iv=3)
+db.insert(bar="hi", iv=1)
+db.insert(bar="hi", iv=2)
+db.insert(bar="ho", iv=3)
 
-    db.upsert(bar="ho", iv=4)                   # primary keys are required for upserts
+db.upsert(bar="ho", iv=4)                   # primary keys are required for upserts
 
-    db.select("foo", bar="hi")[0].bar           # hi
-    db.select("foo", {"bar": "hi"})[0].iv       # 1
+db.select("foo", bar="hi")[0].bar           # hi
+db.select("foo", {"bar": "hi"})[0].iv       # 1
 
-    db.count("foo", bar="hi")                   # 2
+db.count("foo", bar="hi")                   # 2
 
-    class Foo:
-        def __init__(self, bar=None, iv=None):
-            self.bar = bar
-            self.iv = iv
+class Foo:
+    def __init__(self, bar=None, iv=None):
+        self.bar = bar
+        self.iv = iv
 
-    # create a class during select
-    db.register_class("foo", Foo)
-    obj = db.select_one("foo", bar="hi")
-    print(obj.bar)                              # hi
+# create a class during select
+db.register_class("foo", Foo)
+obj = db.select_one("foo", bar="hi")
+print(obj.bar)                              # hi
+```
 
