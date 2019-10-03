@@ -15,6 +15,7 @@ setup(
     description='DB wrapper library',
     packages=['notanorm'],
     long_description=long_description(),
+    long_description_content_type="text/markdown",
     setup_requires=['wheel'],
     install_requires=[
         "mysqlclient",
