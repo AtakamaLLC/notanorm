@@ -1,5 +1,8 @@
 from .base import DbRow
-from .mysql import MySqlDb
+try:
+    from .mysql import MySqlDb
+except ImportError:
+    pass
 from .sqlite import SqliteDb
 
 __all__ = ["SqliteDb", "MySqlDb", "DbRow"]
