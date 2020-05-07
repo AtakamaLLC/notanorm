@@ -27,6 +27,8 @@ class SqliteDb(DbBase):
 
     def _connect(self, *args, **kws):
         kws["check_same_thread"] = False
+        if "isolation_level" not in kws:
+            kws["isolation_level"] = None
         conn = sqlite3.connect(*args, **kws)
         conn.row_factory = self._obj_factory
         return conn
