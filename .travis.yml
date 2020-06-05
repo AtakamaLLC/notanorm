@@ -1,0 +1,20 @@
+language: python
+cache: 
+  pip: True
+
+sudo: false
+
+jobs:
+    include:
+    - name: test
+      stage: test
+      script:
+        - ./ci-test.sh
+
+after_success:
+    - ./ci-cov.sh
+
+branches:
+    only:
+    - master
+    - /^v/

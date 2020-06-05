@@ -5,7 +5,7 @@ lint:
 	python -m flake8
 
 test:
-	pytest -v tests
+	pytest --cov notanorm -v tests
 
 publish:
 	rm -rf dist
