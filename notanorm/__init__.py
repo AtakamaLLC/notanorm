@@ -4,5 +4,6 @@ try:
 except ImportError:
     pass
 from .sqlite import SqliteDb
+from .base import DbBase
 
-__all__ = ["SqliteDb", "MySqlDb", "DbRow"]
+__all__ = ["SqliteDb", "MySqlDb", "DbRow", "DbBase"]

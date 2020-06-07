@@ -1,182 +1,198 @@
+# pylint: disable=missing-docstring, protected-access, unused-argument, too-few-public-methods, import-outside-toplevel
+
 import logging
 import sqlite3
-import unittest
+from multiprocessing.pool import ThreadPool
 
-from notanorm import SqliteDb, DbRow
+from typing import List
+
+import pytest
+
+from notanorm import SqliteDb, DbBase, DbRow
 
 log = logging.getLogger(__name__)
 
 
-class TestDb(unittest.TestCase):
-    def __fname(self):
-        return ":memory:"
+PYTEST_REG = False
 
-    def setUpClass():
-        log.setLevel(logging.DEBUG)
 
-    def tearDownClass():
-        log.setLevel(logging.INFO)
+@pytest.fixture
+def db_sqlite():
+    db = SqliteDb(":memory:")
+    yield db
+    db.close()
 
-    def test_db_basic(self):
-        fname = self.__fname()
 
-        db = SqliteDb(fname)
-        db.query("create table foo (bar)")
-        db.query("insert into foo (bar) values (?)", "hi")
+@pytest.fixture
+def db_mysql():
+    from notanorm import MySqlDb
+    db = MySqlDb(read_default_file="~/.my.cnf")
+    db.query("DROP DATABASE IF EXISTS test_db")
+    db.query("CREATE DATABASE test_db")
+    db.query("USE test_db")
 
-        self.assertEqual(db.query("select bar from foo")[0].bar, "hi")
+    yield db
 
-    def test_db_count(self):
-        fname = self.__fname()
+    db.query("DROP DATABASE test_db")
+    db.close()
 
-        db = SqliteDb(fname)
-        db.query("create table foo (bar)")
-        db.query("insert into foo (bar) values (?)", "hi")
 
-        self.assertEqual(db.count("foo"), 1)
-        self.assertEqual(db.count("foo", bar="hi"), 1)
-        self.assertEqual(db.count("foo", {"bar": "hi"}), 1)
-        self.assertEqual(db.count("foo", {"bar": "ho"}), 0)
+@pytest.fixture(name="db")
+def db_fixture(request, db_name):
+    yield request.getfixturevalue("db_" + db_name)
 
-    def test_db_select(self):
-        fname = self.__fname()
 
-        db = SqliteDb(fname)
-        db.query("create table foo (bar)")
-        db.query("insert into foo (bar) values (?)", "hi")
+def pytest_generate_tests(metafunc):
+    global PYTEST_REG               # pylint: disable=global-statement
+    if not PYTEST_REG:
+        if "db" in metafunc.fixturenames:
+            db_names = metafunc.config.getoption("db", [])
+            db_names = db_names or ["sqlite"]
+            for mark in metafunc.definition.own_markers:
+                if mark.name == "db":
+                    db_names = set(mark.args).intersection(set(db_names))
+                    break
+            db_names = sorted(db_names)         # xdist compat
+            metafunc.parametrize("db_name", db_names, scope="function")
 
-        self.assertEqual(db.select("foo", bar="hi")[0].bar, "hi")
-        self.assertEqual(db.select("foo", bar=None), [])
-        self.assertEqual(db.select("foo", {"bar": "hi"})[0].bar, "hi")
-        self.assertEqual(db.select("foo", {"bar": "ho"}), [])
 
-    def test_db_class(self):
-        fname = self.__fname()
+def test_db_basic(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+    assert db.query("select bar from foo")[0].bar == "hi"
 
-        db = SqliteDb(fname)
-        db.query("create table foo (bar)")
-        db.query("insert into foo (bar) values (?)", "hi")
 
-        class Foo:
-            def __init__(self, bar=None):
-                self.bar = bar
+def test_db_count(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
 
-        obj = db.select_one("foo", bar="hi", __class=Foo)
+    assert db.count("foo") == 1
+    assert db.count("foo", bar="hi") == 1
+    assert db.count("foo", {"bar": "hi"}) == 1
+    assert db.count("foo", {"bar": "ho"}) == 0
 
-        self.assertEqual(type(obj), Foo)
 
-        db.register_class("foo", Foo)
+def test_db_select(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
 
-        obj = db.select_one("foo", bar="hi")
+    assert db.select("foo", bar="hi")[0].bar == "hi"
+    assert db.select("foo", bar=None) == []
+    assert db.select("foo", {"bar": "hi"})[0].bar == "hi"
+    assert db.select("foo", {"bar": "ho"}) == []
 
-        self.assertEqual(obj.bar, "hi")
-        self.assertEqual(type(obj), Foo)
 
-    def test_db_select_in(self):
-        fname = self.__fname()
+def test_db_class(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
 
-        db = SqliteDb(fname)
-        db.query("create table foo (bar)")
-        db.query("insert into foo (bar) values (?)", "hi")
-        db.query("insert into foo (bar) values (?)", "ho")
+    class Foo:
+        def __init__(self, bar=None):
+            self.bar = bar
 
-        res = [DbRow({'bar': 'hi'}), DbRow({'bar': 'ho'})]
+    obj = db.select_one("foo", bar="hi", __class=Foo)
 
-        self.assertEqual(db.select("foo", ["bar"], {"bar": ["hi", "ho"]}), res)
+    assert type(obj) == Foo
 
-    def test_db_select_join(self):
-        fname = self.__fname()
+    db.register_class("foo", Foo)
 
-        db = SqliteDb(fname)
-        db.query("create table foo (col, d)")
-        db.query("create table baz (col, d)")
-        db.query("insert into foo (col, d) values (?, ?)", "hi", "foo")
-        db.query("insert into baz (col, d) values (?, ?)", "hi", "baz")
-        res = db.select("foo inner join baz on foo.col=baz.col", ["baz.d"], {"foo.col": "hi"})
-        self.assertEqual(res[0].d, "baz")
+    obj = db.select_one("foo", bar="hi")
 
-    def test_db_update_and_select(self):
-        fname = self.__fname()
+    assert obj.bar == "hi"
+    assert type(obj) == Foo
 
-        db = SqliteDb(fname)
 
-        db.query("create table foo (bar primary key, baz)")
-        db.insert("foo", bar="hi", baz="ho")
+def test_db_select_in(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="hi")
+    db.insert("foo", bar="ho")
 
-        self.assertEqual(db.select("foo", bar="hi")[0].bar, "hi")
+    res = [DbRow({'bar': 'hi'}), DbRow({'bar': 'ho'})]
 
-        # infers where clause from primary key
-        db.update("foo", bar="hi", baz="up")
+    assert db.select("foo", ["bar"], {"bar": ["hi", "ho"]}) == res
 
-        self.assertEqual(db.select("foo", bar="hi")[0].baz, "up")
 
-        # alternate interface where the first argument is a where clause dict
-        db.update("foo", {"bar": "hi"}, baz="up2")
+def test_db_select_join(db):
+    db.query("create table foo (col text, d text)")
+    db.query("create table baz (col text, d text)")
+    db.insert("foo", col="hi", d="foo")
+    db.insert("baz", col="hi", d="baz")
+    res = db.select("foo inner join baz on foo.col=baz.col", ["baz.d"], {"foo.col": "hi"})
+    assert res[0].d == "baz"
 
-        self.assertEqual(db.select("foo")[0].baz, "up2")
 
-        # alternate interface where the select is explicit
-        self.assertEqual(db.select("foo", ['baz'])[0].baz, "up2")
+def test_db_update_and_select(db):
+    db.query("create table foo (bar varchar(32) not null primary key, baz text)")
+    db.insert("foo", bar="hi", baz="ho")
 
-    def test_db_upsert(self):
-        fname = self.__fname()
+    assert db.select("foo", bar="hi")[0].bar == "hi"
 
-        db = SqliteDb(fname)
+    # infers where clause from primary key
+    db.update("foo", bar="hi", baz="up")
 
-        db.query("create table foo (bar primary key, baz)")
-        db.insert("foo", bar="hi", baz="ho")
+    assert db.select("foo", bar="hi")[0].baz == "up"
 
-        self.assertEqual(db.select("foo", bar="hi")[0].bar, "hi")
+    # alternate interface where the first argument is a where clause dict
+    db.update("foo", {"bar": "hi"}, baz="up2")
 
-        # updates
-        db.upsert("foo", bar="hi", baz="up")
+    assert db.select("foo")[0].baz == "up2"
 
-        self.assertEqual(db.select("foo", bar="hi")[0].baz, "up")
+    # alternate interface where the select is explicit
+    assert db.select("foo", ['baz'])[0].baz, "up2"
 
-        # inserts
-        db.upsert("foo", bar="lo", baz="down")
 
-        self.assertEqual(db.select("foo", bar="hi")[0].baz, "up")
-        self.assertEqual(db.select("foo", bar="lo")[0].baz, "down")
+def test_db_upsert(db):
+    db.query("create table foo (bar varchar(32) not null primary key, baz text)")
+    db.insert("foo", bar="hi", baz="ho")
 
-    def test_db_upsert_non_null(self):
-        db = SqliteDb(self.__fname())
+    assert db.select("foo", bar="hi")[0].bar == "hi"
 
-        db.query("create table foo (bar primary key, baz, bop)")
-        db.insert("foo", bar="hi", baz="ho", bop="keep")
+    # updates
+    db.upsert("foo", bar="hi", baz="up")
 
-        # updates baz... but not bop to none
-        db.upsert_non_null("foo", bar="hi", baz="up", bop=None)
+    assert db.select("foo", bar="hi")[0].baz == "up"
 
-        self.assertEqual(db.select_one("foo").baz, "up")
-        self.assertEqual(db.select_one("foo").bop, "keep")
+    # inserts
+    db.upsert("foo", bar="lo", baz="down")
 
-    def test_conn_retry(self):
-        db = SqliteDb(":memory:")
-        db.query("create table foo (x)")
-        db._DbBase__conn_p.close()
+    assert db.select("foo", bar="hi")[0].baz == "up"
+    assert db.select("foo", bar="lo")[0].baz == "down"
 
-        with self.assertRaises(sqlite3.ProgrammingError):
-            db.query("create table bar (x)")
 
-        db.retry_errors = (sqlite3.ProgrammingError, )
+def test_db_upsert_non_null(db):
+    db.query("create table foo (bar varchar(32) not null primary key, baz text, bop text)")
+    db.insert("foo", bar="hi", baz="ho", bop="keep")
+
+    # updates baz... but not bop to none
+    db.upsert_non_null("foo", bar="hi", baz="up", bop=None)
+
+    assert db.select_one("foo").baz == "up"
+    assert db.select_one("foo").bop == "keep"
+
+
+@pytest.mark.db("sqlite")
+def test_conn_retry(db):
+    db.query("create table foo (x)")
+    db._DbBase__conn_p.close()                  # pylint: disable=no-member
+
+    with pytest.raises(sqlite3.ProgrammingError):
         db.query("create table bar (x)")
 
-    def test_safedb_inmemorydb(self):
-        # test that in memory db's are relatively safe
+    db.retry_errors = (sqlite3.ProgrammingError, )
+    db.query("create table bar (x)")
 
-        db = SqliteDb(":memory:")
 
-        db.query("create table foo (bar primary key)")
-        db.query("insert into foo (bar) values (?)", 0)
+@pytest.mark.db("sqlite")
+def test_safedb_inmemorydb(db):
+    # test that in memory db's are relatively safe
+    db.query("create table foo (bar primary key)")
+    db.query("insert into foo (bar) values (?)", 0)
 
-        from multiprocessing.pool import ThreadPool
+    def updater(_i):
+        db.query("update foo set bar = bar + ?", 1)
 
-        def updater(i):
-            db.query("update foo set bar = bar + ?", 1)
+    pool = ThreadPool(processes=100)
 
-        pool = ThreadPool(processes=100)
+    pool.map(updater, range(100))
 
-        pool.map(updater, range(100))
-
-        self.assertEqual(db.query("select bar from foo")[0].bar, 100)
+    assert db.query("select bar from foo")[0].bar == 100
