@@ -7,6 +7,9 @@ lint:
 test:
 	pytest --cov notanorm -v tests
 
+test-all:
+	pytest --cov notanorm -v tests --db mysql --db sqlite
+
 publish:
 	rm -rf dist
 	python3 setup.py bdist_wheel
