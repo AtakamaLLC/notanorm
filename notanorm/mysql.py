@@ -1,9 +1,12 @@
+from collections import defaultdict
+
 import MySQLdb
 import MySQLdb.cursors
 
 from .base import DbBase
-from .model import DbType, DbModel, DbTable, DbCol
+from .model import DbType, DbModel, DbTable, DbCol, DbIndex
 from . import errors as err
+import re
 
 import logging as log
 # driver for mysql
@@ -15,20 +18,20 @@ class MySqlDb(DbBase):
     @staticmethod
     def translate_error(exp):
         try:
-            err_code = exp[0]
-        except TypeError:
+            err_code = exp.args[0]
+        except (TypeError, AttributeError):  # pragma: no cover
             err_code = 0
 
         msg = str(exp)
 
         if isinstance(exp, MySQLdb.OperationalError):
             if err_code in (1075, 1212, 1239, 1293):
-                return exp.SchemaError(msg)
+                return err.SchemaError(msg)
             return err.DbConnectionError(msg)
         if isinstance(exp, MySQLdb.IntegrityError):
             return err.IntegrityError(msg)
 
-        return err
+        return exp
 
     def _connect(self, *args, **kws):
         conn = MySQLdb.connect(*args, **kws)
@@ -46,7 +49,7 @@ class MySqlDb(DbBase):
         info = self.query("SHOW KEYS FROM " + table + " WHERE Key_name = 'PRIMARY'")
         prim = set()
         for x in info:
-            prim.add(x.Column_name)
+            prim.add(x.column_name)
         return prim
 
     _type_map = {
@@ -61,6 +64,11 @@ class MySqlDb(DbBase):
 
     def create_table(self, name, schema):
         coldefs = []
+        primary_fields = []
+        for idx in schema.indexes:
+            if idx.primary:
+                primary_fields = idx.fields
+
         for col in schema.columns:
             coldef = "`" + col.name + "`"
             if col.size and col.typ == DbType.TEXT:
@@ -73,13 +81,17 @@ class MySqlDb(DbBase):
                 typ = self._type_map[col.typ]
 
             if not typ:
-                raise err.DbSchemaError("mysql doesn't supprt ANY type")
+                raise err.SchemaError("mysql doesn't supprt ANY type")
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
+            if [col.name] == primary_fields:
+                coldef += " primary key"
             if col.default:
                 coldef += " default(" + col.default + ")"
             if col.autoinc:
+                if [col.name] != primary_fields:
+                    raise err.SchemaError("auto increment only works on primary key")
                 coldef += " auto_increment"
             coldefs.append(coldef)
         create = "create table " + name + "("
@@ -92,15 +104,44 @@ class MySqlDb(DbBase):
         tabs = self.query("show tables")
         ret = DbModel()
         for tab in tabs:
-            ret[tab] = self.table_model(tab)
+            ret[tab[0]] = self.table_model(tab[0])
+        return ret
 
     def table_model(self, tab):
-        res = self.query("describe table " + tab)
+        res = self.query("describe `" + tab + "`")
         cols = []
         for col in res:
             cols.append(self.column_model(col))
-        return DbTable(columns=tuple(cols))
+        res = self.query("show index from  `" + tab + "`")
+
+        idxmap = defaultdict(lambda: [])
+        for idxinfo in res:
+            idxmap[idxinfo["key_name"]].append(idxinfo["column_name"])
+
+        indexes = []
+        for name, fds in idxmap.items():
+            indexes.append(DbIndex(fds, primary=(name == "PRIMARY")))
+
+        return DbTable(columns=tuple(cols), indexes=tuple(indexes))
 
     def column_model(self, info):
-        typ = self._type_map_inverse[info.type]
-        return DbCol(info.name, typ)
+        if info.type == "int(11)":
+            info.type = "integer"
+        fixed = False
+        size = 0
+        match = re.match(r"(varchar|char)\((\d+)\)", info.type)
+
+        if match:
+            typ = DbType.TEXT
+            fixed = match[1] == 'char'
+            size = int(match[2])
+        else:
+            typ = self._type_map_inverse[info.type]
+
+        ret = DbCol(info.field, typ,
+                    fixed=fixed,
+                    size=size,
+                    notnull=info.null == "NO", default=info.default,
+                    autoinc=info.extra == "auto_increment")
+
+        return ret

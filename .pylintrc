@@ -1,3 +1,3 @@
 [FORMAT]
 max-line-length=120
-good-names=db, log
+good-names=db, log, ex

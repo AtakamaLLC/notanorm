@@ -19,12 +19,15 @@ class SqliteDb(DbBase):
             return err.DbConnectionError(msg)
         if isinstance(exp, sqlite3.IntegrityError):
             return err.IntegrityError(msg)
-        return err
+        if isinstance(exp, sqlite3.ProgrammingError):
+            if "closed database" in str(exp):
+                return err.DbConnectionError(msg)
+        return exp
 
     def __init__(self, *args, **kws):
         if args[0] == ":memory:":
             # never try to reconnect to memory dbs!
-            self.retry_errors = ()
+            self.max_reconnect_attempts = 1
         super().__init__(*args, **kws)
 
     def __columns(self, table):
@@ -120,6 +123,32 @@ class SqliteDb(DbBase):
     }
     _type_map_inverse = {v: k for k, v in _type_map.items()}
 
+    @classmethod
+    def _column_def(cls, col: DbCol, single_primary: str):
+        coldef = col.name
+        typ = cls._type_map[col.typ]
+        if col.size and col.typ == DbType.TEXT:
+            if col.fixed:
+                typ = "character"
+            else:
+                typ = "varchar"
+            typ += '(%s)' % col.size
+
+        if typ:
+            coldef += " " + typ
+        if col.notnull:
+            coldef += " not null"
+        if col.default:
+            coldef += " default(" + col.default + ")"
+        if single_primary.lower() == col.name.lower():
+            coldef += " primary key"
+        if col.autoinc:
+            if single_primary.lower() == col.name.lower():
+                coldef += " autoincrement"
+            else:
+                raise err.SchemaError("sqlite only supports autoincrement on integer primary keys")
+        return coldef
+
     def create_table(self, name, schema):
         coldefs = []
         single_primary = None
@@ -128,29 +157,7 @@ class SqliteDb(DbBase):
                 single_primary = idx.fields[0] if len(idx.fields) == 1 else None
 
         for col in schema.columns:
-            coldef = col.name
-            typ = self._type_map[col.typ]
-            if col.size and col.typ == DbType.TEXT:
-                if col.fixed:
-                    typ = "character"
-                else:
-                    typ = "varchar"
-                typ += '(%s)' % col.size
-
-            if typ:
-                coldef += " " + typ
-            if col.notnull:
-                coldef += " not null"
-            if col.default:
-                coldef += " default(" + col.default + ")"
-            if single_primary.lower() == col.name.lower():
-                coldef += " primary key"
-            if col.autoinc:
-                if single_primary.lower() == col.name.lower():
-                    coldef += " autoincrement"
-                else:
-                    raise err.DbSchemaError("sqlite only supports autoincrement on integer primary keys")
-            coldefs.append(coldef)
+            coldefs.append(self._column_def(col, single_primary))
         for idx in schema.indexes:
             if idx.primary and not single_primary:
                 coldef = "primary key (" + ",".join(idx.fields) + ")"

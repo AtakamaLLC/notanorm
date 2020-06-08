@@ -1,4 +1,4 @@
-class DbError(Exception):
+class DbError(RuntimeError):
     pass
 
 
@@ -23,4 +23,8 @@ class IntegrityError(DbError):
 
 
 class DbConnectionError(DbError, ConnectionError):
+    pass
+
+
+class ProgrammingError(DbError):
     pass
