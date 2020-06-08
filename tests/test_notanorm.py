@@ -8,7 +8,7 @@ from typing import List
 
 import pytest
 
-from notanorm import SqliteDb, DbBase, DbRow
+from notanorm import SqliteDb, DbBase, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +168,25 @@ def test_db_upsert_non_null(db):
 
     assert db.select_one("foo").baz == "up"
     assert db.select_one("foo").bop == "keep"
+
+
+def test_model(db):
+    model = DbModel({
+        "foo": DbTable(columns=(
+            DbCol("auto", typ=DbType.INTEGER, autoinc=True),
+            DbCol("blob", typ=DbType.BLOB),
+            DbCol("tex", typ=DbType.TEXT),
+            DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
+            DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+            DbCol("flt", typ=DbType.FLOAT),
+            DbCol("dbl", typ=DbType.DOUBLE),
+        ), indexes=tuple([
+            DbIndex(fields=["auto"], primary=True)
+        ]))
+    })
+    db.create_model(model)
+    check = db.model()
+    assert check == model
 
 
 @pytest.mark.db("sqlite")

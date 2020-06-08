@@ -7,6 +7,8 @@ import time
 import threading
 
 from abc import ABC, abstractmethod
+from .model import DbModel, DbTable
+from . import errors as err
 
 import logging
 
@@ -22,10 +24,12 @@ def is_list(obj):
             isinstance(obj, set))
 
 
-class DbRow():
+class DbRow(dict):
+    __vals = None
+
     def __init__(self, dct={}):
-        for k in dct.keys():
-            setattr(self, k, dct[k])
+        super().__init__(dct)
+        self.__vals = list(dct.values())
 
     def __repr__(self):
         return "DbRow(" + str(self.__dict__) + ")"
@@ -33,16 +37,23 @@ class DbRow():
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 
-    def __getitem__(self, key):
-        return self.__dict__[key]
+    def __getattr__(self, key):
+        return self[key]
 
-    def __setitem__(self, key, value):
-        self.__dict__[key] = value
+    def __setattr__(self, key, val):
+        if key in self:
+            self[key] = val
+        else:
+            super().__setattr__(key, val)
+
+    def __getitem__(self, key):
+        if type(key) is int:                # pylint: disable=unidiomatic-typecheck
+            return self.__vals[key]
+        return super().__getitem__(key)
 
 
 class DbBase(ABC):
     placeholder = '?'
-    retry_errors = ()
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
@@ -66,8 +77,11 @@ class DbBase(ABC):
     def _connect(self):
         pass
 
-    # can override
+    @staticmethod
+    def translate_error(exp):
+        return exp
 
+    # can override
     def _cursor(self, conn):
         return conn.cursor()
 
@@ -78,25 +92,35 @@ class DbBase(ABC):
                 raise ValueError("No connection returned by _connect for %s" % type(self))
         return self.__conn_p
 
+    def model(self) -> DbModel:
+        raise NotImplementedError("Generic models not supported")
+
+    def create_model(self, model: DbModel):
+        for name, schema in model.items():
+            self.create_table(name, schema)
+
+    def create_table(self, name, schema: DbTable):
+        raise NotImplementedError("Generic models not supported")
+
     def execute(self, sql, parameters=()):
-        try:
-            with self.__lock:
-                backoff = self.reconnect_backoff_start
-                for i in range(self.max_reconnect_attempts):
-                    try:
-                        cursor = self._cursor(self._conn())
-                        cursor.execute(sql, parameters)
-                        break
-                    except self.retry_errors:
+        with self.__lock:
+            backoff = self.reconnect_backoff_start
+            for tries in range(self.max_reconnect_attempts):
+                try:
+                    cursor = self._cursor(self._conn())
+                    cursor.execute(sql, parameters)
+                    break
+                except Exception as e:                  # pylint: disable=broad-except
+                    exp = self.translate_error(e)
+                    if isinstance(exp, ConnectionError):
                         self.__conn_p = None
-                        if i == self.max_reconnect_attempts - 1:
+                        if tries == self.max_reconnect_attempts - 1:
                             raise
                         time.sleep(backoff)
                         backoff *= self.reconnect_backoff_factor
-            return cursor
-        except self.retry_errors as e:
-            # convert annoying connection errors to an easily caught ConnectionError
-            raise ConnectionError(str(e))
+                    else:
+                        raise exp
+        return cursor
 
     def close(self):
         with self.__lock:
@@ -137,6 +161,7 @@ class DbBase(ABC):
                 fetch = self.execute(sql, tuple(args))
                 rows = fetch.fetchall()
             except Exception as e:
+                print("HERE!!!!!!!", repr(e))
                 debug_str = "SQL: " + sql + ", ARGS" + str(args)
                 raise type(e)(str(e) + ", " + debug_str)
             finally:
@@ -144,10 +169,10 @@ class DbBase(ABC):
                     fetch.close()
 
         for row in rows:
-            if not isinstance(row, DbRow):
-                row = DbRow(row)
             if factory:
-                row = factory(**row.__dict__)
+                row = factory(**row)
+            else:
+                row = DbRow(row)
             ret.append(row)
 
         ret.rowcount = fetch.rowcount
