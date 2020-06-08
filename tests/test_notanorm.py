@@ -4,11 +4,10 @@ import logging
 import sqlite3
 from multiprocessing.pool import ThreadPool
 
-from typing import List
-
 import pytest
 
-from notanorm import SqliteDb, DbBase, DbRow
+from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex
+from notanorm import errors as err
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +29,8 @@ def db_mysql():
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
+
+    db = MySqlDb(read_default_file="~/.my.cnf", db="test_db")
 
     yield db
 
@@ -80,6 +81,14 @@ def test_db_select(db):
     assert db.select("foo", bar=None) == []
     assert db.select("foo", {"bar": "hi"})[0].bar == "hi"
     assert db.select("foo", {"bar": "ho"}) == []
+
+
+def test_db_row_obj__dict__(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+
+    assert db.select_one("foo").__dict__ == {"bar": "hi"}
+    assert db.select_one("foo")._asdict() == {"bar": "hi"}
 
 
 def test_db_class(db):
@@ -170,16 +179,30 @@ def test_db_upsert_non_null(db):
     assert db.select_one("foo").bop == "keep"
 
 
-@pytest.mark.db("sqlite")
+def test_model(db):
+    model = DbModel({
+        "foo": DbTable(columns=(
+            DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+            DbCol("blob", typ=DbType.BLOB),
+            DbCol("tex", typ=DbType.TEXT, notnull=True),
+            DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
+            DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+            DbCol("flt", typ=DbType.FLOAT),
+            DbCol("dbl", typ=DbType.DOUBLE),
+        ), indexes=tuple([
+            DbIndex(fields=["auto"], primary=True)
+        ]))
+    })
+    db.create_model(model)
+    check = db.model()
+    assert check == model
+
+
 def test_conn_retry(db):
-    db.query("create table foo (x)")
+    db.query("create table foo (x integer)")
     db._DbBase__conn_p.close()                  # pylint: disable=no-member
-
-    with pytest.raises(sqlite3.ProgrammingError):
-        db.query("create table bar (x)")
-
-    db.retry_errors = (sqlite3.ProgrammingError, )
-    db.query("create table bar (x)")
+    db.max_reconnect_attempts = 2
+    db.query("create table bar (x integer)")
 
 
 @pytest.mark.db("sqlite")

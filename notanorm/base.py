@@ -5,47 +5,74 @@ NOTE: Make sure to close the db handle when you are done.
 
 import time
 import threading
+import logging
 
 from abc import ABC, abstractmethod
 
-import logging
+from .model import DbModel, DbTable
+from . import errors as err
+
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
 
 
 def is_list(obj):
-    # be explicit instead of duck typing
-    # otherwise we wind up failing on strings, bytes, and others
-    return (isinstance(obj, list) or
-            isinstance(obj, tuple) or
-            isinstance(obj, set))
+    """Determine if object is list-like, as opposed to string or bytes-like."""
+    return isinstance(obj, (list, set, tuple))
 
 
-class DbRow():
-    def __init__(self, dct={}):
-        for k in dct.keys():
-            setattr(self, k, dct[k])
+def del_all(mapping, to_remove):
+    """Remove list of elements from mapping."""
+    for key in to_remove:
+        del mapping[key]
+
+
+class DbRow(dict):
+    """Default row factory: elements accessible via string or int keys."""
+    __vals = None
+
+    def __init__(self, dct={}):             # pylint: disable=dangerous-default-value
+        self.__dict__ = dct.copy()
+        super().__init__({k.lower(): v for k, v in dct.items()})
 
     def __repr__(self):
-        return "DbRow(" + str(self.__dict__) + ")"
+        return "DbRow(" + super().__repr__() + ")"
 
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 
+    def __getattr__(self, key):
+        return self[key.lower()]
+
+    def __setattr__(self, key, val):
+        if key in self:
+            self[key] = val
+            self.__dict__[key] = val
+        else:
+            super().__setattr__(key, val)
+
     def __getitem__(self, key):
-        return self.__dict__[key]
+        if type(key) is int:                # pylint: disable=unidiomatic-typecheck
+            return self._aslist()[key]
+        return super().__getitem__(key)
 
-    def __setitem__(self, key, value):
-        self.__dict__[key] = value
+    def _asdict(self):
+        return dict(self)
+
+    def _aslist(self):
+        if not self.__vals:
+            self.__vals = list(self.__dict__.values())
+        return self.__vals
 
 
-class DbBase(ABC):
+class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
+    """Abstract base class for database connections."""
     placeholder = '?'
-    retry_errors = ()
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
+    debug_sql = None
+    debug_args = None
 
     def __init__(self, *args, **kws):
         self.__conn_p = None
@@ -66,8 +93,11 @@ class DbBase(ABC):
     def _connect(self):
         pass
 
-    # can override
+    @staticmethod
+    def translate_error(exp):
+        return exp
 
+    # can override
     def _cursor(self, conn):
         return conn.cursor()
 
@@ -78,25 +108,37 @@ class DbBase(ABC):
                 raise ValueError("No connection returned by _connect for %s" % type(self))
         return self.__conn_p
 
+    def model(self) -> DbModel:
+        raise NotImplementedError("Generic models not supported")
+
+    def create_model(self, model: DbModel):
+        for name, schema in model.items():
+            self.create_table(name, schema)
+
+    def create_table(self, name, schema: DbTable):
+        raise NotImplementedError("Generic models not supported")
+
     def execute(self, sql, parameters=()):
-        try:
-            with self.__lock:
-                backoff = self.reconnect_backoff_start
-                for i in range(self.max_reconnect_attempts):
-                    try:
-                        cursor = self._cursor(self._conn())
-                        cursor.execute(sql, parameters)
-                        break
-                    except self.retry_errors:
+        with self.__lock:
+            backoff = self.reconnect_backoff_start
+            for tries in range(self.max_reconnect_attempts):
+                try:
+                    cursor = self._cursor(self._conn())
+                    cursor.execute(sql, parameters)
+                    break
+                except Exception as exp:                  # pylint: disable=broad-except
+                    was = exp
+                    exp = self.translate_error(exp)
+                    log.debug("exception %s -> %s", repr(was), repr(exp))
+                    if isinstance(exp, err.DbConnectionError):
                         self.__conn_p = None
-                        if i == self.max_reconnect_attempts - 1:
+                        if tries == self.max_reconnect_attempts - 1:
                             raise
                         time.sleep(backoff)
                         backoff *= self.reconnect_backoff_factor
-            return cursor
-        except self.retry_errors as e:
-            # convert annoying connection errors to an easily caught ConnectionError
-            raise ConnectionError(str(e))
+                    else:
+                        raise exp
+        return cursor
 
     def close(self):
         with self.__lock:
@@ -111,7 +153,8 @@ class DbBase(ABC):
         return field in self.__primary_cache[table]
 
     class RetList(list):
-        pass
+        rowcount = None
+        lastrowid = None
 
     def register_class(self, table, cls):
         "Class will be used instead of Row object.  Must accept kw args for every table col"
@@ -126,7 +169,7 @@ class DbBase(ABC):
         # for debugging....
         self.debug_sql = sql + ";"
         self.debug_args = args
-        log.debug("SQL: " + sql + ", ARGS" + str(args))
+        log.debug("SQL: %s, ARGS%s", sql, str(args))
 
         fetch = None
 
@@ -136,18 +179,19 @@ class DbBase(ABC):
             try:
                 fetch = self.execute(sql, tuple(args))
                 rows = fetch.fetchall()
-            except Exception as e:
+            except Exception as ex:
                 debug_str = "SQL: " + sql + ", ARGS" + str(args)
-                raise type(e)(str(e) + ", " + debug_str)
+                log.debug("sql error %s", repr(ex))
+                raise type(ex)(str(ex) + ", " + debug_str) from ex
             finally:
                 if fetch:
                     fetch.close()
 
         for row in rows:
-            if not isinstance(row, DbRow):
-                row = DbRow(row)
             if factory:
-                row = factory(**row.__dict__)
+                row = factory(**row)
+            else:
+                row = DbRow(row)
             ret.append(row)
 
         ret.rowcount = fetch.rowcount
@@ -181,29 +225,29 @@ class DbBase(ABC):
         if not where:
             return "", ()
 
-        noneKeys = [key for key, val in where.items() if val is None]
+        none_keys = [key for key, val in where.items() if val is None]
         listKeys = [(key, val) for key, val in where.items() if is_list(val)]
 
-        [where.pop(k) for k in noneKeys]
-        [where.pop(k[0]) for k in listKeys]
+        del_all(where, none_keys)
+        del_all(where, (k[0] for k in listKeys))
 
         sql = " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where.keys()])
 
-        if noneKeys:
+        if none_keys:
             if sql:
                 sql += " and "
-            sql += " and ".join([self.quote_keys(key) + " is NULL" for key in noneKeys])
+            sql += " and ".join([self.quote_keys(key) + " is NULL" for key in none_keys])
 
         vals = where.values()
         if listKeys:
             vals = list(vals)
-            for k, lst in listKeys:
+            for key, lst in listKeys:
                 placeholders = ",".join([self.placeholder] * len(lst))
                 if sql:
                     sql += " and "
-                sql += self.quote_keys(k) + " in (" + placeholders + ")"
-                for v in lst:
-                    vals.append(v)
+                sql += self.quote_keys(key) + " in (" + placeholders + ")"
+                for val in lst:
+                    vals.append(val)
         return " where " + sql, vals
 
     def select(self, table, fields=None, dict_where=None, **where):
@@ -259,7 +303,6 @@ class DbBase(ABC):
         return self.query(sql, *vals)[0]["k"]
 
     def delete(self, table, **where):
-
         sql = "delete "
         sql += " from " + table
 
@@ -280,16 +323,16 @@ class DbBase(ABC):
         if not where:
             where = {}
 
-            for k in vals.keys():
-                if self.__is_primary(table, k):
-                    where[k] = vals[k]
+            for key in vals.keys():
+                if self.__is_primary(table, key):
+                    where[key] = vals[key]
 
-            for k in where.keys():
-                del vals[k]
+            for key in where:
+                del vals[key]
 
             if not where:
-                log.debug(f"PRIMARY CACHE: {self.__primary_cache}")
-                raise Exception("Unable to determine update key for table " + table)
+                log.debug("PRIMARY CACHE: %s", self.__primary_cache)
+                raise Exception("Unable to determine update key for table %s" % table)
 
         return where
 
@@ -301,15 +344,15 @@ class DbBase(ABC):
 
         sql = "update " + table + " set "
 
-        noneKeys = [key for key, val in where.items() if val is None]
-        [where.pop(k) for k in noneKeys]
+        none_keys = [key for key, val in where.items() if val is None]
+        del_all(where, none_keys)
 
-        sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals.keys()])
+        sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         sql += " where "
-        sql += " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where.keys()])
-        if where and noneKeys:
+        sql += " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where])
+        if where and none_keys:
             sql += " and "
-        sql += " and ".join([self.quote_keys(key) + " is NULL" for key in noneKeys])
+        sql += " and ".join([self.quote_keys(key) + " is NULL" for key in none_keys])
 
         vals = list(vals.values()) + list(where.values())
 
@@ -317,7 +360,7 @@ class DbBase(ABC):
 
     def update_all(self, table, **vals):
         sql = "update " + table + " set "
-        sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals.keys()])
+        sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         return self.query(sql, *vals.values())
 
     def upsert_all(self, table, **vals):
@@ -353,7 +396,7 @@ class DbBase(ABC):
 
     def select_one(self, table, fields=None, **where):
         ret = self.select(table, fields, **where)
-        assert(len(ret) <= 1)
+        assert len(ret) <= 1
         if ret:
             return ret[0]
         return None
