@@ -1,5 +1,5 @@
 pytest==5.4.3
 coverage>=5
-pytest-cov
+pytest-cov==2.10.0
 flake8
 mysqlclient
