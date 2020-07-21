@@ -1,4 +1,4 @@
-pytest
+pytest==5.4.3
 coverage>=5
 pytest-cov
 flake8
