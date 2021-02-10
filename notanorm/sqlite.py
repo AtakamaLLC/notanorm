@@ -16,6 +16,8 @@ class SqliteDb(DbBase):
     def translate_error(exp):
         msg = str(exp)
         if isinstance(exp, sqlite3.OperationalError):
+            if "no such table" in str(exp):
+                return err.TableNotFoundError(msg)
             return err.DbConnectionError(msg)
         if isinstance(exp, sqlite3.IntegrityError):
             return err.IntegrityError(msg)
