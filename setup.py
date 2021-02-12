@@ -11,13 +11,25 @@ def long_description():
 
 setup(
     name='notanorm',
-    version='1.0.4',
+    version='1.1.0',
     description='DB wrapper library',
     packages=['notanorm'],
+    url="https://github.com/AtakamaLLC/notanorm",
     long_description=long_description(),
     long_description_content_type="text/markdown",
     setup_requires=['wheel'],
     install_requires=[
         "mysqlclient",
-    ]
+    ],
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: MIT License',
+        'Operating System :: MacOS',
+        'Operating System :: Microsoft :: Windows',
+        'Operating System :: POSIX',
+        'Programming Language :: Python :: 3',
+        'Topic :: Software Development',
+        'Topic :: Utilities',
+        ],
 )
