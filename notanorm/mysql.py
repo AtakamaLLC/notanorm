@@ -16,7 +16,7 @@ class MySqlDb(DbBase):
     placeholder = "%s"
 
     def _begin(self, conn):
-        conn.autocommit = False
+        conn.cursor().execute("START TRANSACTION")
 
     @staticmethod
     def translate_error(exp):

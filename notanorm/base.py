@@ -231,7 +231,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         with self.r_lock:
             try:
                 fetch = self.execute(sql, tuple(args))
-                rows = fetch.fetchall()
+                rows = fetch.fetchall() if fetch else []
             except Exception as ex:
                 debug_str = "SQL: " + sql + ", ARGS" + str(args)
                 log.debug("sql error %s", repr(ex))

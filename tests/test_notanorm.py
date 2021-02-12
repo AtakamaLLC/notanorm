@@ -257,7 +257,7 @@ def _test_upsert_i(db_name, i, db_conn, mod):
 
 def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
     db = db_notmem
-    db.query("create table foo (bar integer primary key, baz, cnt default 0)")
+    db.query("create table foo (bar integer primary key, baz integer, cnt integer default 0)")
 
     num = 22
     ts = []
@@ -279,9 +279,12 @@ def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
         ent = db.select_one("foo", bar=i)
         assert ent.cnt == int(num / mod) + (i < num % mod)
 
+# for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
+# todo: maybe using the native "connector" would enable fixing this
+@pytest.mark.db("sqlite")
 def test_upsert_threaded_multidb(db_notmem, db_name):
     db = db_notmem
-    db.query("create table foo (bar primary key, baz, cnt default 0)")
+    db.query("create table foo (bar integer primary key, baz integer, cnt integer default 0)")
 
     num = 22
     ts = []
@@ -314,7 +317,7 @@ def test_transactions_any_exc(db):
     class TestExc(Exception):
         pass
 
-    db.query("CREATE table foo (bar primary key)")
+    db.query("CREATE table foo (bar integer primary key)")
     db.insert("foo", bar=5)
     with pytest.raises(TestExc):
         with db.transaction() as db:
@@ -328,7 +331,7 @@ def test_transactions_deadlock(db):
             for i in range(50, 100):
                 db.insert("foo", bar=i)
 
-    db.query("CREATE table foo (bar primary key)")
+    db.query("CREATE table foo (bar integer primary key)")
 
     thread = threading.Thread(target=trans_thread, args=(db,), daemon=True)
     thread.start()
@@ -336,11 +339,15 @@ def test_transactions_deadlock(db):
         db.insert("foo", bar=i)
     thread.join()
 
+
+# for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
+# todo: maybe using the native "connector" would enable fixing this
+@pytest.mark.db("sqlite")
 def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
     db1 = db_notmem
     db2 = get_db(db_name, db1.connection_args)
 
-    db1.max_reconnect_attempts = 0
+    db1.max_reconnect_attempts = 1
 
     with db2.transaction():
         with pytest.raises(sqlite3.OperationalError, match=r".*database.*is locked"):
