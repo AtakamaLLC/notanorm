@@ -99,7 +99,6 @@ class SqliteDb(DbBase):
                 typ = cls._type_map_inverse[info.type]
             except KeyError:
                 typ = DbType.ANY
-        print("info: ", info, typ)
 
         return DbCol(name=info.name, typ=typ, notnull=bool(info.notnull),
                      default=info.dflt_value, autoinc=info.autoinc,
