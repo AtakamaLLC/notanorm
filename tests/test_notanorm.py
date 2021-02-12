@@ -1,13 +1,14 @@
 # pylint: disable=missing-docstring, protected-access, unused-argument, too-few-public-methods, import-outside-toplevel
 
 import logging
+import multiprocessing
 import sqlite3
+import threading
 from multiprocessing.pool import ThreadPool
 
 import pytest
 
-from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex
-from notanorm import errors as err
+from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 
 log = logging.getLogger(__name__)
 
@@ -21,32 +22,47 @@ def db_sqlite():
     yield db
     db.close()
 
-
 @pytest.fixture
-def db_mysql():
+def db_sqlite_notmem(tmp_path):
+    db = SqliteDb(str(tmp_path / "db"), timeout=1)
+    yield db
+    db.close()
+
+def get_mysql_db():
     from notanorm import MySqlDb
     db = MySqlDb(read_default_file="~/.my.cnf")
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
 
-    db = MySqlDb(read_default_file="~/.my.cnf", db="test_db")
+    return MySqlDb(read_default_file="~/.my.cnf", db="test_db")
 
-    yield db
-
+def cleanup_mysql_db(db):
     db.query("DROP DATABASE test_db")
     db.close()
 
+@pytest.fixture
+def db_mysql():
+    db = get_mysql_db()
+    yield db
+    cleanup_mysql_db(db)
+
+@pytest.fixture
+def db_mysql_notmem(db_mysql):
+    yield db_mysql
 
 @pytest.fixture(name="db")
 def db_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name)
 
+@pytest.fixture(name="db_notmem")
+def db_notmem_fixture(request, db_name):
+    yield request.getfixturevalue("db_" + db_name + "_notmem")
 
 def pytest_generate_tests(metafunc):
     global PYTEST_REG               # pylint: disable=global-statement
     if not PYTEST_REG:
-        if "db" in metafunc.fixturenames:
+        if any(db in metafunc.fixturenames for db in ("db", "db_notmem")):
             db_names = metafunc.config.getoption("db", [])
             db_names = db_names or ["sqlite"]
             for mark in metafunc.definition.own_markers:
@@ -190,7 +206,7 @@ def test_model(db):
             DbCol("flt", typ=DbType.FLOAT),
             DbCol("dbl", typ=DbType.DOUBLE),
         ), indexes=tuple([
-            DbIndex(fields=["auto"], primary=True)
+            DbIndex(fields=("auto", ), primary=True)
         ]))
     })
     db.create_model(model)
@@ -219,3 +235,114 @@ def test_safedb_inmemorydb(db):
     pool.map(updater, range(100))
 
     assert db.query("select bar from foo")[0].bar == 100
+
+def get_db(db_name, db_conn):
+    if db_name == "sqlite":
+        return SqliteDb(*db_conn[0], **db_conn[1])
+    else:
+        from notanorm import MySqlDb
+        return MySqlDb(*db_conn[0], **db_conn[1])
+
+def cleanup_db(db):
+    if db.__class__.__name__ == "MySqlDb":
+        cleanup_mysql_db(db)
+
+def _test_upsert_i(db_name, i, db_conn, mod):
+    db = get_db(db_name, db_conn)
+
+    with db.transaction() as db:
+        db.upsert("foo", bar=i % mod, baz=i)
+        row = db.select_one("foo", bar=i % mod)
+        db.update("foo", bar=i % mod, cnt=row.cnt + 1)
+
+def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
+    db = db_notmem
+    db.query("create table foo (bar integer primary key, baz, cnt default 0)")
+
+    num = 22
+    ts = []
+    mod = 5
+
+    for i in range(0, num):
+        currt = multiprocessing.Process(target=_test_upsert_i, args=(db_name, i, db.connection_args, mod), daemon=True)
+        ts.append(currt)
+
+    for t in ts:
+        t.start()
+
+    for t in ts:
+        t.join()
+
+    log.debug(db.select("foo"))
+    assert len(db.select("foo")) == mod
+    for i in range(mod):
+        ent = db.select_one("foo", bar=i)
+        assert ent.cnt == int(num / mod) + (i < num % mod)
+
+def test_upsert_threaded_multidb(db_notmem, db_name):
+    db = db_notmem
+    db.query("create table foo (bar primary key, baz, cnt default 0)")
+
+    num = 22
+    ts = []
+    mod = 5
+
+    def _upsert_i(i, db_name, db_conn, mod):
+        with get_db(db_name, db_conn) as db:
+            db.upsert("foo", bar=i % mod, baz=i)
+            with db.transaction():
+                row = db.select_one("foo", bar=i % mod)
+                db.update("foo", bar=i % mod, cnt=row.cnt + 1)
+
+    for i in range(0, num):
+        currt = threading.Thread(target=_upsert_i, args=(i, db_name, db.connection_args, mod), daemon=True)
+        ts.append(currt)
+
+    for t in ts:
+        t.start()
+
+    for t in ts:
+        t.join()
+
+    log.debug(db.select("foo"))
+    assert len(db.select("foo")) == mod
+    for i in range(mod):
+        ent = db.select_one("foo", bar=i)
+        assert ent.cnt == int(num / mod) + (i < num % mod)
+
+def test_transactions_any_exc(db):
+    class TestExc(Exception):
+        pass
+
+    db.query("CREATE table foo (bar primary key)")
+    db.insert("foo", bar=5)
+    with pytest.raises(TestExc):
+        with db.transaction() as db:
+            db.delete_all("foo")
+            raise TestExc()
+    assert db.select("foo")[0].bar == 5
+
+def test_transactions_deadlock(db):
+    def trans_thread(orig_db):
+        with orig_db.transaction() as db:
+            for i in range(50, 100):
+                db.insert("foo", bar=i)
+
+    db.query("CREATE table foo (bar primary key)")
+
+    thread = threading.Thread(target=trans_thread, args=(db,), daemon=True)
+    thread.start()
+    for i in range(50):
+        db.insert("foo", bar=i)
+    thread.join()
+
+def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
+    db1 = db_notmem
+    db2 = get_db(db_name, db1.connection_args)
+
+    db1.max_reconnect_attempts = 0
+
+    with db2.transaction():
+        with pytest.raises(sqlite3.OperationalError, match=r".*database.*is locked"):
+            with db1.transaction():
+                pass

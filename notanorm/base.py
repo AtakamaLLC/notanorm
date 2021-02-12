@@ -9,6 +9,7 @@ import logging
 
 from abc import ABC, abstractmethod
 
+from .errors import OperationalError
 from .model import DbModel, DbTable
 from . import errors as err
 
@@ -74,15 +75,63 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     debug_sql = None
     debug_args = None
 
+    @property
+    def timeout(self):
+        # total timeout for connections
+        return self.max_reconnect_attempts * (self.reconnect_backoff_start ** self.reconnect_backoff_factor)
+
     def __init__(self, *args, **kws):
         self.__conn_p = None
         self.__conn_args = args
         self.__conn_kws = kws
-        self.__lock = threading.RLock()
+        self.r_lock = threading.RLock()
         self.__primary_cache = {}
         self.__classes = {}
-
+        self._transaction = 0
         self._conn()
+
+    def transaction(self):
+        class TxGuard:
+            def __init__(self, db: "DbBase"):
+                self.db = db
+                self.lock = self.db.r_lock
+
+            def __enter__(self):
+                if not self.lock.acquire(timeout=self.db.timeout):
+                    # raise the same sort of error
+                    raise OperationalError("database table is locked")
+                self.db._commit(self.db._conn())
+                self.db._begin(self.db._conn())
+                self.db._transaction += 1
+                return self.db
+
+            def __exit__(self, exc_type, value, _traceback):
+                self.db._transaction -= 1
+                if not self.db._transaction:  # pylint: disable=protected-access
+                    if exc_type:
+                        self.db._rollback(self.db._conn())
+                    else:
+                        self.db._commit(self.db._conn())
+                self.lock.release()
+        return TxGuard(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, _exc_val, _exc_tb):
+        self.close()
+
+    def _begin(self, conn):
+        """Override if needed, just calls begin() on the connection."""
+        conn.begin()
+
+    def _commit(self, conn):
+        """Override if needed, just calls commit() on the connection."""
+        conn.commit()
+
+    def _rollback(self, conn):
+        """Override if needed, just calls rollback() on the connection."""
+        conn.rollback()
 
     # must implement
     @abstractmethod
@@ -90,7 +139,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         pass
 
     @abstractmethod
-    def _connect(self):
+    def _connect(self, *args, **kws):
         pass
 
     @staticmethod
@@ -100,6 +149,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     # can override
     def _cursor(self, conn):
         return conn.cursor()
+
+    @property
+    def connection_args(self):
+        return self.__conn_args, self.__conn_kws
 
     def _conn(self):
         if not self.__conn_p:
@@ -119,7 +172,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         raise NotImplementedError("Generic models not supported")
 
     def execute(self, sql, parameters=()):
-        with self.__lock:
+        with self.r_lock:
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):
                 try:
@@ -141,7 +194,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return cursor
 
     def close(self):
-        with self.__lock:
+        with self.r_lock:
             self.__conn_p.close()
             self.__conn_p = None
 
@@ -175,7 +228,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         ret = self.RetList()
 
-        with self.__lock:
+        with self.r_lock:
             try:
                 fetch = self.execute(sql, tuple(args))
                 rows = fetch.fetchall()
@@ -375,13 +428,14 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         where = self.infer_where(table, where, vals)
 
         # find existing row
-        has = self.select(table, **where)
-        if not has:
-            # restore value dict
-            vals.update(where)
-            self.insert(table, **vals)
-        else:
-            self.update(table, where, **vals)
+        with self.transaction():
+            has = self.select(table, **where)
+            if not has:
+                # restore value dict
+                vals.update(where)
+                self.insert(table, **vals)
+            else:
+                self.update(table, where, **vals)
 
     def upsert_non_null(self, table, where=None, **vals):
         remove = []

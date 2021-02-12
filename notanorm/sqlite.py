@@ -12,6 +12,9 @@ log = logging.getLogger(__name__)
 class SqliteDb(DbBase):
     placeholder = "?"
 
+    def _begin(self, conn):
+        conn.execute("BEGIN IMMEDIATE")
+
     @staticmethod
     def translate_error(exp):
         msg = str(exp)
@@ -180,6 +183,7 @@ class SqliteDb(DbBase):
     def _connect(self, *args, **kws):
         kws["check_same_thread"] = False
         if "isolation_level" not in kws:
+            # enable autocommit mode
             kws["isolation_level"] = None
         conn = sqlite3.connect(*args, **kws)
         conn.row_factory = self._obj_factory

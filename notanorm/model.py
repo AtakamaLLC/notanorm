@@ -36,8 +36,8 @@ class DbIndex(NamedTuple):
 
 class DbTable(NamedTuple):
     """Table definition."""
-    columns: Tuple[DbCol]
-    indexes: Tuple[DbCol] = ()
+    columns: Tuple[DbCol, ...]
+    indexes: Tuple[DbIndex, ...] = ()
 
 
 class DbModel(dict):

@@ -15,6 +15,9 @@ import logging as log
 class MySqlDb(DbBase):
     placeholder = "%s"
 
+    def _begin(self, conn):
+        conn.autocommit = False
+
     @staticmethod
     def translate_error(exp):
         try:
