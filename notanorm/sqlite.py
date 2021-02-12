@@ -76,14 +76,14 @@ class SqliteDb(DbBase):
             clist.append(self.__info_to_index(row, res))
 
         if not any(c.primary for c in clist):
-            clist.append(DbIndex(fields=pks, primary=True))
+            clist.append(DbIndex(fields=tuple(pks), primary=True))
         return tuple(clist)
 
     @staticmethod
     def __info_to_index(index, cols):
         primary = index.origin == "pk"
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
-        return DbIndex(fields=field_names, primary=primary)
+        return DbIndex(fields=tuple(field_names), primary=primary)
 
     @classmethod
     def __info_to_model(cls, info):

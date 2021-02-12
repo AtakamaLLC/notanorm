@@ -123,7 +123,7 @@ class MySqlDb(DbBase):
 
         indexes = []
         for name, fds in idxmap.items():
-            indexes.append(DbIndex(fds, primary=(name == "PRIMARY")))
+            indexes.append(DbIndex(tuple(fds), primary=(name == "PRIMARY")))
 
         return DbTable(columns=tuple(cols), indexes=tuple(indexes))
 
