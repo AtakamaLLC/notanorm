@@ -88,12 +88,12 @@ class MySqlDb(DbBase):
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
-            if [col.name] == primary_fields:
+            if (col.name, ) == primary_fields:
                 coldef += " primary key"
             if col.default:
                 coldef += " default(" + col.default + ")"
             if col.autoinc:
-                if [col.name] != primary_fields:
+                if (col.name, ) != primary_fields:
                     raise err.SchemaError("auto increment only works on primary key")
                 coldef += " auto_increment"
             coldefs.append(coldef)
