@@ -15,6 +15,9 @@ import logging as log
 class MySqlDb(DbBase):
     placeholder = "%s"
 
+    def _begin(self, conn):
+        conn.cursor().execute("START TRANSACTION")
+
     @staticmethod
     def translate_error(exp):
         try:
@@ -85,12 +88,12 @@ class MySqlDb(DbBase):
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
-            if [col.name] == primary_fields:
+            if (col.name, ) == primary_fields:
                 coldef += " primary key"
             if col.default:
                 coldef += " default(" + col.default + ")"
             if col.autoinc:
-                if [col.name] != primary_fields:
+                if (col.name, ) != primary_fields:
                     raise err.SchemaError("auto increment only works on primary key")
                 coldef += " auto_increment"
             coldefs.append(coldef)
@@ -120,7 +123,7 @@ class MySqlDb(DbBase):
 
         indexes = []
         for name, fds in idxmap.items():
-            indexes.append(DbIndex(fds, primary=(name == "PRIMARY")))
+            indexes.append(DbIndex(tuple(fds), primary=(name == "PRIMARY")))
 
         return DbTable(columns=tuple(cols), indexes=tuple(indexes))
 
