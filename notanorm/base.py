@@ -29,26 +29,28 @@ def del_all(mapping, to_remove):
 
 
 class DbRow(dict):
-    """Default row factory: elements accessible via string or int keys."""
+    """Default row factory.
+
+    Elements accessible via string or int keys.
+    Elements accessible as attributes
+    Case insensitive access
+    """
     __vals = None
 
     def __init__(self, dct={}):             # pylint: disable=dangerous-default-value
-        self.__dict__ = dct.copy()
         super().__init__({k.lower(): v for k, v in dct.items()})
+        self.__dict__ = self
 
     def __repr__(self):
         return "DbRow(" + super().__repr__() + ")"
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
 
     def __getattr__(self, key):
         return self[key.lower()]
 
     def __setattr__(self, key, val):
-        if key in self:
-            self[key] = val
-            self.__dict__[key] = val
+        lwr = key.lower()
+        if lwr in self:
+            self[lwr] = val
         else:
             super().__setattr__(key, val)
 
@@ -58,7 +60,7 @@ class DbRow(dict):
         return super().__getitem__(key)
 
     def _asdict(self):
-        return dict(self)
+        return self
 
     def _aslist(self):
         if not self.__vals:

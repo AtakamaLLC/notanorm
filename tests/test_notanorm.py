@@ -1,4 +1,5 @@
-# pylint: disable=missing-docstring, protected-access, unused-argument, too-few-public-methods, import-outside-toplevel
+# pylint: disable=missing-docstring, protected-access, unused-argument, too-few-public-methods
+# pylint: disable=import-outside-toplevel, unidiomatic-typecheck
 
 import logging
 import multiprocessing
@@ -60,6 +61,8 @@ def db_notmem_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name + "_notmem")
 
 def pytest_generate_tests(metafunc):
+    """Converts user-argument --db to fixture parameters."""
+
     global PYTEST_REG               # pylint: disable=global-statement
     if not PYTEST_REG:
         if any(db in metafunc.fixturenames for db in ("db", "db_notmem")):
@@ -217,6 +220,9 @@ def test_model(db):
 def test_conn_retry(db):
     db.query("create table foo (x integer)")
     db._DbBase__conn_p.close()                  # pylint: disable=no-member
+    db.max_reconnect_attempts = 1
+    with pytest.raises(Exception):
+        db.query("create table foo (x integer)")
     db.max_reconnect_attempts = 2
     db.query("create table bar (x integer)")
 
@@ -280,7 +286,7 @@ def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
         assert ent.cnt == int(num / mod) + (i < num % mod)
 
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
-# todo: maybe using the native "connector" would enable fixing this
+# todo: maybe using the native "mysql connector" would enable fixing this
 @pytest.mark.db("sqlite")
 def test_upsert_threaded_multidb(db_notmem, db_name):
     db = db_notmem
@@ -290,12 +296,12 @@ def test_upsert_threaded_multidb(db_notmem, db_name):
     ts = []
     mod = 5
 
-    def _upsert_i(i, db_name, db_conn, mod):
-        with get_db(db_name, db_conn) as db:
-            db.upsert("foo", bar=i % mod, baz=i)
-            with db.transaction():
-                row = db.select_one("foo", bar=i % mod)
-                db.update("foo", bar=i % mod, cnt=row.cnt + 1)
+    def _upsert_i(up_i, up_db_name, db_conn, up_mod):
+        with get_db(up_db_name, db_conn) as _db:
+            _db.upsert("foo", bar=up_i % up_mod, baz=up_i)
+            with _db.transaction():
+                row = _db.select_one("foo", bar=up_i % up_mod)
+                _db.update("foo", bar=up_i % up_mod, cnt=row.cnt + 1)
 
     for i in range(0, num):
         currt = threading.Thread(target=_upsert_i, args=(i, db_name, db.connection_args, mod), daemon=True)
@@ -327,9 +333,9 @@ def test_transactions_any_exc(db):
 
 def test_transactions_deadlock(db):
     def trans_thread(orig_db):
-        with orig_db.transaction() as db:
-            for i in range(50, 100):
-                db.insert("foo", bar=i)
+        with orig_db.transaction() as ins_db:
+            for ins in range(50, 100):
+                ins_db.insert("foo", bar=ins)
 
     db.query("CREATE table foo (bar integer primary key)")
 
