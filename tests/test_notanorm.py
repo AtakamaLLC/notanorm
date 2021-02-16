@@ -261,6 +261,9 @@ def _test_upsert_i(db_name, i, db_conn, mod):
         row = db.select_one("foo", bar=i % mod)
         db.update("foo", bar=i % mod, cnt=row.cnt + 1)
 
+# todo: maybe using the native "mysql connector" would enable fixing this
+#       but really, why would mysql allow blocking transactions like sqlite?
+@pytest.mark.db("sqlite")
 def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
     db = db_notmem
     db.query("create table foo (bar integer primary key, baz integer, cnt integer default 0)")

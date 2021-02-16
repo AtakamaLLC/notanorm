@@ -67,6 +67,29 @@ class DbRow(dict):
             self.__vals = list(self.__dict__.values())
         return self.__vals
 
+class DbTxGuard:
+    def __init__(self, db: "DbBase"):
+        self.db = db
+        self.lock = self.db.r_lock
+
+    def __enter__(self):
+        if not self.lock.acquire(timeout=self.db.timeout):
+            # raise the same sort of error
+            raise OperationalError("database table is locked")
+        self.db._commit(self.db._conn())
+        self.db._begin(self.db._conn())
+        self.db._transaction += 1
+        return self.db
+
+    def __exit__(self, exc_type, value, _traceback):
+        self.db._transaction -= 1
+        if not self.db._transaction:  # pylint: disable=protected-access
+            if exc_type:
+                self.db._rollback(self.db._conn())
+            else:
+                self.db._commit(self.db._conn())
+        self.lock.release()
+
 
 class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
@@ -93,29 +116,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         self._conn()
 
     def transaction(self):
-        class TxGuard:
-            def __init__(self, db: "DbBase"):
-                self.db = db
-                self.lock = self.db.r_lock
-
-            def __enter__(self):
-                if not self.lock.acquire(timeout=self.db.timeout):
-                    # raise the same sort of error
-                    raise OperationalError("database table is locked")
-                self.db._commit(self.db._conn())
-                self.db._begin(self.db._conn())
-                self.db._transaction += 1
-                return self.db
-
-            def __exit__(self, exc_type, value, _traceback):
-                self.db._transaction -= 1
-                if not self.db._transaction:  # pylint: disable=protected-access
-                    if exc_type:
-                        self.db._rollback(self.db._conn())
-                    else:
-                        self.db._commit(self.db._conn())
-                self.lock.release()
-        return TxGuard(self)
+        return DbTxGuard(self)
 
     def __enter__(self):
         return self
