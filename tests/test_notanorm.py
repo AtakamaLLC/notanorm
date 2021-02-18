@@ -362,3 +362,9 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
         with pytest.raises(sqlite3.OperationalError, match=r".*database.*is locked"):
             with db1.transaction():
                 pass
+
+def test_timeout_rational(db_notmem):
+    db = db_notmem
+    assert db.max_reconnect_attempts > 1
+    assert db.timeout > 1
+    assert db.timeout < 60
