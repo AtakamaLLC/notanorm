@@ -103,7 +103,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     @property
     def timeout(self):
         # total timeout for connections
-        return self.max_reconnect_start * (self.reconnect_backoff_attempts ** self.reconnect_backoff_factor)
+        return self.reconnect_backoff_start * (self.max_reconnect_attempts ** self.reconnect_backoff_factor)
 
     def __init__(self, *args, **kws):
         self.__conn_p = None
