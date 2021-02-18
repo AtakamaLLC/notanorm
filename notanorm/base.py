@@ -103,7 +103,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     @property
     def timeout(self):
         # total timeout for connections
-        return self.max_reconnect_attempts * (self.reconnect_backoff_start ** self.reconnect_backoff_factor)
+        return self.max_reconnect_start * (self.reconnect_backoff_attempts ** self.reconnect_backoff_factor)
 
     def __init__(self, *args, **kws):
         self.__conn_p = None
@@ -436,9 +436,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             if not has:
                 # restore value dict
                 vals.update(where)
-                self.insert(table, **vals)
+                return self.insert(table, **vals)
             else:
-                self.update(table, where, **vals)
+                return self.update(table, where, **vals)
 
     def upsert_non_null(self, table, where=None, **vals):
         remove = []
