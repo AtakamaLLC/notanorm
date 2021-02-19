@@ -130,12 +130,12 @@ class SqliteDb(DbBase):
 
     # allow "double/float" reverse map
     _type_map_inverse.update({
-        "real", DbType.DOUBLE,
-        "int", DbType.INTEGER,
-        "smallint", DbType.INTEGER,
-        "tinyint", DbType.INTEGER,
-        "bigint", DbType.INTEGER,
-        "clob", DbType.TEXT,
+        "real": DbType.DOUBLE,
+        "int": DbType.INTEGER,
+        "smallint": DbType.INTEGER,
+        "tinyint": DbType.INTEGER,
+        "bigint": DbType.INTEGER,
+        "clob": DbType.TEXT,
     })
 
     @classmethod
