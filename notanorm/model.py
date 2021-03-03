@@ -26,12 +26,24 @@ class DbCol(NamedTuple):
     fixed: bool = False             # not varchar
     default: Any = None             # has a default value
 
+    def _as_tup(self):
+        return (self.name.lower(), self.typ, self.autoinc, self.size, self.notnull, self.fixed, self.default)
+
+    def __eq__(self, other):
+        return self._as_tup() == other._as_tup()
+
 
 class DbIndex(NamedTuple):
     """Index definition."""
     fields: Tuple[str, ...]         # list of fields in the index
     unique: bool = False            # has a unique index?
     primary: bool = False           # is the primary key?
+
+    def _as_tup(self):
+        return (tuple(f.lower() for f in self.fields), self.unique, self.primary)
+
+    def __eq__(self, other):
+        return self._as_tup() == other._as_tup()
 
 
 class DbTable(NamedTuple):

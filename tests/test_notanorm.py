@@ -198,7 +198,7 @@ def test_db_upsert_non_null(db):
     assert db.select_one("foo").bop == "keep"
 
 
-def test_model(db):
+def test_model_create(db):
     model = DbModel({
         "foo": DbTable(columns=(
             DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
@@ -215,6 +215,27 @@ def test_model(db):
     db.create_model(model)
     check = db.model()
     assert check == model
+
+
+def test_model_cmp(db):
+    model1 = DbModel({
+        "foo": DbTable(columns=(
+            DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+        ), indexes=tuple([
+            DbIndex(fields=("Auto", ), primary=True)
+        ]))
+    })
+    model2 = DbModel({
+        "foo": DbTable(columns=(
+            DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
+        ), indexes=tuple([
+            DbIndex(fields=("autO", ), primary=True)
+        ]))
+    })
+
+    assert model1["foo"].columns[0] == model2["foo"].columns[0]
+    assert model1["foo"].indexes[0] == model2["foo"].indexes[0]
+    assert model1 == model2
 
 
 def test_conn_retry(db):
@@ -347,6 +368,36 @@ def test_transactions_deadlock(db):
     for i in range(50):
         db.insert("foo", bar=i)
     thread.join()
+
+
+def test_upsert_thready_one(db_notmem):
+
+    db = db_notmem
+
+    db.query("create table foo (bar integer primary key, baz integer)")
+
+    failed = False
+    num = 100
+    mod = 7
+
+    def upsert_i(db, i):
+        try:
+            db.upsert("foo", bar=str(i % mod), baz=i)
+        except Exception as e:
+            nonlocal failed
+            failed = True
+            log.error("failed to upsert: %s", repr(e))
+
+    ts = []
+    for i in range(0, num):
+        currt = threading.Thread(target=upsert_i, args=(db, i), daemon=True)
+        ts.append(currt)
+
+    for t in ts:
+        t.start()
+
+    for t in ts:
+        t.join()
 
 
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection

@@ -21,6 +21,8 @@ class SqliteDb(DbBase):
         if isinstance(exp, sqlite3.OperationalError):
             if "no such table" in str(exp):
                 return err.TableNotFoundError(msg)
+            if "readonly" in str(exp):
+                return err.DbReadOnlyError(msg)
             return err.DbConnectionError(msg)
         if isinstance(exp, sqlite3.IntegrityError):
             return err.IntegrityError(msg)

@@ -25,6 +25,8 @@ class IntegrityError(DbError):
 class DbConnectionError(DbError, ConnectionError):
     pass
 
+class DbReadOnlyError(DbError):
+    pass
 
 class ProgrammingError(DbError):
     pass
