@@ -401,6 +401,9 @@ def test_upsert_thready_one(db_notmem):
     for t in ts:
         t.join()
 
+    assert not failed
+    assert len(db.select("foo")) == mod
+
 
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
 # todo: maybe using the native "connector" would enable fixing this
