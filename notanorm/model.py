@@ -54,3 +54,10 @@ class DbTable(NamedTuple):
 
 class DbModel(dict):
     """Container of table definitions."""
+
+    def _as_cmp(self):
+        return {k.lower(): v for k, v in self.items()}
+
+    def __eq__(self, other):
+        return self._as_cmp() == other._as_cmp()
+

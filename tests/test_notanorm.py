@@ -228,15 +228,15 @@ def test_model_cmp(db):
         ]))
     })
     model2 = DbModel({
-        "foo": DbTable(columns=(
+        "FOO": DbTable(columns=(
             DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
         ), indexes=tuple([
             DbIndex(fields=("autO", ), primary=True)
         ]))
     })
 
-    assert model1["foo"].columns[0] == model2["foo"].columns[0]
-    assert model1["foo"].indexes[0] == model2["foo"].indexes[0]
+    assert model1["foo"].columns[0] == model2["FOO"].columns[0]
+    assert model1["foo"].indexes[0] == model2["FOO"].indexes[0]
     assert model1 == model2
 
 

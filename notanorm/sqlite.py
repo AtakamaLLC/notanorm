@@ -98,7 +98,7 @@ class SqliteDb(DbBase):
             size = int(match[2])
         else:
             try:
-                typ = cls._type_map_inverse[info.type]
+                typ = cls._type_map_inverse[info.type.lower()]
             except KeyError:
                 typ = DbType.ANY
 
