@@ -32,10 +32,22 @@ class SqliteDb(DbBase):
         return exp
 
     def __init__(self, *args, **kws):
+        if "timeout" in kws:
+            self.__timeout = kws["timeout"]
+        else:
+            self.__timeout = super().timeout
         if args[0] == ":memory:":
             # never try to reconnect to memory dbs!
             self.max_reconnect_attempts = 1
         super().__init__(*args, **kws)
+
+    @property
+    def timeout(self):
+        return self.__timeout
+
+    @timeout.setter
+    def timeout(self, val):
+        self.__timeout = val
 
     def __columns(self, table):
         res = self.query("SELECT name, type from sqlite_master")

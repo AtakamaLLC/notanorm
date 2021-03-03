@@ -6,7 +6,7 @@ NOTE: Make sure to close the db handle when you are done.
 import time
 import threading
 import logging
-
+from collections import defaultdict
 from abc import ABC, abstractmethod
 
 from .errors import OperationalError
@@ -99,6 +99,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     reconnect_backoff_factor = 2
     debug_sql = None
     debug_args = None
+    __lock_pool = defaultdict(threading.RLock)
 
     @property
     def timeout(self):
@@ -109,7 +110,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         self.__conn_p = None
         self.__conn_args = args
         self.__conn_kws = kws
-        self.r_lock = threading.RLock()
+        self.r_lock = self.__lock_pool[(args, tuple(sorted((k, v) for k, v in kws.items())))]
         self.__primary_cache = {}
         self.__classes = {}
         self._transaction = 0

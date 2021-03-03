@@ -27,7 +27,7 @@ def db_sqlite():
 
 @pytest.fixture
 def db_sqlite_notmem(tmp_path):
-    db = SqliteDb(str(tmp_path / "db"), timeout=1)
+    db = SqliteDb(str(tmp_path / "db"))
     yield db
     db.close()
 
