@@ -11,6 +11,8 @@ import pytest
 
 from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 
+import notanorm.errors as err
+
 log = logging.getLogger(__name__)
 
 
@@ -413,3 +415,12 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
         with pytest.raises(sqlite3.OperationalError, match=r".*database.*is locked"):
             with db1.transaction():
                 pass
+
+
+@pytest.mark.db("sqlite")
+def test_readonly_fail(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="y1")
+    db.query("PRAGMA query_only=ON;")
+    with pytest.raises(err.DbReadOnlyError):
+        db.insert("foo", bar="y2")
