@@ -419,7 +419,6 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
             with db1.transaction():
                 pass
 
-
 @pytest.mark.db("sqlite")
 def test_readonly_fail(db):
     db.query("create table foo (bar text)")
@@ -427,3 +426,9 @@ def test_readonly_fail(db):
     db.query("PRAGMA query_only=ON;")
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
+
+def test_timeout_rational(db_notmem):
+    db = db_notmem
+    assert db.max_reconnect_attempts > 1
+    assert db.timeout > 1
+    assert db.timeout < 60

@@ -57,8 +57,9 @@ class SqliteDb(DbBase):
 
         cols = []
         for col in tinfo:
+            col.type = col.type.lower()
             col.autoinc = False
-            if col.type.lower() == "integer" and col.pk == 1 and one_pk and has_seq:
+            if col.type == "integer" and col.pk == 1 and one_pk and has_seq:
                 col.autoinc = True
             cols.append(self.__info_to_model(col))
         return tuple(cols)
@@ -128,6 +129,16 @@ class SqliteDb(DbBase):
         DbType.ANY: "",
     }
     _type_map_inverse = {v: k for k, v in _type_map.items()}
+
+    # allow "double/float" reverse map
+    _type_map_inverse.update({
+        "real": DbType.DOUBLE,
+        "int": DbType.INTEGER,
+        "smallint": DbType.INTEGER,
+        "tinyint": DbType.INTEGER,
+        "bigint": DbType.INTEGER,
+        "clob": DbType.TEXT,
+    })
 
     @classmethod
     def _column_def(cls, col: DbCol, single_primary: str):
