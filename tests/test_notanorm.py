@@ -128,9 +128,33 @@ def test_db_row_obj_case(db):
     assert ret["BAR"] == "hi"
     assert ret.bar == "hi"
     assert ret.BaR == "hi"
-    assert "Bar" in list(str(k) for k in ret.keys())
-    assert "bar" not in list(str(k) for k in ret.keys())
+    assert "Bar" in ret.keys()
+    assert "bar" not in ret.keys()
     assert "bar" in ret
+
+def test_db_row_obj_iter(db):
+    db.query("create table foo (Bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+
+    ret = db.select_one("foo")
+    for k in ret:
+        assert k == 'Bar'
+
+    assert 'Bar' in ret
+
+def test_db_row_obj_integer_access(db):
+    db.query("create table foo (a text, b text, c text)")
+    db.insert("foo", a="a", b="b", c="c")
+
+    ret = db.select_one("foo")
+
+    assert ret[0] == "a"
+    assert ret[1] == "b"
+    assert ret[2] == "c"
+
+    assert len(list(ret.keys())) == 3
+    assert len(list(ret.values())) == 3
+    assert len(list(ret.items())) == 3
 
 def test_db_class(db):
     db.query("create table foo (bar text)")

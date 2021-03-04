@@ -42,6 +42,17 @@ class DbRow(dict):
     Elements accessible as attributes
     Case insensitive access
     Case preserving setters
+
+    For access to the case-preserved keys use:
+        row.items()
+        row.keys()
+        or row._asdict()
+
+    For case-insensitive access for "key" use:
+        row.key
+        row["key"]
+
+    Access to __dict__ is deprecated (and slow, it makes a case-preserved copy)
     """
     __vals = None
 
@@ -69,15 +80,28 @@ class DbRow(dict):
     def __setitem__(self, key, val):
         return super().__setitem__(CIKey(key), val)
 
+    def __contains__(self, key):
+        return super().__contains__(CIKey(key))
+
     def _asdict(self):
-        return {k: v for k, v in self.items() if k[0:1] != '__'}
+        """Warning: this is inefficient.   But also it's not needed.  Just access the container itself."""
+        return {k: v for k, v in self.__items()}
+
+    def __items(self):
+        return ((str(k), v) for k, v in super().items() if k[0:2] != '__')
 
     def items(self):
-        return ((str(k), v) for k, v in super().items() if k[0:1] != '__')
+        return list(self.__items())
+
+    def keys(self):
+        return list(k for k, _v in self.__items())
+
+    def values(self):
+        return list(v for _k, v in self.__items())
 
     def _aslist(self):
         if not self.__vals:
-            self["__vals"] = list(self.values())
+            self["__vals"] = self.values()
         return self["__vals"]
 
 
@@ -119,10 +143,12 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     @property
     def timeout(self):
-        # total timeout for connections
-        return self.reconnect_backoff_start * (self.max_reconnect_attempts ** self.reconnect_backoff_factor)
+        # total timeout for connections == geometric sum
+        return self.reconnect_backoff_start * ((1 - self.reconnect_backoff_factor ** self.max_reconnect_attempts) / (
+                    1 - self.reconnect_backoff_factor))
 
     def __init__(self, *args, **kws):
+        assert self.reconnect_backoff_factor > 1
         self.__conn_p = None
         self._conn_args = args
         self._conn_kws = kws
