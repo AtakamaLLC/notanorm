@@ -70,15 +70,15 @@ class DbRow(dict):
         return super().__setitem__(CIKey(key), val)
 
     def _asdict(self):
-        return {k: v for k, v in self.items()}
+        return {k: v for k, v in self.items() if k[0:1] != '__'}
 
     def items(self):
-        return ((str(k), v) for k, v in super().items())
+        return ((str(k), v) for k, v in super().items() if k[0:1] != '__')
 
     def _aslist(self):
         if not self.__vals:
-            self.__vals = list(self.values())
-        return self.__vals
+            self["__vals"] = list(self.values())
+        return self["__vals"]
 
 
 # noinspection PyProtectedMember
