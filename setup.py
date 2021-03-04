@@ -18,9 +18,6 @@ setup(
     long_description=long_description(),
     long_description_content_type="text/markdown",
     setup_requires=['wheel'],
-    install_requires=[
-        "mysqlclient",
-    ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
