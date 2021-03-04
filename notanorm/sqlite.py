@@ -11,6 +11,10 @@ log = logging.getLogger(__name__)
 
 class SqliteDb(DbBase):
     placeholder = "?"
+    use_pooled_locks = True
+
+    def _lock_key(self, *args, **kws):
+        return args[0]
 
     def _begin(self, conn):
         conn.execute("BEGIN IMMEDIATE")
@@ -21,6 +25,8 @@ class SqliteDb(DbBase):
         if isinstance(exp, sqlite3.OperationalError):
             if "no such table" in str(exp):
                 return err.TableNotFoundError(msg)
+            if "readonly" in str(exp):
+                return err.DbReadOnlyError(msg)
             return err.DbConnectionError(msg)
         if isinstance(exp, sqlite3.IntegrityError):
             return err.IntegrityError(msg)
@@ -30,10 +36,22 @@ class SqliteDb(DbBase):
         return exp
 
     def __init__(self, *args, **kws):
+        if "timeout" in kws:
+            self.__timeout = kws["timeout"]
+        else:
+            self.__timeout = super().timeout
         if args[0] == ":memory:":
             # never try to reconnect to memory dbs!
             self.max_reconnect_attempts = 1
         super().__init__(*args, **kws)
+
+    @property
+    def timeout(self):
+        return self.__timeout
+
+    @timeout.setter
+    def timeout(self, val):
+        self.__timeout = val
 
     def __columns(self, table):
         res = self.query("SELECT name, type from sqlite_master")
@@ -55,8 +73,9 @@ class SqliteDb(DbBase):
 
         cols = []
         for col in tinfo:
+            col.type = col.type.lower()
             col.autoinc = False
-            if col.type.lower() == "integer" and col.pk == 1 and one_pk and has_seq:
+            if col.type == "integer" and col.pk == 1 and one_pk and has_seq:
                 col.autoinc = True
             cols.append(self.__info_to_model(col))
         return tuple(cols)
@@ -96,7 +115,7 @@ class SqliteDb(DbBase):
             size = int(match[2])
         else:
             try:
-                typ = cls._type_map_inverse[info.type]
+                typ = cls._type_map_inverse[info.type.lower()]
             except KeyError:
                 typ = DbType.ANY
 
@@ -123,9 +142,21 @@ class SqliteDb(DbBase):
         DbType.INTEGER: "integer",
         DbType.FLOAT: "float",
         DbType.DOUBLE: "double",
+        DbType.BOOLEAN: "boolean",
         DbType.ANY: "",
     }
     _type_map_inverse = {v: k for k, v in _type_map.items()}
+
+    # allow "double/float" reverse map
+    _type_map_inverse.update({
+        "real": DbType.DOUBLE,
+        "int": DbType.INTEGER,
+        "smallint": DbType.INTEGER,
+        "tinyint": DbType.INTEGER,
+        "bigint": DbType.INTEGER,
+        "clob": DbType.TEXT,
+        "bool": DbType.BOOLEAN,
+    })
 
     @classmethod
     def _column_def(cls, col: DbCol, single_primary: str):

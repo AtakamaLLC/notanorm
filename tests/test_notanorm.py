@@ -11,6 +11,8 @@ import pytest
 
 from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 
+import notanorm.errors as err
+
 log = logging.getLogger(__name__)
 
 
@@ -25,7 +27,7 @@ def db_sqlite():
 
 @pytest.fixture
 def db_sqlite_notmem(tmp_path):
-    db = SqliteDb(str(tmp_path / "db"), timeout=1)
+    db = SqliteDb(str(tmp_path / "db"))
     yield db
     db.close()
 
@@ -81,6 +83,12 @@ def test_db_basic(db):
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
     assert db.query("select bar from foo")[0].bar == "hi"
 
+def test_db_delete(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="hi")
+    db.delete("foo", bar="hi")
+    assert not db.select("foo")
+
 
 def test_db_count(db):
     db.query("create table foo (bar text)")
@@ -106,9 +114,47 @@ def test_db_row_obj__dict__(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
 
-    assert db.select_one("foo").__dict__ == {"bar": "hi"}
-    assert db.select_one("foo")._asdict() == {"bar": "hi"}
+    ret = db.select_one("foo")
+    assert ret.__dict__ == {"bar": "hi"}
+    assert ret._asdict() == {"bar": "hi"}
 
+
+def test_db_row_obj_case(db):
+    db.query("create table foo (Bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+
+    ret = db.select_one("foo")
+    assert ret["bar"] == "hi"
+    assert ret["BAR"] == "hi"
+    assert ret.bar == "hi"
+    assert ret.BaR == "hi"
+    assert "Bar" in ret.keys()
+    assert "bar" not in ret.keys()
+    assert "bar" in ret
+
+def test_db_row_obj_iter(db):
+    db.query("create table foo (Bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+
+    ret = db.select_one("foo")
+    for k in ret:
+        assert k == 'Bar'
+
+    assert 'Bar' in ret
+
+def test_db_row_obj_integer_access(db):
+    db.query("create table foo (a text, b text, c text)")
+    db.insert("foo", a="a", b="b", c="c")
+
+    ret = db.select_one("foo")
+
+    assert ret[0] == "a"
+    assert ret[1] == "b"
+    assert ret[2] == "c"
+
+    assert len(list(ret.keys())) == 3
+    assert len(list(ret.values())) == 3
+    assert len(list(ret.items())) == 3
 
 def test_db_class(db):
     db.query("create table foo (bar text)")
@@ -198,7 +244,7 @@ def test_db_upsert_non_null(db):
     assert db.select_one("foo").bop == "keep"
 
 
-def test_model(db):
+def test_model_create(db):
     model = DbModel({
         "foo": DbTable(columns=(
             DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
@@ -215,6 +261,27 @@ def test_model(db):
     db.create_model(model)
     check = db.model()
     assert check == model
+
+
+def test_model_cmp(db):
+    model1 = DbModel({
+        "foo": DbTable(columns=(
+            DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+        ), indexes=tuple([
+            DbIndex(fields=("Auto", ), primary=True)
+        ]))
+    })
+    model2 = DbModel({
+        "FOO": DbTable(columns=(
+            DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
+        ), indexes=tuple([
+            DbIndex(fields=("autO", ), primary=True)
+        ]))
+    })
+
+    assert model1["foo"].columns[0] == model2["FOO"].columns[0]
+    assert model1["foo"].indexes[0] == model2["FOO"].indexes[0]
+    assert model1 == model2
 
 
 def test_conn_retry(db):
@@ -349,6 +416,39 @@ def test_transactions_deadlock(db):
     thread.join()
 
 
+def test_upsert_thready_one(db_notmem):
+
+    db = db_notmem
+
+    db.query("create table foo (bar integer primary key, baz integer)")
+
+    failed = False
+    num = 100
+    mod = 7
+
+    def upsert_i(db, i):
+        try:
+            db.upsert("foo", bar=str(i % mod), baz=i)
+        except Exception as e:
+            nonlocal failed
+            failed = True
+            log.error("failed to upsert: %s", repr(e))
+
+    ts = []
+    for i in range(0, num):
+        currt = threading.Thread(target=upsert_i, args=(db, i), daemon=True)
+        ts.append(currt)
+
+    for t in ts:
+        t.start()
+
+    for t in ts:
+        t.join()
+
+    assert not failed
+    assert len(db.select("foo")) == mod
+
+
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
 # todo: maybe using the native "connector" would enable fixing this
 @pytest.mark.db("sqlite")
@@ -362,3 +462,17 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
         with pytest.raises(sqlite3.OperationalError, match=r".*database.*is locked"):
             with db1.transaction():
                 pass
+
+@pytest.mark.db("sqlite")
+def test_readonly_fail(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="y1")
+    db.query("PRAGMA query_only=ON;")
+    with pytest.raises(err.DbReadOnlyError):
+        db.insert("foo", bar="y2")
+
+def test_timeout_rational(db_notmem):
+    db = db_notmem
+    assert db.max_reconnect_attempts > 1
+    assert db.timeout > 1
+    assert db.timeout < 60
