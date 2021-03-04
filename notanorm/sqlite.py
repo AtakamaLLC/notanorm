@@ -11,6 +11,10 @@ log = logging.getLogger(__name__)
 
 class SqliteDb(DbBase):
     placeholder = "?"
+    use_pooled_locks = True
+
+    def _lock_key(self, *args, **kws):
+        return args[0]
 
     def _begin(self, conn):
         conn.execute("BEGIN IMMEDIATE")

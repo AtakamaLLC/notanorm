@@ -139,6 +139,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     reconnect_backoff_factor = 2
     debug_sql = None
     debug_args = None
+    use_pooled_locks = False
     __lock_pool = defaultdict(threading.RLock)
 
     @property
@@ -147,12 +148,18 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self.reconnect_backoff_start * ((1 - self.reconnect_backoff_factor ** self.max_reconnect_attempts) / (
                     1 - self.reconnect_backoff_factor))
 
+    def _lock_key(self, *args, **kws):
+        raise NotImplementedError("define _lock_key in your subclass if use_pooled_locks is enabled")
+
     def __init__(self, *args, **kws):
         assert self.reconnect_backoff_factor > 1
         self.__conn_p = None
         self._conn_args = args
         self._conn_kws = kws
-        self.r_lock = self.__lock_pool[(args, tuple(sorted((k, v) for k, v in kws.items())))]
+        if self.use_pooled_locks:
+            self.r_lock = self.__lock_pool[self._lock_key(*args, **kws)]
+        else:
+            self.r_lock = threading.RLock()
         self.__primary_cache = {}
         self.__classes = {}
         self._transaction = 0
