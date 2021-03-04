@@ -28,45 +28,60 @@ def del_all(mapping, to_remove):
         del mapping[key]
 
 
+class CIKey(str):
+    def __eq__(self, other):
+        return other.lower() == self.lower()
+
+    def __hash__(self):
+        return hash(self.lower())
+
 class DbRow(dict):
     """Default row factory.
 
-    Elements accessible via string or int keys.
+    Elements accessible via string or int key getters.
     Elements accessible as attributes
     Case insensitive access
+    Case preserving setters
     """
     __vals = None
 
+    # noinspection PyDefaultArgument
     def __init__(self, dct={}):             # pylint: disable=dangerous-default-value
-        super().__init__({k.lower(): v for k, v in dct.items()})
-        self.__dict__ = self
+        super().__init__()
+        for k, v in dct.items():
+            super().__setitem__(CIKey(k), v)
 
-    def __repr__(self):
-        return "DbRow(" + super().__repr__() + ")"
+    @property
+    def __dict__(self):
+        return self._asdict()
 
     def __getattr__(self, key):
-        return self[key.lower()]
+        return self[key]
 
     def __setattr__(self, key, val):
-        lwr = key.lower()
-        if lwr in self:
-            self[lwr] = val
-        else:
-            super().__setattr__(key, val)
+        self[key] = val
 
     def __getitem__(self, key):
         if type(key) is int:                # pylint: disable=unidiomatic-typecheck
             return self._aslist()[key]
-        return super().__getitem__(key)
+        return super().__getitem__(CIKey(key))
+
+    def __setitem__(self, key, val):
+        return super().__setitem__(CIKey(key), val)
 
     def _asdict(self):
-        return self
+        return {k: v for k, v in self.items()}
+
+    def items(self):
+        return ((str(k), v) for k, v in super().items())
 
     def _aslist(self):
         if not self.__vals:
-            self.__vals = list(self.__dict__.values())
+            self.__vals = list(self.values())
         return self.__vals
 
+
+# noinspection PyProtectedMember
 class DbTxGuard:
     def __init__(self, db: "DbBase"):
         self.db = db
@@ -91,6 +106,7 @@ class DbTxGuard:
         self.lock.release()
 
 
+# noinspection PyMethodMayBeStatic
 class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
     placeholder = '?'
@@ -108,8 +124,8 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     def __init__(self, *args, **kws):
         self.__conn_p = None
-        self.__conn_args = args
-        self.__conn_kws = kws
+        self._conn_args = args
+        self._conn_kws = kws
         self.r_lock = self.__lock_pool[(args, tuple(sorted((k, v) for k, v in kws.items())))]
         self.__primary_cache = {}
         self.__classes = {}
@@ -156,11 +172,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     @property
     def connection_args(self):
-        return self.__conn_args, self.__conn_kws
+        return self._conn_args, self._conn_kws
 
     def _conn(self):
         if not self.__conn_p:
-            self.__conn_p = self._connect(*self.__conn_args, **self.__conn_kws)
+            self.__conn_p = self._connect(*self._conn_args, **self._conn_kws)
             if not self.__conn_p:
                 raise ValueError("No connection returned by _connect for %s" % type(self))
         return self.__conn_p
@@ -199,8 +215,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     def close(self):
         with self.r_lock:
-            self.__conn_p.close()
-            self.__conn_p = None
+            if self.__conn_p:
+                self.__conn_p.close()
+                self.__conn_p = None
 
     # probably don't override these
 
@@ -214,15 +231,15 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         lastrowid = None
 
     def register_class(self, table, cls):
-        "Class will be used instead of Row object.  Must accept kw args for every table col"
+        """Class will be used instead of Row object.  Must accept kw args for every table col"""
         self.__classes[table] = cls
 
     def unregister_class(self, table):
-        "Class will no longer be used"
+        """Class will no longer be used"""
         self.__classes.pop(table, None)
 
     def query(self, sql, *args, factory=None):
-        "Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"
+        """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
         # for debugging....
         self.debug_sql = sql + ";"
         self.debug_args = args
@@ -248,7 +265,8 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             if factory:
                 row = factory(**row)
             else:
-                row = DbRow(row)
+                if type(row) is not DbRow:
+                    row = DbRow(row)
             ret.append(row)
 
         ret.rowcount = fetch.rowcount
@@ -267,7 +285,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         sql += ')'
 
         sql += " values ("
-        sql += ",".join([self.placeholder for k in vals.keys()])
+        sql += ",".join([self.placeholder for _ in vals.keys()])
         sql += ")"
 
         return self.query(sql, *vals.values())
@@ -278,7 +296,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def quote_keys(self, key):
         return ".".join([self.quote_key(k) for k in key.split(".")])
 
-    def _where(self, table, where):
+    def _where(self, where):
         if not where:
             return "", ()
 
@@ -342,7 +360,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
             sql += " from " + table
 
-        where, vals = self._where(table, where)
+        where, vals = self._where(where)
         sql += where
 
         return self.query(sql, *vals, factory=factory)
@@ -355,7 +373,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             where = kws
 
         sql = "select count(*) as k from " + table
-        where, vals = self._where(table, where)
+        where, vals = self._where(where)
         sql += where
         return self.query(sql, *vals)[0]["k"]
 
@@ -363,13 +381,13 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         sql = "delete "
         sql += " from " + table
 
-        where, vals = self._where(table, where)
+        where, vals = self._where(where)
         if not where:
             raise ValueError("Use delete_all to delete all rows from a table")
 
         sql += where
 
-        return self.query(sql, vals)
+        return self.query(sql, *vals)
 
     def delete_all(self, table):
         sql = "delete "

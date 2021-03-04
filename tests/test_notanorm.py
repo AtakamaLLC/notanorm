@@ -83,6 +83,12 @@ def test_db_basic(db):
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
     assert db.query("select bar from foo")[0].bar == "hi"
 
+def test_db_delete(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="hi")
+    db.delete("foo", bar="hi")
+    assert not db.select("foo")
+
 
 def test_db_count(db):
     db.query("create table foo (bar text)")
@@ -108,9 +114,23 @@ def test_db_row_obj__dict__(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
 
-    assert db.select_one("foo").__dict__ == {"bar": "hi"}
-    assert db.select_one("foo")._asdict() == {"bar": "hi"}
+    ret = db.select_one("foo")
+    assert ret.__dict__ == {"bar": "hi"}
+    assert ret._asdict() == {"bar": "hi"}
 
+
+def test_db_row_obj_case(db):
+    db.query("create table foo (Bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+
+    ret = db.select_one("foo")
+    assert ret["bar"] == "hi"
+    assert ret["BAR"] == "hi"
+    assert ret.bar == "hi"
+    assert ret.BaR == "hi"
+    assert "Bar" in list(str(k) for k in ret.keys())
+    assert "bar" not in list(str(k) for k in ret.keys())
+    assert "bar" in ret
 
 def test_db_class(db):
     db.query("create table foo (bar text)")

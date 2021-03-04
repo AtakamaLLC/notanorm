@@ -8,5 +8,6 @@ except ImportError:
 from .sqlite import SqliteDb
 from .base import DbBase
 from .model import DbType, DbCol, DbTable, DbModel, DbIndex
+from . import errors
 
 __all__ = ["SqliteDb", "MySqlDb", "DbRow", "DbBase", "DbType", "DbCol", "DbTable", "DbModel", "DbIndex"]

@@ -14,6 +14,7 @@ class DbType(Enum):
     FLOAT = "float"
     DOUBLE = "double"
     ANY = "any"
+    BOOLEAN = "bool"
 
 
 class DbCol(NamedTuple):

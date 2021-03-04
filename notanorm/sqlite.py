@@ -138,6 +138,7 @@ class SqliteDb(DbBase):
         DbType.INTEGER: "integer",
         DbType.FLOAT: "float",
         DbType.DOUBLE: "double",
+        DbType.BOOLEAN: "boolean",
         DbType.ANY: "",
     }
     _type_map_inverse = {v: k for k, v in _type_map.items()}
@@ -150,6 +151,7 @@ class SqliteDb(DbBase):
         "tinyint": DbType.INTEGER,
         "bigint": DbType.INTEGER,
         "clob": DbType.TEXT,
+        "bool": DbType.BOOLEAN,
     })
 
     @classmethod
