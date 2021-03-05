@@ -290,6 +290,18 @@ def test_conn_retry(db):
     db.query("create table bar (x integer)")
 
 
+def test_multi_close(db):
+    db.close()
+    db.close()
+
+    class VeryClose(SqliteDb):
+        def __init__(self):
+            self.close()
+
+    # always safe to call close, even if not initialized
+    VeryClose()
+
+
 @pytest.mark.db("sqlite")
 def test_safedb_inmemorydb(db):
     # test that in memory db's are relatively safe
