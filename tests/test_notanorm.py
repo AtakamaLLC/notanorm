@@ -254,7 +254,7 @@ def test_model_create(db):
             DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
             DbCol("flt", typ=DbType.FLOAT),
             DbCol("dbl", typ=DbType.DOUBLE),
-        ), indexes={DbIndex(fields=("auto",), primary=True), DbIndex(fields=("tex",), unique=True)})
+        ), indexes={DbIndex(fields=("auto",), primary=True), DbIndex(fields=("flt",), unique=True)})
     })
     db.create_model(model)
     check = db.model()
@@ -274,7 +274,6 @@ def test_model_cmp(db):
     })
 
     assert model1["foo"].columns[0] == model2["FOO"].columns[0]
-    assert model1["foo"].indexes[0] == model2["FOO"].indexes[0]
     assert model1 == model2
 
 
