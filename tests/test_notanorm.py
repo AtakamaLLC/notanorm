@@ -254,9 +254,7 @@ def test_model_create(db):
             DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
             DbCol("flt", typ=DbType.FLOAT),
             DbCol("dbl", typ=DbType.DOUBLE),
-        ), indexes=tuple([
-            DbIndex(fields=("auto", ), primary=True)
-        ]))
+        ), indexes={DbIndex(fields=("auto",), primary=True), DbIndex(fields=("flt",), unique=True)})
     })
     db.create_model(model)
     check = db.model()
@@ -267,20 +265,15 @@ def test_model_cmp(db):
     model1 = DbModel({
         "foo": DbTable(columns=(
             DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-        ), indexes=tuple([
-            DbIndex(fields=("Auto", ), primary=True)
-        ]))
+        ), indexes={DbIndex(fields=("Auto",), primary=True)})
     })
     model2 = DbModel({
         "FOO": DbTable(columns=(
             DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
-        ), indexes=tuple([
-            DbIndex(fields=("autO", ), primary=True)
-        ]))
+        ), indexes={DbIndex(fields=("autO",), primary=True)})
     })
 
     assert model1["foo"].columns[0] == model2["FOO"].columns[0]
-    assert model1["foo"].indexes[0] == model2["FOO"].indexes[0]
     assert model1 == model2
 
 

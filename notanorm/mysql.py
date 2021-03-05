@@ -103,6 +103,16 @@ class MySqlDb(DbBase):
         log.error(create)
         self.query(create)
 
+        for idx in schema.indexes:
+            if not idx.primary:
+                index_name = "ix_" + name + "_" + "_".join(idx.fields)
+                unique = "unique " if idx.unique else ""
+                icreate = "create " + unique + "index " + index_name + " on " + name + " ("
+                icreate += ",".join(idx.fields)
+                icreate += ")"
+                self.query(icreate)
+
+
     def model(self):
         tabs = self.query("show tables")
         ret = DbModel()
@@ -117,15 +127,20 @@ class MySqlDb(DbBase):
             cols.append(self.column_model(col))
         res = self.query("show index from  `" + tab + "`")
 
+        idxunique = {}
         idxmap = defaultdict(lambda: [])
         for idxinfo in res:
+            unique = not idxinfo["non_unique"]
+            idxunique[idxinfo["key_name"]] = unique
             idxmap[idxinfo["key_name"]].append(idxinfo["column_name"])
 
         indexes = []
         for name, fds in idxmap.items():
-            indexes.append(DbIndex(tuple(fds), primary=(name == "PRIMARY")))
+            primary = (name == "PRIMARY")
+            unique = idxunique[name] and not primary
+            indexes.append(DbIndex(tuple(fds), primary=primary, unique=unique))
 
-        return DbTable(columns=tuple(cols), indexes=tuple(indexes))
+        return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     def column_model(self, info):
         if info.type == "int(11)":

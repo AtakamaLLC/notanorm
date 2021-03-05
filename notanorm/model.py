@@ -1,7 +1,7 @@
 """Model definition support."""
 
 from enum import Enum
-from typing import NamedTuple, Tuple, Any, Dict
+from typing import NamedTuple, Tuple, Any, Dict, Set
 
 __all__ = ["DbType", "DbCol", "DbIndex", "DbTable", "DbModel"]
 
@@ -50,7 +50,7 @@ class DbIndex(NamedTuple):
 class DbTable(NamedTuple):
     """Table definition."""
     columns: Tuple[DbCol, ...]
-    indexes: Tuple[DbIndex, ...] = ()
+    indexes: Set[DbIndex] = ()
 
 
 class DbModel(dict):

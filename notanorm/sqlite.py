@@ -96,13 +96,13 @@ class SqliteDb(DbBase):
 
         if not any(c.primary for c in clist):
             clist.append(DbIndex(fields=tuple(pks), primary=True))
-        return tuple(clist)
+        return set(clist)
 
     @staticmethod
     def __info_to_index(index, cols):
         primary = index.origin == "pk"
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
-        return DbIndex(fields=tuple(field_names), primary=primary)
+        return DbIndex(fields=tuple(field_names), primary=primary, unique=bool(index.unique))
 
     @classmethod
     def __info_to_model(cls, info):
@@ -202,6 +202,15 @@ class SqliteDb(DbBase):
         create += ")"
         log.error(create)
         self.query(create)
+        for idx in schema.indexes:
+            if not idx.primary:
+                index_name = "ix_" + name + "_" + "_".join(idx.fields)
+                unique = "unique " if idx.unique else ""
+                icreate = "create " + unique + "index " + index_name + " on " + name + " ("
+                icreate += ",".join(idx.fields)
+                icreate += ")"
+                self.query(icreate)
+
 
     @staticmethod
     def _obj_factory(cursor, row):
