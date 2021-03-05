@@ -146,6 +146,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     reconnect_backoff_factor = 2
     debug_sql = None
     debug_args = None
+    r_lock = None
     use_pooled_locks = False
     __lock_pool = defaultdict(threading.RLock)
 
@@ -254,10 +255,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return cursor
 
     def close(self):
-        with self.r_lock:
-            if self.__conn_p:
-                self.__conn_p.close()
-                self.__conn_p = None
+        if self.r_lock:
+            with self.r_lock:
+                if self.__conn_p:
+                    self.__conn_p.close()
+                    self.__conn_p = None
 
     # probably don't override these
 
