@@ -80,6 +80,13 @@ class DbRow(dict):
     def __setitem__(self, key, val):
         return super().__setitem__(CIKey(key), val)
 
+    def __getstate__(self):
+        return self._asdict()
+
+    def __setstate__(self, state):
+        for k, v in state.items():
+            super().__setitem__(CIKey(k), v)
+
     def __contains__(self, key):
         return super().__contains__(CIKey(key))
 
