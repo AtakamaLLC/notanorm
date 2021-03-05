@@ -3,6 +3,7 @@
 
 import logging
 import multiprocessing
+import copy
 import sqlite3
 import threading
 from multiprocessing.pool import ThreadPool
@@ -117,6 +118,8 @@ def test_db_row_obj__dict__(db):
     ret = db.select_one("foo")
     assert ret.__dict__ == {"bar": "hi"}
     assert ret._asdict() == {"bar": "hi"}
+    assert ret.copy() == ret._asdict()
+    assert copy.copy(ret) == ret._asdict()
 
 
 def test_db_row_obj_case(db):

@@ -46,6 +46,9 @@ class DbIndex(NamedTuple):
     def __eq__(self, other):
         return self._as_tup() == other._as_tup()
 
+    def __hash__(self):
+        return hash(self._as_tup())
+
 
 class DbTable(NamedTuple):
     """Table definition."""
