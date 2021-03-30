@@ -464,6 +464,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         none_keys = [key for key, val in where.items() if val is None]
         del_all(where, none_keys)
 
+        if not vals:
+            # nothing to update
+            return
+
         sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         sql += " where "
         sql += " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where])
