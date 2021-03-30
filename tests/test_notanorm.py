@@ -235,6 +235,12 @@ def test_db_upsert(db):
     assert db.select("foo", bar="hi")[0].baz == "up"
     assert db.select("foo", bar="lo")[0].baz == "down"
 
+    # no-op
+    db.upsert("foo", bar="hi")
+
+    # no-op
+    db.update("foo", bar="hi")
+
 
 def test_db_upsert_non_null(db):
     db.query("create table foo (bar varchar(32) not null primary key, baz text, bop text)")
