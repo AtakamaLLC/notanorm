@@ -141,6 +141,7 @@ class DbTxGuard:
 class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
     placeholder = '?'
+    default_values = 'default values'
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
@@ -331,7 +332,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             sql += ",".join([self.placeholder for _ in vals.keys()])
             sql += ")"
         else:
-            sql += " default values"
+            sql += " " + self.default_values
 
         return self.query(sql, *vals.values())
 

@@ -14,6 +14,7 @@ import logging as log
 
 class MySqlDb(DbBase):
     placeholder = "%s"
+    default_values = ' () values ()'
 
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
