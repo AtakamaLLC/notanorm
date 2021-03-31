@@ -322,13 +322,16 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         sql = "insert into " + table
 
-        sql += '('
-        sql += ','.join([self.quote_keys(k) for k in vals.keys()])
-        sql += ')'
+        if vals:
+            sql += '('
+            sql += ','.join([self.quote_keys(k) for k in vals.keys()])
+            sql += ')'
 
-        sql += " values ("
-        sql += ",".join([self.placeholder for _ in vals.keys()])
-        sql += ")"
+            sql += " values ("
+            sql += ",".join([self.placeholder for _ in vals.keys()])
+            sql += ")"
+        else:
+            sql += " default values"
 
         return self.query(sql, *vals.values())
 
