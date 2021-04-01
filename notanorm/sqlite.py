@@ -56,12 +56,6 @@ class SqliteDb(DbBase):
     def __columns(self, table):
         res = self.query("SELECT name, type from sqlite_master")
 
-        has_seq = False
-        for tab in res:
-            if tab.name == "sqlite_sequence":
-                has_seq = True
-                break
-
         tinfo = self.query("PRAGMA table_info(" + table + ")")
         if len(tinfo) == 0:
             raise KeyError(f"Table {table} not found in db {self}")
@@ -75,7 +69,7 @@ class SqliteDb(DbBase):
         for col in tinfo:
             col.type = col.type.lower()
             col.autoinc = False
-            if col.type == "integer" and col.pk == 1 and one_pk and has_seq:
+            if col.type == "integer" and col.pk == 1 and one_pk:
                 col.autoinc = True
             cols.append(self.__info_to_model(col))
         return tuple(cols)

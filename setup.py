@@ -11,7 +11,7 @@ def long_description():
 
 setup(
     name='notanorm',
-    version='1.1.6',
+    version='1.1.7',
     description='DB wrapper library',
     packages=['notanorm'],
     url="https://github.com/AtakamaLLC/notanorm",

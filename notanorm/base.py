@@ -141,6 +141,7 @@ class DbTxGuard:
 class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
     placeholder = '?'
+    default_values = 'default values'
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
@@ -322,13 +323,16 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         sql = "insert into " + table
 
-        sql += '('
-        sql += ','.join([self.quote_keys(k) for k in vals.keys()])
-        sql += ')'
+        if vals:
+            sql += '('
+            sql += ','.join([self.quote_keys(k) for k in vals.keys()])
+            sql += ')'
 
-        sql += " values ("
-        sql += ",".join([self.placeholder for _ in vals.keys()])
-        sql += ")"
+            sql += " values ("
+            sql += ",".join([self.placeholder for _ in vals.keys()])
+            sql += ")"
+        else:
+            sql += " " + self.default_values
 
         return self.query(sql, *vals.values())
 
@@ -463,6 +467,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         none_keys = [key for key, val in where.items() if val is None]
         del_all(where, none_keys)
+
+        if not vals:
+            # nothing to update
+            return
 
         sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         sql += " where "
