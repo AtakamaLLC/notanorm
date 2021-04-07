@@ -158,7 +158,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     1 - self.reconnect_backoff_factor))
 
     def _lock_key(self, *args, **kws):
-        raise NotImplementedError("define _lock_key in your subclass if use_pooled_locks is enabled")
+        raise RuntimeError("define _lock_key in your subclass if use_pooled_locks is enabled")
 
     def __init__(self, *args, **kws):
         assert self.reconnect_backoff_factor > 1
@@ -224,14 +224,14 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self.__conn_p
 
     def model(self) -> DbModel:
-        raise NotImplementedError("Generic models not supported")
+        raise RuntimeError("Generic models not supported")
 
     def create_model(self, model: DbModel):
         for name, schema in model.items():
             self.create_table(name, schema)
 
     def create_table(self, name, schema: DbTable):
-        raise NotImplementedError("Generic models not supported")
+        raise RuntimeError("Generic models not supported")
 
     def execute(self, sql, parameters=()):
         with self.r_lock:
