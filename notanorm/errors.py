@@ -30,3 +30,6 @@ class DbReadOnlyError(DbError):
 
 class ProgrammingError(DbError):
     pass
+
+class MoreThanOneError(DbError, AssertionError):
+    pass
