@@ -45,4 +45,4 @@ obj = db.select_one("foo", bar="hi")
 print(obj.bar)                              # hi
 ```
 
-To use mysql, `pip install mysqliclient`.
+To use mysql, `pip install mysqlclient`.
