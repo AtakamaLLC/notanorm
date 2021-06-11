@@ -3,11 +3,13 @@ from collections import defaultdict
 try:
     import MySQLdb
     import MySQLdb.cursors
+    InterfaceError = type(None)
 except ImportError:
     import pymysql
     pymysql.install_as_MySQLdb()
     import MySQLdb
     import MySQLdb.cursors
+    from pymysql.err import InterfaceError
 
 
 from .base import DbBase
@@ -38,6 +40,8 @@ class MySqlDb(DbBase):
         if isinstance(exp, MySQLdb.OperationalError):
             if err_code in (1075, 1212, 1239, 1293):
                 return err.SchemaError(msg)
+            return err.DbConnectionError(msg)
+        if isinstance(exp, InterfaceError):
             return err.DbConnectionError(msg)
         if isinstance(exp, MySQLdb.IntegrityError):
             return err.IntegrityError(msg)
