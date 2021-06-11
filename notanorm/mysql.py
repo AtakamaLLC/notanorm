@@ -6,6 +6,8 @@ try:
 except ImportError:
     import pymysql
     pymysql.install_as_MySQLdb()
+    import MySQLdb
+    import MySQLdb.cursors
 
 
 from .base import DbBase
