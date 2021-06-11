@@ -1,7 +1,12 @@
 from collections import defaultdict
 
-import MySQLdb
-import MySQLdb.cursors
+try:
+    import MySQLdb
+    import MySQLdb.cursors
+except ImportError:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+
 
 from .base import DbBase
 from .model import DbType, DbModel, DbTable, DbCol, DbIndex
