@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# this tests sqlite, mysqlclient
 cp ci-my.cnf ~/.my.cnf
 
 python3 -m virtualenv env
@@ -7,3 +8,11 @@ python3 -m virtualenv env
 make requirements
 make lint
 make test-all
+
+deactivate
+
+# this tests pymysql
+python3 -m virtualenv env-pymysql
+. ./env-pymysql/bin/activate || . ./env-pymysql/Scripts/activate
+make requirements-pymysql
+make test-mysql
