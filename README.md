@@ -1,3 +1,5 @@
+## Overview
+
 Simple library that makes working with databases more convenient in python.
 
 `notanorm` can return objects instead of rows, protects you from injection, and 
@@ -6,7 +8,8 @@ has a very simply driver interface.
 Decidedly not an ORM, since ORM's are typically mega libraries with 
 often confusing semantics.
 
-Example:
+## Example:
+
 
 ```
 from notanorm import SqliteDb 
@@ -45,4 +48,8 @@ obj = db.select_one("foo", bar="hi")
 print(obj.bar)                              # hi
 ```
 
-To use mysql, `pip install mysqlclient`.
+## Database support
+
+sqlite3 drivers come with python
+
+To use mysql, `pip install mysqlclient`, or if that is not available, `pip install pymysql`
