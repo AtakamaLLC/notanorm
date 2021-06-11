@@ -494,3 +494,14 @@ def test_timeout_rational(db_notmem):
     assert db.max_reconnect_attempts > 1
     assert db.timeout > 1
     assert db.timeout < 60
+
+
+def test_db_more_than_one(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar=1)
+    db.insert("foo", bar=1)
+    with pytest.raises(err.MoreThanOneError):
+        assert db.select_one("foo")
+    with pytest.raises(err.MoreThanOneError):
+        assert db.select_one("foo", bar=1)
+

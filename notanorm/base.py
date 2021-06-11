@@ -9,7 +9,7 @@ import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
 
-from .errors import OperationalError
+from .errors import OperationalError, MoreThanOneError
 from .model import DbModel, DbTable
 from . import errors as err
 
@@ -158,7 +158,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     1 - self.reconnect_backoff_factor))
 
     def _lock_key(self, *args, **kws):
-        raise NotImplementedError("define _lock_key in your subclass if use_pooled_locks is enabled")
+        raise RuntimeError("define _lock_key in your subclass if use_pooled_locks is enabled")
 
     def __init__(self, *args, **kws):
         assert self.reconnect_backoff_factor > 1
@@ -224,14 +224,14 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self.__conn_p
 
     def model(self) -> DbModel:
-        raise NotImplementedError("Generic models not supported")
+        raise RuntimeError("Generic models not supported")
 
     def create_model(self, model: DbModel):
         for name, schema in model.items():
             self.create_table(name, schema)
 
     def create_table(self, name, schema: DbTable):
-        raise NotImplementedError("Generic models not supported")
+        raise RuntimeError("Generic models not supported")
 
     def execute(self, sql, parameters=()):
         with self.r_lock:
@@ -424,6 +424,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self.query(sql, *vals)[0]["k"]
 
     def delete(self, table, **where):
+        """Delete all rows in a table that match the supplied value(s).
+
+
+        For example:  db.delete("table_name", column_name="matching value")
+        """
         sql = "delete "
         sql += " from " + table
 
@@ -436,6 +441,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self.query(sql, *vals)
 
     def delete_all(self, table):
+        """Delete all rows in a table."""
         sql = "delete "
         sql += " from " + table
         return self.query(sql)
@@ -484,18 +490,22 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self.query(sql, *vals)
 
     def update_all(self, table, **vals):
+        """Update all rows in a table to the same values."""
         sql = "update " + table + " set "
         sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         return self.query(sql, *vals.values())
 
     def upsert_all(self, table, **vals):
-        has = self.select(table)
-        if not has:
-            self.insert(table, **vals)
-        else:
-            self.update_all(table, **vals)
+        """Update all rows in a table to the same values, or insert if not present."""
+        with self.transaction():
+            has = self.select(table)
+            if not has:
+                self.insert(table, **vals)
+            else:
+                self.update_all(table, **vals)
 
     def upsert(self, table, where=None, **vals):
+        """Select a row, and if present, update it, otherwise insert."""
         # get where dict from values and primary key
         where = self.infer_where(table, where, vals)
 
@@ -510,6 +520,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                 return self.update(table, where, **vals)
 
     def upsert_non_null(self, table, where=None, **vals):
+        """Same as upsert, but values with None in them are ignored."""
         remove = []
         for key, val in vals.items():
             if val is None:
@@ -521,8 +532,15 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         self.upsert(table, where, **vals)
 
     def select_one(self, table, fields=None, **where):
+        """Select one row.
+
+        Returns None if not found.
+
+        Raises MoreThanOneError if there is more than one result.
+        """
         ret = self.select(table, fields, **where)
-        assert len(ret) <= 1
+        if len(ret) > 1:
+            raise MoreThanOneError
         if ret:
             return ret[0]
         return None
