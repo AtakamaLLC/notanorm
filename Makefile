@@ -14,7 +14,7 @@ test-all:
 	pytest --cov notanorm -v tests --db mysql --db sqlite
 
 test-mysql:
-	pytest -v tests --db mysql
+	pytest -v tests --cov notanorm --cov-append --db mysql
 
 publish:
 	rm -rf dist
