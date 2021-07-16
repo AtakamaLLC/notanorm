@@ -298,6 +298,7 @@ def test_conn_retry(db):
         db.query("create table foo (x integer)")
     db.max_reconnect_attempts = 2
     db.query("create table bar (x integer)")
+    db.max_reconnect_attempts = 99
 
 
 def test_multi_close(db):

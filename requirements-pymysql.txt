@@ -1,0 +1,5 @@
+pytest
+coverage>=5
+pytest-cov
+flake8
+pymysql
