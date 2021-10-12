@@ -88,8 +88,9 @@ class SqliteDb(DbBase):
             res = self.query("PRAGMA index_info(" + row.name + ")")
             clist.append(self.__info_to_index(row, res))
 
-        if not any(c.primary for c in clist):
-            clist.append(DbIndex(fields=tuple(pks), primary=True))
+        if pks:
+            if not any(c.primary for c in clist):
+                clist.append(DbIndex(fields=tuple(pks), primary=True))
         return set(clist)
 
     @staticmethod
@@ -169,7 +170,7 @@ class SqliteDb(DbBase):
             coldef += " not null"
         if col.default:
             coldef += " default(" + col.default + ")"
-        if single_primary.lower() == col.name.lower():
+        if single_primary and single_primary.lower() == col.name.lower():
             coldef += " primary key"
         if col.autoinc:
             if single_primary.lower() == col.name.lower():
@@ -194,7 +195,7 @@ class SqliteDb(DbBase):
         create = "create table " + name + "("
         create += ",".join(coldefs)
         create += ")"
-        log.error(create)
+        log.info(create)
         self.query(create)
         for idx in schema.indexes:
             if not idx.primary:
