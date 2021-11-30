@@ -273,11 +273,12 @@ def test_model_create(db):
     check = db.model()
     assert check == model
 
+
 def test_model_create_nopk(db):
     model = DbModel({
         "foo": DbTable(columns=(
-            DbCol("txt", typ=DbType.TEXT),
-        ), indexes={DbIndex(fields=("txt",), primary=False)})
+            DbCol("inty", typ=DbType.INTEGER),
+        ), indexes={DbIndex(fields=("inty",), primary=False)})
     })
     db.create_model(model)
     check = db.model()
