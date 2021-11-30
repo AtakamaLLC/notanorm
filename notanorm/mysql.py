@@ -32,7 +32,7 @@ class MySqlDb(DbBase):
     def translate_error(exp):
         try:
             err_code = exp.args[0]
-        except (TypeError, AttributeError):  # pragma: no cover
+        except (TypeError, AttributeError, IndexError):  # pragma: no cover
             err_code = 0
 
         msg = str(exp)

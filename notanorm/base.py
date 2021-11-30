@@ -227,6 +227,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                 raise ValueError("No connection returned by _connect for %s" % type(self))
         return self._conn_p
 
+    @property
+    def closed(self) -> bool:
+        return self.__closed
+
     def model(self) -> DbModel:
         raise RuntimeError("Generic models not supported")
 

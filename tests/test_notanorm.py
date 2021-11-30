@@ -42,6 +42,7 @@ def get_mysql_db():
     return MySqlDb(read_default_file="~/.my.cnf", db="test_db")
 
 def cleanup_mysql_db(db):
+    db._DbBase__closed = False
     db.query("DROP DATABASE test_db")
     db.close()
 
@@ -304,6 +305,7 @@ def test_conn_retry(db):
 def test_conn_reopen(db):
     db.query("create table foo (x integer)")
     db.close()
+    assert db.closed
     with pytest.raises(Exception):
         db.query("create table foo (x integer)")
 
