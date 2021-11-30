@@ -274,6 +274,17 @@ def test_model_create(db):
     assert check == model
 
 
+def test_model_create_nopk(db):
+    model = DbModel({
+        "foo": DbTable(columns=(
+            DbCol("inty", typ=DbType.INTEGER),
+        ), indexes={DbIndex(fields=("inty",), primary=False)})
+    })
+    db.create_model(model)
+    check = db.model()
+    assert check == model
+
+
 def test_model_cmp(db):
     model1 = DbModel({
         "foo": DbTable(columns=(
