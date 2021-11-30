@@ -306,10 +306,6 @@ def test_conn_reopen(db):
     db.close()
     with pytest.raises(Exception):
         db.query("create table foo (x integer)")
-    db.auto_reopen = True
-    db.query("create table bar (x integer)")
-    db.max_reconnect_attempts = 99
-
 
 
 def test_multi_close(db):

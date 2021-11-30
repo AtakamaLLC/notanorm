@@ -143,7 +143,6 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     """Abstract base class for database connections."""
     placeholder = '?'
     default_values = 'default values'
-    auto_reopen = False                     # deprecated.  will be removed in a later release
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
