@@ -220,7 +220,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     def _conn(self):
         if not self._conn_p:
-            if self.__closed and not self.auto_reopen:
+            if self.__closed:
                 raise DbClosedError
             self._conn_p = self._connect(*self._conn_args, **self._conn_kws)
             if not self._conn_p:
