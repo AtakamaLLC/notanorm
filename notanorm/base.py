@@ -9,7 +9,7 @@ import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
 
-from .errors import OperationalError, MoreThanOneError
+from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
 from . import errors as err
 
@@ -34,6 +34,7 @@ class CIKey(str):
 
     def __hash__(self):
         return hash(self.lower())
+
 
 class DbRow(dict):
     """Default row factory.
@@ -122,8 +123,8 @@ class DbTxGuard:
         if not self.lock.acquire(timeout=self.db.timeout):
             # raise the same sort of error
             raise OperationalError("database table is locked")
-        self.db._commit(self.db._conn())
-        self.db._begin(self.db._conn())
+        self.db._commit(self.db._conn_p)
+        self.db._begin(self.db._conn_p)
         self.db._transaction += 1
         return self.db
 
@@ -131,9 +132,9 @@ class DbTxGuard:
         self.db._transaction -= 1
         if not self.db._transaction:  # pylint: disable=protected-access
             if exc_type:
-                self.db._rollback(self.db._conn())
+                self.db._rollback(self.db._conn_p)
             else:
-                self.db._commit(self.db._conn())
+                self.db._commit(self.db._conn_p)
         self.lock.release()
 
 
@@ -142,6 +143,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     """Abstract base class for database connections."""
     placeholder = '?'
     default_values = 'default values'
+    auto_reopen = False                     # deprecated.  will be removed in a later release
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
@@ -162,7 +164,8 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     def __init__(self, *args, **kws):
         assert self.reconnect_backoff_factor > 1
-        self.__conn_p = None
+        self.__closed = False
+        self._conn_p = None
         self._conn_args = args
         self._conn_kws = kws
         if self.use_pooled_locks:
@@ -217,11 +220,13 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return self._conn_args, self._conn_kws
 
     def _conn(self):
-        if not self.__conn_p:
-            self.__conn_p = self._connect(*self._conn_args, **self._conn_kws)
-            if not self.__conn_p:
+        if not self._conn_p:
+            if self.__closed and not self.auto_reopen:
+                raise DbClosedError
+            self._conn_p = self._connect(*self._conn_args, **self._conn_kws)
+            if not self._conn_p:
                 raise ValueError("No connection returned by _connect for %s" % type(self))
-        return self.__conn_p
+        return self._conn_p
 
     def model(self) -> DbModel:
         raise RuntimeError("Generic models not supported")
@@ -246,7 +251,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     exp = self.translate_error(exp)
                     log.debug("exception %s -> %s", repr(was), repr(exp))
                     if isinstance(exp, err.DbConnectionError):
-                        self.__conn_p = None
+                        self._conn_p = None
                         if tries == self.max_reconnect_attempts - 1:
                             raise
                         time.sleep(backoff)
@@ -258,9 +263,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def close(self):
         if self.r_lock:
             with self.r_lock:
-                if self.__conn_p:
-                    self.__conn_p.close()
-                    self.__conn_p = None
+                if self._conn_p:
+                    self._conn_p.close()
+                    self.__closed = True
+                    self._conn_p = None
 
     # probably don't override these
 

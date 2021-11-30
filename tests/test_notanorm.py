@@ -292,13 +292,24 @@ def test_model_cmp(db):
 
 def test_conn_retry(db):
     db.query("create table foo (x integer)")
-    db._DbBase__conn_p.close()                  # pylint: disable=no-member
+    db._conn_p.close()                  # pylint: disable=no-member
     db.max_reconnect_attempts = 1
     with pytest.raises(Exception):
         db.query("create table foo (x integer)")
     db.max_reconnect_attempts = 2
     db.query("create table bar (x integer)")
     db.max_reconnect_attempts = 99
+
+
+def test_conn_reopen(db):
+    db.query("create table foo (x integer)")
+    db.close()
+    with pytest.raises(Exception):
+        db.query("create table foo (x integer)")
+    db.auto_reopen = True
+    db.query("create table bar (x integer)")
+    db.max_reconnect_attempts = 99
+
 
 
 def test_multi_close(db):
