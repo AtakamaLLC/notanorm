@@ -1,8 +1,11 @@
+"""Setup for notnorm."""
+
+from os import path
 from setuptools import setup
 
 
 def long_description():
-    from os import path
+    """Autogen description from readme."""
     this_directory = path.abspath(path.dirname(__file__))
     with open(path.join(this_directory, 'README.md')) as readme_f:
         contents = readme_f.read()
@@ -11,7 +14,7 @@ def long_description():
 
 setup(
     name='notanorm',
-    version='1.2.1',
+    version='2.0.1',
     description='DB wrapper library',
     packages=['notanorm'],
     url="https://github.com/AtakamaLLC/notanorm",
@@ -28,5 +31,5 @@ setup(
         'Programming Language :: Python :: 3',
         'Topic :: Software Development',
         'Topic :: Utilities',
-        ],
+    ],
 )

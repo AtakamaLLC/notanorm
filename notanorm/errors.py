@@ -25,11 +25,18 @@ class IntegrityError(DbError):
 class DbConnectionError(DbError, ConnectionError):
     pass
 
+
+class DbClosedError(DbConnectionError):
+    pass
+
+
 class DbReadOnlyError(DbError):
     pass
 
+
 class ProgrammingError(DbError):
     pass
+
 
 class MoreThanOneError(DbError, AssertionError):
     pass

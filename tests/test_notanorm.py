@@ -42,6 +42,7 @@ def get_mysql_db():
     return MySqlDb(read_default_file="~/.my.cnf", db="test_db")
 
 def cleanup_mysql_db(db):
+    db._DbBase__closed = False
     db.query("DROP DATABASE test_db")
     db.close()
 
@@ -303,13 +304,21 @@ def test_model_cmp(db):
 
 def test_conn_retry(db):
     db.query("create table foo (x integer)")
-    db._DbBase__conn_p.close()                  # pylint: disable=no-member
+    db._conn_p.close()                  # pylint: disable=no-member
     db.max_reconnect_attempts = 1
     with pytest.raises(Exception):
         db.query("create table foo (x integer)")
     db.max_reconnect_attempts = 2
     db.query("create table bar (x integer)")
     db.max_reconnect_attempts = 99
+
+
+def test_conn_reopen(db):
+    db.query("create table foo (x integer)")
+    db.close()
+    assert db.closed
+    with pytest.raises(Exception):
+        db.query("create table foo (x integer)")
 
 
 def test_multi_close(db):
