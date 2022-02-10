@@ -123,8 +123,9 @@ class DbTxGuard:
         if not self.lock.acquire(timeout=self.db.timeout):
             # raise the same sort of error
             raise OperationalError("database table is locked")
-        self.db._commit(self.db._conn_p)
-        self.db._begin(self.db._conn_p)
+        if not self.db._transaction:
+            self.db._commit(self.db._conn_p)
+            self.db._begin(self.db._conn_p)
         self.db._transaction += 1
         return self.db
 
