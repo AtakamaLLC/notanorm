@@ -1,7 +1,7 @@
 """Model definition support."""
 
 from enum import Enum
-from typing import NamedTuple, Tuple, Any, Dict, Set
+from typing import NamedTuple, Tuple, Any, Set
 
 __all__ = ["DbType", "DbCol", "DbIndex", "DbTable", "DbModel"]
 
@@ -64,4 +64,3 @@ class DbModel(dict):
 
     def __eq__(self, other):
         return self._as_cmp() == other._as_cmp()
-

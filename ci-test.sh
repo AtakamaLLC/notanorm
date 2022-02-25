@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # this tests sqlite, mysqlclient
 cp ci-my.cnf ~/.my.cnf

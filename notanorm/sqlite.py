@@ -9,6 +9,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
+
 class SqliteDb(DbBase):
     placeholder = "?"
     use_pooled_locks = True
@@ -54,7 +55,7 @@ class SqliteDb(DbBase):
         self.__timeout = val
 
     def __columns(self, table):
-        res = self.query("SELECT name, type from sqlite_master")
+        self.query("SELECT name, type from sqlite_master")
 
         tinfo = self.query("PRAGMA table_info(" + table + ")")
         if len(tinfo) == 0:
@@ -205,7 +206,6 @@ class SqliteDb(DbBase):
                 icreate += ",".join(idx.fields)
                 icreate += ")"
                 self.query(icreate)
-
 
     @staticmethod
     def _obj_factory(cursor, row):
