@@ -247,11 +247,22 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         with self.r_lock:
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):
+                cursor = None
+
                 try:
                     cursor = self._cursor(self._conn())
                     cursor.execute(sql, parameters)
                     break
                 except Exception as exp:                  # pylint: disable=broad-except
+                    if cursor:
+                        # cursor will be automatically closed on del, but better to do it explicitly
+                        # Some tools, like pytest, will capture locals, which may keep the cursor
+                        # alive indefinitely
+                        try:
+                            cursor.close()
+                        except Exception as close_exc:
+                            log.debug("Failed to close temp cursor: %r", close_exc)
+
                     was = exp
                     exp = self.translate_error(exp)
                     log.debug("exception %s -> %s", repr(was), repr(exp))
