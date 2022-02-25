@@ -155,8 +155,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     @property
     def timeout(self):
         # total timeout for connections == geometric sum
-        return self.reconnect_backoff_start * ((1 - self.reconnect_backoff_factor ** self.max_reconnect_attempts) / (
-                    1 - self.reconnect_backoff_factor))
+        return self.reconnect_backoff_start * (
+            (1 - self.reconnect_backoff_factor ** self.max_reconnect_attempts) /
+            (1 - self.reconnect_backoff_factor)
+        )
 
     def _lock_key(self, *args, **kws):
         raise RuntimeError("define _lock_key in your subclass if use_pooled_locks is enabled")

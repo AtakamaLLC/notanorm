@@ -2,6 +2,7 @@ import logging
 
 logging.getLogger().setLevel(logging.DEBUG)
 
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "db")
 
