@@ -575,11 +575,11 @@ def test_select_gen_not_lock(db: DbBase):
     thread = threading.Thread(target=slow_q, args=(db,), daemon=True)
     thread.start()
 
+    start = time.time()
     with db.transaction():
         for i in range(500, 600):
             db.insert("foo", bar=i)
 
-    start = time.time()
     fast_result = []
     for ent in db.select_gen("foo"):
         fast_result.append(ent.bar)
@@ -589,6 +589,7 @@ def test_select_gen_not_lock(db: DbBase):
 
     assert thread_result == list(range(500))
     assert fast_result == list(range(600))
+    # this prevents a slow machine from falsely succeeding
     assert (end - start) < 1
 
 

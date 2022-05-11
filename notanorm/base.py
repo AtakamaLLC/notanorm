@@ -462,10 +462,12 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         sql += where
 
         if order_by:
-            sql += " order by "
             if isinstance(order_by, str):
                 order_by = [order_by]
-            sql += ",".join(order_by)
+            order_by_fd = ",".join(order_by)
+            # todo: limit order_by more strictly
+            assert ';' not in order_by_fd
+            sql += " order by " + order_by_fd
 
         return sql, vals, factory
 
