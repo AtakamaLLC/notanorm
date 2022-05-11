@@ -426,7 +426,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     vals.append(val)
         return " where " + sql, vals
 
-    def __select_to_query(self, table, fields=None, dict_where=None, **where):
+    def __select_to_query(self, table, *, fields, dict_where, order_by, **where):
         sql = "select "
 
         no_from = False
@@ -461,18 +461,24 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         where, vals = self._where(where)
         sql += where
 
+        if order_by:
+            sql += " order by "
+            if isinstance(order_by, str):
+                order_by = [order_by]
+            sql += ",".join(order_by)
+
         return sql, vals, factory
 
-    def select(self, table, fields=None, dict_where=None, **where):
+    def select(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
            __class keyword optionally replaces Row obj.
         """
-        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, **where)
+        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
         return self.query(sql, *vals, factory=factory)
     
-    def select_gen(self, table, fields=None, dict_where=None, **where):
+    def select_gen(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Same as select, but returns a generator."""
-        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, **where)
+        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
         return self.query(sql, *vals, factory=factory)
 
     def count(self, table, where=None, **kws):

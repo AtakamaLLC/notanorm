@@ -148,6 +148,16 @@ def test_db_row_obj_case(db):
     assert "bar" in ret
 
 
+def test_db_order(db):
+    db.query("create table foo (bar text)")
+    for i in range(10):
+        db.insert("foo", bar=i)
+
+    fwd = db.select("foo", order_by=["bar"])
+
+    assert db.select("foo", order_by="bar desc") == list(reversed(fwd))
+
+
 def test_db_row_obj_iter(db):
     db.query("create table foo (Bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
