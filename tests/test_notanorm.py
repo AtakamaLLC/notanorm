@@ -6,10 +6,13 @@ import multiprocessing
 import copy
 import sqlite3
 import threading
+import time
 from multiprocessing.pool import ThreadPool
+from typing import Generator
 
 import pytest
 
+import notanorm.errors
 from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 
 import notanorm.errors as err
@@ -36,6 +39,7 @@ def db_sqlite_notmem(tmp_path):
 
 def get_mysql_db():
     from notanorm import MySqlDb
+
     db = MySqlDb(read_default_file="~/.my.cnf")
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
@@ -75,7 +79,7 @@ def db_notmem_fixture(request, db_name):
 def pytest_generate_tests(metafunc):
     """Converts user-argument --db to fixture parameters."""
 
-    global PYTEST_REG               # pylint: disable=global-statement
+    global PYTEST_REG  # pylint: disable=global-statement
     if not PYTEST_REG:
         if any(db in metafunc.fixturenames for db in ("db", "db_notmem")):
             db_names = metafunc.config.getoption("db", [])
@@ -84,7 +88,7 @@ def pytest_generate_tests(metafunc):
                 if mark.name == "db":
                     db_names = set(mark.args).intersection(set(db_names))
                     break
-            db_names = sorted(db_names)         # xdist compat
+            db_names = sorted(db_names)  # xdist compat
             metafunc.parametrize("db_name", db_names, scope="function")
 
 
@@ -146,15 +150,63 @@ def test_db_row_obj_case(db):
     assert "bar" in ret
 
 
+def test_db_order(db):
+    db.query("create table foo (bar integer)")
+    for i in range(10):
+        db.insert("foo", bar=i)
+
+    fwd = db.select("foo", order_by=["bar"])
+
+    assert db.select("foo", order_by="bar desc") == list(reversed(fwd))
+    assert next(iter(db.select("foo", order_by="bar desc"))).bar == 9
+
+
+def test_db_select_gen_ex(db):
+    db.query("create table foo (bar integer)")
+    db.insert("foo", bar=1)
+    db.insert("foo", bar=2)
+
+    # works normally
+    generator = db.select_gen("foo", order_by="bar")
+    assert next(iter(generator)).bar == 1
+
+    # it's a generator
+    generator = db.select_gen("foox", order_by="bar")
+    assert isinstance(generator, Generator)
+
+    # raises error correctly
+    with pytest.raises(notanorm.errors.TableNotFoundError):
+        for _ in generator:
+            raise ValueError
+
+    # errors pass up correctly
+    generator = db.select_gen("foo", order_by="bar")
+    with pytest.raises(ValueError):
+        for _ in generator:
+            raise ValueError
+
+    class Foo:
+        def __init__(self, bar=None):
+            self.bar = bar
+            assert False, "not a good foo"
+
+    # bad class
+    db.register_class("foo", Foo)
+    generator = db.select_gen("foo", order_by="bar")
+    with pytest.raises(AssertionError):
+        for _ in generator:
+            pass
+
+
 def test_db_row_obj_iter(db):
     db.query("create table foo (Bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
 
     ret = db.select_one("foo")
     for k in ret:
-        assert k == 'Bar'
+        assert k == "Bar"
 
-    assert 'Bar' in ret
+    assert "Bar" in ret
 
 
 def test_db_row_obj_integer_access(db):
@@ -197,9 +249,10 @@ def test_db_select_in(db):
     db.insert("foo", bar="hi")
     db.insert("foo", bar="ho")
 
-    res = [DbRow({'bar': 'hi'}), DbRow({'bar': 'ho'})]
+    res = [DbRow({"bar": "hi"}), DbRow({"bar": "ho"})]
 
     assert db.select("foo", ["bar"], {"bar": ["hi", "ho"]}) == res
+    assert db.select("foo", bar=["hi", "ho"]) == res
 
 
 def test_db_select_join(db):
@@ -207,7 +260,9 @@ def test_db_select_join(db):
     db.query("create table baz (col text, d text)")
     db.insert("foo", col="hi", d="foo")
     db.insert("baz", col="hi", d="baz")
-    res = db.select("foo inner join baz on foo.col=baz.col", ["baz.d"], {"foo.col": "hi"})
+    res = db.select(
+        "foo inner join baz on foo.col=baz.col", ["baz.d"], {"foo.col": "hi"}
+    )
     assert res[0].d == "baz"
 
 
@@ -228,7 +283,7 @@ def test_db_update_and_select(db):
     assert db.select("foo")[0].baz == "up2"
 
     # alternate interface where the select is explicit
-    assert db.select("foo", ['baz'])[0].baz, "up2"
+    assert db.select("foo", ["baz"])[0].baz, "up2"
 
 
 def test_db_upsert(db):
@@ -261,7 +316,9 @@ def test_db_insert_no_vals(db):
 
 
 def test_db_upsert_non_null(db):
-    db.query("create table foo (bar varchar(32) not null primary key, baz text, bop text)")
+    db.query(
+        "create table foo (bar varchar(32) not null primary key, baz text, bop text)"
+    )
     db.insert("foo", bar="hi", baz="ho", bop="keep")
 
     # updates baz... but not bop to none
@@ -272,44 +329,65 @@ def test_db_upsert_non_null(db):
 
 
 def test_model_create(db):
-    model = DbModel({
-        "foo": DbTable(columns=(
-            DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-            DbCol("blob", typ=DbType.BLOB),
-            DbCol("tex", typ=DbType.TEXT, notnull=True),
-            DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-            DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-            DbCol("flt", typ=DbType.FLOAT),
-            DbCol("dbl", typ=DbType.DOUBLE),
-        ), indexes={DbIndex(fields=("auto",), primary=True), DbIndex(fields=("flt",), unique=True)})
-    })
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("blob", typ=DbType.BLOB),
+                    DbCol("tex", typ=DbType.TEXT, notnull=True),
+                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
+                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+                    DbCol("flt", typ=DbType.FLOAT),
+                    DbCol("dbl", typ=DbType.DOUBLE),
+                ),
+                indexes={
+                    DbIndex(fields=("auto",), primary=True),
+                    DbIndex(fields=("flt",), unique=True),
+                },
+            )
+        }
+    )
     db.create_model(model)
     check = db.model()
     assert check == model
 
 
 def test_model_create_nopk(db):
-    model = DbModel({
-        "foo": DbTable(columns=(
-            DbCol("inty", typ=DbType.INTEGER),
-        ), indexes={DbIndex(fields=("inty",), primary=False)})
-    })
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(DbCol("inty", typ=DbType.INTEGER),),
+                indexes={DbIndex(fields=("inty",), primary=False)},
+            )
+        }
+    )
     db.create_model(model)
     check = db.model()
     assert check == model
 
 
 def test_model_cmp(db):
-    model1 = DbModel({
-        "foo": DbTable(columns=(
-            DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-        ), indexes={DbIndex(fields=("Auto",), primary=True)})
-    })
-    model2 = DbModel({
-        "FOO": DbTable(columns=(
-            DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
-        ), indexes={DbIndex(fields=("autO",), primary=True)})
-    })
+    model1 = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                ),
+                indexes={DbIndex(fields=("Auto",), primary=True)},
+            )
+        }
+    )
+    model2 = DbModel(
+        {
+            "FOO": DbTable(
+                columns=(
+                    DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                ),
+                indexes={DbIndex(fields=("autO",), primary=True)},
+            )
+        }
+    )
 
     assert model1["foo"].columns[0] == model2["FOO"].columns[0]
     assert model1 == model2
@@ -317,7 +395,7 @@ def test_model_cmp(db):
 
 def test_conn_retry(db):
     db.query("create table foo (x integer)")
-    db._conn_p.close()                  # pylint: disable=no-member
+    db._conn_p.close()  # pylint: disable=no-member
     db.max_reconnect_attempts = 1
     with pytest.raises(Exception):
         db.query("create table foo (x integer)")
@@ -367,6 +445,7 @@ def get_db(db_name, db_conn):
         return SqliteDb(*db_conn[0], **db_conn[1])
     else:
         from notanorm import MySqlDb
+
         return MySqlDb(*db_conn[0], **db_conn[1])
 
 
@@ -389,14 +468,20 @@ def _test_upsert_i(db_name, i, db_conn, mod):
 @pytest.mark.db("sqlite")
 def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
     db = db_notmem
-    db.query("create table foo (bar integer primary key, baz integer, cnt integer default 0)")
+    db.query(
+        "create table foo (bar integer primary key, baz integer, cnt integer default 0)"
+    )
 
     num = 22
     ts = []
     mod = 5
 
     for i in range(0, num):
-        currt = multiprocessing.Process(target=_test_upsert_i, args=(db_name, i, db.connection_args, mod), daemon=True)
+        currt = multiprocessing.Process(
+            target=_test_upsert_i,
+            args=(db_name, i, db.connection_args, mod),
+            daemon=True,
+        )
         ts.append(currt)
 
     for t in ts:
@@ -417,7 +502,9 @@ def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
 @pytest.mark.db("sqlite")
 def test_upsert_threaded_multidb(db_notmem, db_name):
     db = db_notmem
-    db.query("create table foo (bar integer primary key, baz integer, cnt integer default 0)")
+    db.query(
+        "create table foo (bar integer primary key, baz integer, cnt integer default 0)"
+    )
 
     num = 22
     ts = []
@@ -431,7 +518,9 @@ def test_upsert_threaded_multidb(db_notmem, db_name):
                 _db.update("foo", bar=up_i % up_mod, cnt=row.cnt + 1)
 
     for i in range(0, num):
-        currt = threading.Thread(target=_upsert_i, args=(i, db_name, db.connection_args, mod), daemon=True)
+        currt = threading.Thread(
+            target=_upsert_i, args=(i, db_name, db.connection_args, mod), daemon=True
+        )
         ts.append(currt)
 
     for t in ts:
@@ -476,7 +565,6 @@ def test_transactions_deadlock(db):
 
 
 def test_upsert_thready_one(db_notmem):
-
     db = db_notmem
 
     db.query("create table foo (bar integer primary key, baz integer)")
@@ -506,6 +594,49 @@ def test_upsert_thready_one(db_notmem):
 
     assert not failed
     assert len(db.select("foo")) == mod
+
+
+def test_select_gen_not_lock(db: DbBase):
+    db.query("CREATE table foo (bar integer primary key)")
+
+    with db.transaction():
+        for i in range(500):
+            db.insert("foo", bar=i)
+
+    thread_result = []
+
+    ev1 = threading.Event()
+    ev2 = threading.Event()
+
+    def slow_q():
+        nonlocal thread_result
+        for row in db.select_gen("foo", order_by="bar desc"):
+            thread_result.append(row.bar)
+            ev1.set()
+            ev2.wait()
+
+    thread = threading.Thread(target=slow_q, daemon=True)
+    thread.start()
+
+    ev1.wait()
+    with db.transaction():
+        for i in range(500, 600):
+            db.insert("foo", bar=i)
+
+    ev2.set()
+
+    start = time.time()
+    fast_result = []
+    for ent in db.select_gen("foo", order_by="bar desc"):
+        fast_result.append(ent.bar)
+    end = time.time()
+
+    thread.join()
+
+    assert thread_result == list(reversed(range(500)))
+    assert fast_result == list(reversed(range(600)))
+    # this prevents a slow machine from falsely succeeding
+    assert (end - start) < 1
 
 
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
