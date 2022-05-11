@@ -27,11 +27,13 @@ def db_sqlite():
     yield db
     db.close()
 
+
 @pytest.fixture
 def db_sqlite_notmem(tmp_path):
     db = SqliteDb(str(tmp_path / "db"))
     yield db
     db.close()
+
 
 def get_mysql_db():
     from notanorm import MySqlDb
@@ -42,10 +44,12 @@ def get_mysql_db():
 
     return MySqlDb(read_default_file="~/.my.cnf", db="test_db")
 
+
 def cleanup_mysql_db(db):
     db._DbBase__closed = False
     db.query("DROP DATABASE test_db")
     db.close()
+
 
 @pytest.fixture
 def db_mysql():
@@ -53,17 +57,21 @@ def db_mysql():
     yield db
     cleanup_mysql_db(db)
 
+
 @pytest.fixture
 def db_mysql_notmem(db_mysql):
     yield db_mysql
+
 
 @pytest.fixture(name="db")
 def db_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name)
 
+
 @pytest.fixture(name="db_notmem")
 def db_notmem_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name + "_notmem")
+
 
 def pytest_generate_tests(metafunc):
     """Converts user-argument --db to fixture parameters."""
@@ -85,6 +93,7 @@ def test_db_basic(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
     assert db.query("select bar from foo")[0].bar == "hi"
+
 
 def test_db_delete(db):
     db.query("create table foo (bar text)")
@@ -137,6 +146,7 @@ def test_db_row_obj_case(db):
     assert "bar" not in ret.keys()
     assert "bar" in ret
 
+
 def test_db_row_obj_iter(db):
     db.query("create table foo (Bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -146,6 +156,7 @@ def test_db_row_obj_iter(db):
         assert k == 'Bar'
 
     assert 'Bar' in ret
+
 
 def test_db_row_obj_integer_access(db):
     db.query("create table foo (a text, b text, c text)")
@@ -160,6 +171,7 @@ def test_db_row_obj_integer_access(db):
     assert len(list(ret.keys())) == 3
     assert len(list(ret.values())) == 3
     assert len(list(ret.items())) == 3
+
 
 def test_db_class(db):
     db.query("create table foo (bar text)")
@@ -243,6 +255,7 @@ def test_db_upsert(db):
 
     # no-op
     db.update("foo", bar="hi")
+
 
 def test_db_insert_no_vals(db):
     db.query("create table foo (bar integer default 1)")
@@ -350,6 +363,7 @@ def test_safedb_inmemorydb(db):
 
     assert db.query("select bar from foo")[0].bar == 100
 
+
 def get_db(db_name, db_conn):
     if db_name == "sqlite":
         return SqliteDb(*db_conn[0], **db_conn[1])
@@ -357,9 +371,11 @@ def get_db(db_name, db_conn):
         from notanorm import MySqlDb
         return MySqlDb(*db_conn[0], **db_conn[1])
 
+
 def cleanup_db(db):
     if db.__class__.__name__ == "MySqlDb":
         cleanup_mysql_db(db)
+
 
 def _test_upsert_i(db_name, i, db_conn, mod):
     db = get_db(db_name, db_conn)
@@ -368,6 +384,7 @@ def _test_upsert_i(db_name, i, db_conn, mod):
         db.upsert("foo", bar=i % mod, baz=i)
         row = db.select_one("foo", bar=i % mod)
         db.update("foo", bar=i % mod, cnt=row.cnt + 1)
+
 
 # todo: maybe using the native "mysql connector" would enable fixing this
 #       but really, why would mysql allow blocking transactions like sqlite?
@@ -395,6 +412,7 @@ def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
     for i in range(mod):
         ent = db.select_one("foo", bar=i)
         assert ent.cnt == int(num / mod) + (i < num % mod)
+
 
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
 # todo: maybe using the native "mysql connector" would enable fixing this
@@ -430,6 +448,7 @@ def test_upsert_threaded_multidb(db_notmem, db_name):
         ent = db.select_one("foo", bar=i)
         assert ent.cnt == int(num / mod) + (i < num % mod)
 
+
 def test_transactions_any_exc(db):
     class TestExc(Exception):
         pass
@@ -441,6 +460,7 @@ def test_transactions_any_exc(db):
             db.delete_all("foo")
             raise TestExc()
     assert db.select("foo")[0].bar == 5
+
 
 def test_transactions_deadlock(db):
     def trans_thread(orig_db):
@@ -536,6 +556,7 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
             with db1.transaction():
                 pass
 
+
 @pytest.mark.db("sqlite")
 def test_readonly_fail(db):
     db.query("create table foo (bar text)")
@@ -543,6 +564,7 @@ def test_readonly_fail(db):
     db.query("PRAGMA query_only=ON;")
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
+
 
 def test_timeout_rational(db_notmem):
     db = db_notmem
@@ -559,13 +581,3 @@ def test_db_more_than_one(db):
         assert db.select_one("foo")
     with pytest.raises(err.MoreThanOneError):
         assert db.select_one("foo", bar=1)
-
-def test_db_more_than_one(db):
-    db.query("create table foo (bar text)")
-    db.insert("foo", bar=1)
-    db.insert("foo", bar=1)
-    with pytest.raises(err.MoreThanOneError):
-        assert db.select_one("foo")
-    with pytest.raises(err.MoreThanOneError):
-        assert db.select_one("foo", bar=1)
-

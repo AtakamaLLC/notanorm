@@ -126,7 +126,6 @@ class MySqlDb(DbBase):
                 icreate += ")"
                 self.query(icreate)
 
-
     def model(self):
         tabs = self.query("show tables")
         ret = DbModel()

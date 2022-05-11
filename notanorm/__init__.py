@@ -10,4 +10,4 @@ from .base import DbBase
 from .model import DbType, DbCol, DbTable, DbModel, DbIndex
 from . import errors
 
-__all__ = ["SqliteDb", "MySqlDb", "DbRow", "DbBase", "DbType", "DbCol", "DbTable", "DbModel", "DbIndex"]
+__all__ = ["SqliteDb", "MySqlDb", "DbRow", "DbBase", "DbType", "DbCol", "DbTable", "DbModel", "DbIndex", "errors"]
