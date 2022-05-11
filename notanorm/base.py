@@ -290,12 +290,45 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         """Class will no longer be used"""
         self.__classes.pop(table, None)
 
-    def query(self, sql, *args, factory=None):
-        """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
-        # for debugging....
+    def __debug_sql(self, sql, args):
         self.debug_sql = sql + ";"
         self.debug_args = args
         log.debug("SQL: %s, ARGS%s", sql, str(args))
+
+    def query_gen(self, sql: str, *args, factory=None):
+        """Same as query, but returns a generator."""
+        self.__debug_sql(sql, args)
+
+        fetch = None
+
+        with self.r_lock:
+            try:
+                fetch = self.execute(sql, tuple(args))
+            except Exception as ex:
+                debug_str = "SQL: " + sql + ", ARGS" + str(args)
+                log.debug("sql query error %s", repr(ex))
+                raise type(ex)(str(ex) + ", " + debug_str) from ex
+
+        try:
+            while True:
+                row = fetch.fetchone()
+                if factory:
+                    row = factory(**row)
+                else:
+                    if type(row) is not DbRow:
+                        row = DbRow(row)
+                yield row
+        except Exception as ex:
+            debug_str = "SQL: " + sql + ", ARGS" + str(args)
+            log.debug("sql fetch error %s", repr(ex))
+            raise type(ex)(str(ex) + ", " + debug_str) from ex
+        finally:
+            if fetch:
+                fetch.close()
+
+    def query(self, sql: str, *args, factory=None):
+        """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
+        self.__debug_sql(sql, args)
 
         fetch = None
 
@@ -326,7 +359,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         return ret
 
-    def insert(self, table, ins=None, **vals):
+    def insert(self, table: str, ins=None, **vals):
         if ins:
             vals.update(ins)
 
@@ -380,10 +413,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     vals.append(val)
         return " where " + sql, vals
 
-    def select(self, table, fields=None, dict_where=None, **where):
-        """ Select from table (or join) using fields (or *) and where (vals can be list or none).
-            __class keyword optionally replaces Row obj.
-        """
+    def __select_to_query(self, table, fields=None, dict_where=None, **where):
         sql = "select "
 
         no_from = False
@@ -418,6 +448,18 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         where, vals = self._where(where)
         sql += where
 
+        return sql, vals, factory
+
+    def select(self, table, fields=None, dict_where=None, **where):
+        """Select from table (or join) using fields (or *) and where (vals can be list or none).
+           __class keyword optionally replaces Row obj.
+        """
+        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, **where)
+        return self.query(sql, *vals, factory=factory)
+    
+    def select_gen(self, table, fields=None, dict_where=None, **where):
+        """Same as select, but returns a generator."""
+        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, **where)
         return self.query(sql, *vals, factory=factory)
 
     def count(self, table, where=None, **kws):

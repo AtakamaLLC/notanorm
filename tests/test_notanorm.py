@@ -6,6 +6,7 @@ import multiprocessing
 import copy
 import sqlite3
 import threading
+import time
 from multiprocessing.pool import ThreadPool
 
 import pytest
@@ -188,6 +189,7 @@ def test_db_select_in(db):
     res = [DbRow({'bar': 'hi'}), DbRow({'bar': 'ho'})]
 
     assert db.select("foo", ["bar"], {"bar": ["hi", "ho"]}) == res
+    assert db.select("foo", bar=["hi", "ho"]) == res
 
 
 def test_db_select_join(db):
@@ -456,7 +458,6 @@ def test_transactions_deadlock(db):
 
 
 def test_upsert_thready_one(db_notmem):
-
     db = db_notmem
 
     db.query("create table foo (bar integer primary key, baz integer)")
@@ -487,6 +488,39 @@ def test_upsert_thready_one(db_notmem):
     assert not failed
     assert len(db.select("foo")) == mod
 
+def test_select_gen_not_lock(db: DbBase):
+    db.query("CREATE table foo (bar integer primary key)")
+
+    with db.transaction():
+        for i in range(500):
+            db.insert("foo", bar=i)
+
+    thread_result = []
+    def slow_q(orig_db):
+        nonlocal thread_result
+        for row in db.select_gen("foo"):
+            if i == 0:
+                time.sleep(1)
+            thread_result.append(row.bar)
+
+    thread = threading.Thread(target=slow_q, args=(db,), daemon=True)
+    thread.start()
+
+    with db.transaction():
+        for i in range(500, 600):
+            db.insert("foo", bar=i)
+
+    start = time.time()
+    fast_result = []
+    for ent in db.select_gen("foo"):
+        fast_result.append(ent.bar)
+    end = time.time()
+
+    thread.join()
+
+    assert thread_result == list(range(500))
+    assert fast_result == list(range(600))
+    assert (end - start) < 1
 
 # for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
 # todo: maybe using the native "connector" would enable fixing this
@@ -516,6 +550,15 @@ def test_timeout_rational(db_notmem):
     assert db.timeout > 1
     assert db.timeout < 60
 
+
+def test_db_more_than_one(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar=1)
+    db.insert("foo", bar=1)
+    with pytest.raises(err.MoreThanOneError):
+        assert db.select_one("foo")
+    with pytest.raises(err.MoreThanOneError):
+        assert db.select_one("foo", bar=1)
 
 def test_db_more_than_one(db):
     db.query("create table foo (bar text)")
