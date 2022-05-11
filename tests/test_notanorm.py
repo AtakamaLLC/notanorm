@@ -8,9 +8,11 @@ import sqlite3
 import threading
 import time
 from multiprocessing.pool import ThreadPool
+from typing import Generator
 
 import pytest
 
+import notanorm.errors
 from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 
 import notanorm.errors as err
@@ -157,6 +159,43 @@ def test_db_order(db):
 
     assert db.select("foo", order_by="bar desc") == list(reversed(fwd))
     assert next(iter(db.select("foo", order_by="bar desc"))).bar == 9
+
+
+def test_db_select_gen_ex(db):
+    db.query("create table foo (bar integer)")
+    db.insert("foo", bar=1)
+    db.insert("foo", bar=2)
+
+    # works normally
+    generator = db.select_gen("foo", order_by="bar")
+    assert next(iter(generator)).bar == 1
+
+    # it's a generator
+    generator = db.select_gen("foox", order_by="bar")
+    assert isinstance(generator, Generator)
+
+    # raises error correctly
+    with pytest.raises(notanorm.errors.TableNotFoundError):
+        for _ in generator:
+            raise ValueError
+
+    # errors pass up correctly
+    generator = db.select_gen("foo", order_by="bar")
+    with pytest.raises(ValueError):
+        for _ in generator:
+            raise ValueError
+
+    class Foo:
+        def __init__(self, bar=None):
+            self.bar = bar
+            assert False, "not a good foo"
+
+    # bad class
+    db.register_class("foo", Foo)
+    generator = db.select_gen("foo", order_by="bar")
+    with pytest.raises(AssertionError):
+        for _ in generator:
+            pass
 
 
 def test_db_row_obj_iter(db):

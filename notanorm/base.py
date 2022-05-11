@@ -333,10 +333,6 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     if type(row) is not DbRow:
                         row = DbRow(row)
                 yield row
-        except Exception as ex:
-            debug_str = "SQL: " + sql + ", ARGS" + str(args)
-            log.debug("sql fetch error %s", repr(ex))
-            raise type(ex)(str(ex) + ", " + debug_str) from ex
         finally:
             if fetch:
                 fetch.close()
