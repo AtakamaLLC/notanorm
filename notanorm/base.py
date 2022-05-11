@@ -325,6 +325,8 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         try:
             while True:
                 row = fetch.fetchone()
+                if row is None:
+                    break
                 if factory:
                     row = factory(**row)
                 else:
@@ -481,7 +483,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def select_gen(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
-        return self.query(sql, *vals, factory=factory)
+        return self.query_gen(sql, *vals, factory=factory)
 
     def count(self, table, where=None, **kws):
         if where and kws:

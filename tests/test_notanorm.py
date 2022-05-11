@@ -149,13 +149,14 @@ def test_db_row_obj_case(db):
 
 
 def test_db_order(db):
-    db.query("create table foo (bar text)")
+    db.query("create table foo (bar integer)")
     for i in range(10):
         db.insert("foo", bar=i)
 
     fwd = db.select("foo", order_by=["bar"])
 
     assert db.select("foo", order_by="bar desc") == list(reversed(fwd))
+    assert next(iter(db.select("foo", order_by="bar desc"))).bar == 9
 
 
 def test_db_row_obj_iter(db):
@@ -570,10 +571,10 @@ def test_select_gen_not_lock(db: DbBase):
 
     def slow_q():
         nonlocal thread_result
-        for row in db.select_gen("foo"):
+        for row in db.select_gen("foo", order_by="bar desc"):
+            thread_result.append(row.bar)
             ev1.set()
             ev2.wait()
-            thread_result.append(row.bar)
 
     thread = threading.Thread(target=slow_q, daemon=True)
     thread.start()
@@ -587,14 +588,14 @@ def test_select_gen_not_lock(db: DbBase):
 
     start = time.time()
     fast_result = []
-    for ent in db.select_gen("foo"):
+    for ent in db.select_gen("foo", order_by="bar desc"):
         fast_result.append(ent.bar)
     end = time.time()
 
     thread.join()
 
-    assert thread_result == list(range(500))
-    assert fast_result == list(range(600))
+    assert thread_result == list(reversed(range(500)))
+    assert fast_result == list(reversed(range(600)))
     # this prevents a slow machine from falsely succeeding
     assert (end - start) < 1
 
