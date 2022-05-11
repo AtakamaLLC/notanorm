@@ -565,21 +565,27 @@ def test_select_gen_not_lock(db: DbBase):
 
     thread_result = []
 
-    def slow_q(orig_db):
+    ev1 = threading.Event()
+    ev2 = threading.Event()
+
+    def slow_q():
         nonlocal thread_result
         for row in db.select_gen("foo"):
-            if i == 0:
-                time.sleep(1)
+            ev1.set()
+            ev2.wait()
             thread_result.append(row.bar)
 
-    thread = threading.Thread(target=slow_q, args=(db,), daemon=True)
+    thread = threading.Thread(target=slow_q, daemon=True)
     thread.start()
 
-    start = time.time()
+    ev1.wait()
     with db.transaction():
         for i in range(500, 600):
             db.insert("foo", bar=i)
 
+    ev2.set()
+
+    start = time.time()
     fast_result = []
     for ent in db.select_gen("foo"):
         fast_result.append(ent.bar)
