@@ -47,6 +47,9 @@ class MySqlDb(DbBase):
             return err.DbConnectionError(msg)
         if isinstance(exp, MySQLdb.IntegrityError):
             return err.IntegrityError(msg)
+        if isinstance(exp, MySQLdb.ProgrammingError):
+            if exp.args and exp.args[0] == 1146:
+                return err.TableNotFoundError(exp.args[1])
 
         return exp
 
