@@ -477,7 +477,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         """
         sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
         return self.query(sql, *vals, factory=factory)
-    
+
     def select_gen(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
