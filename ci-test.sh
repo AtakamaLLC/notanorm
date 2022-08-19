@@ -2,7 +2,7 @@
 set -e
 
 # this tests sqlite, mysqlclient
-#cp ci-my.cnf ~/.my.cnf
+cp ci-my.cnf ~/.my.cnf
 
 python3 -m virtualenv env
 make requirements
