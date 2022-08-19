@@ -663,6 +663,13 @@ def test_readonly_fail(db):
         db.insert("foo", bar="y2")
 
 
+@pytest.mark.db("sqlite")
+def test_missing_column(db):
+    db.query("create table foo (bar text)")
+    with pytest.raises(err.NoColumnError):
+        db.insert("foo", nocol="y2")
+
+
 def test_timeout_rational(db_notmem):
     db = db_notmem
     assert db.max_reconnect_attempts > 1

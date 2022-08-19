@@ -42,7 +42,7 @@ class MySqlDb(DbBase):
                 return err.SchemaError(msg)
             if err_code in (1170, ):
                 return err.OperationalError(msg)
-            return err.DbConnectionError(msg)
+            return err.OperationalError(msg)
         if isinstance(exp, InterfaceError):
             return err.DbConnectionError(msg)
         if isinstance(exp, MySQLdb.IntegrityError):

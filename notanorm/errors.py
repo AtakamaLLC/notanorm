@@ -14,6 +14,10 @@ class TableNotFoundError(SchemaError):
     pass
 
 
+class NoColumnError(SchemaError):
+    pass
+
+
 class OperationalError(DbError):
     pass
 
