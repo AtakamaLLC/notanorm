@@ -663,6 +663,12 @@ def test_readonly_fail(db):
         db.insert("foo", bar="y2")
 
 
+def test_missing_column(db):
+    db.query("create table foo (bar text)")
+    with pytest.raises(err.NoColumnError):
+        db.insert("foo", nocol="y2")
+
+
 def test_timeout_rational(db_notmem):
     db = db_notmem
     assert db.max_reconnect_attempts > 1
@@ -678,3 +684,26 @@ def test_db_more_than_one(db):
         assert db.select_one("foo")
     with pytest.raises(err.MoreThanOneError):
         assert db.select_one("foo", bar=1)
+
+
+def test_db_integ(db):
+    if isinstance(db, SqliteDb):
+        db.query("pragma foreign_keys=on;")
+    db.query("create table foo (bar integer primary key)")
+    db.query("create table zop (bar integer, foreign key (bar) references foo (bar))")
+    db.insert("foo", bar=1)
+    db.insert("zop", bar=1)
+    with pytest.raises(err.IntegrityError):
+        db.insert("zop", bar=2)
+
+
+@pytest.mark.db("mysql")
+def test_mysql_op_error(db):
+    # test that connection errors don't happen when you do stuf like this
+    with pytest.raises(notanorm.errors.OperationalError):
+        db.query("create table foo (bar text primary key);")
+
+
+def test_syntax_error(db):
+    with pytest.raises(notanorm.errors.OperationalError):
+        db.query("create table fo;o (bar text primary key);")

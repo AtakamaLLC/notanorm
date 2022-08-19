@@ -131,10 +131,12 @@ class DbTxGuard:
     def __exit__(self, exc_type, value, _traceback):
         self.db._transaction -= 1
         if not self.db._transaction:  # pylint: disable=protected-access
-            if exc_type:
-                self.db._rollback(self.db._conn_p)
-            else:
-                self.db._commit(self.db._conn_p)
+            # if the connection dropped... we can't roll back or commit
+            if self.db._conn_p:
+                if exc_type:
+                    self.db._rollback(self.db._conn_p)
+                else:
+                    self.db._commit(self.db._conn_p)
         self.lock.release()
 
 

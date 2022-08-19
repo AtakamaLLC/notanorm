@@ -38,18 +38,22 @@ class MySqlDb(DbBase):
         msg = str(exp)
 
         if isinstance(exp, MySQLdb.OperationalError):
+            if err_code in (1054, ):
+                return err.NoColumnError(msg)
             if err_code in (1075, 1212, 1239, 1293):
                 return err.SchemaError(msg)
-            if err_code in (1170, ):
-                return err.OperationalError(msg)
-            return err.DbConnectionError(msg)
+            if err_code >= 2000:
+                # client connection issues
+                return err.DbConnectionError(msg)
+            return err.OperationalError(msg)
         if isinstance(exp, InterfaceError):
             return err.DbConnectionError(msg)
         if isinstance(exp, MySQLdb.IntegrityError):
             return err.IntegrityError(msg)
         if isinstance(exp, MySQLdb.ProgrammingError):
-            if exp.args and exp.args[0] == 1146:
+            if err_code == 1146:
                 return err.TableNotFoundError(exp.args[1])
+            return err.OperationalError(msg)
 
         return exp
 
