@@ -1,5 +1,6 @@
 pytest
 coverage>=5
 pytest-cov
+pytest-xdist
 flake8
 mysqlclient

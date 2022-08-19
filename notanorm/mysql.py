@@ -51,7 +51,7 @@ class MySqlDb(DbBase):
         if isinstance(exp, MySQLdb.IntegrityError):
             return err.IntegrityError(msg)
         if isinstance(exp, MySQLdb.ProgrammingError):
-            if exp.args and exp.args[0] == 1146:
+            if err_code == 1146:
                 return err.TableNotFoundError(exp.args[1])
             return err.OperationalError(msg)
 

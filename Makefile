@@ -8,7 +8,7 @@ lint:
 	python -m flake8
 
 test:
-	pytest --cov notanorm -v tests
+	pytest -n 2 --cov notanorm -v tests
 
 test-all:
 	pytest --cov notanorm -v tests --db mysql --db sqlite
