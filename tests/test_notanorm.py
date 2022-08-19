@@ -663,7 +663,6 @@ def test_readonly_fail(db):
         db.insert("foo", bar="y2")
 
 
-@pytest.mark.db("sqlite")
 def test_missing_column(db):
     db.query("create table foo (bar text)")
     with pytest.raises(err.NoColumnError):
