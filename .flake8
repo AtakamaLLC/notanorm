@@ -1,4 +1,4 @@
 [flake8]
 
 ignore = E501, E722, W504
-exclude = env
+exclude = env/, env-pymysql/, build/
