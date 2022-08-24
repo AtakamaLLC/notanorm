@@ -335,6 +335,7 @@ def test_model_create(db):
                 columns=(
                     DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
                     DbCol("blob", typ=DbType.BLOB),
+                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("tex", typ=DbType.TEXT, notnull=True),
                     DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
                     DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
