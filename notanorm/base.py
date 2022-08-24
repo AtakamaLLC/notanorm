@@ -152,6 +152,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     debug_args = None
     r_lock = None
     use_pooled_locks = False
+    use_collation_locks = False
     __lock_pool = defaultdict(threading.RLock)
 
     @property
@@ -326,7 +327,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         try:
             while True:
-                row = fetch.fetchone()
+                if self.use_collation_locks:
+                    with self.r_lock:
+                        row = fetch.fetchone()
+                else:
+                    row = fetch.fetchone()
                 if row is None:
                     break
                 if factory:

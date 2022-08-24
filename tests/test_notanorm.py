@@ -663,6 +663,50 @@ def test_readonly_fail(db):
         db.insert("foo", bar="y2")
 
 
+@pytest.mark.db("sqlite")
+def test_collation(db):
+
+    def collate(v1, v2):
+        return 1 if v1 > v2 else -1 if v1 < v2 else 0
+
+    db._conn().create_collation("COMP", collate)
+    db.query("create table foo (bar text collate COMP)")
+    # collation + multi-thread mode = possible deadlock
+    db.use_collation_locks = True
+
+    with db.transaction():
+        for i in range(5000):
+            db.insert("foo", bar=str(i))
+
+    evt = threading.Event()
+
+    def select_gen():
+        evt.wait()
+        log.warning("gen-start")
+        for row in db.select_gen("foo", order_by="bar"):
+            log.info("gen: %s", row.bar)
+        log.warning("gen-end")
+
+    def select_one():
+        evt.wait()
+        log.warning("one-start")
+        for i in range(5000):
+            row = db.select_one("foo", bar=str(i))
+            log.info("one: %s", row.bar)
+        log.warning("one-end")
+
+    select_gen_thread = threading.Thread(target=select_gen, daemon=True)
+    select_one_thread = threading.Thread(target=select_one, daemon=True)
+
+    select_gen_thread.start()
+    select_one_thread.start()
+
+    evt.set()
+
+    select_gen_thread.join()
+    select_one_thread.join()
+
+
 def test_missing_column(db):
     db.query("create table foo (bar text)")
     with pytest.raises(err.NoColumnError):
