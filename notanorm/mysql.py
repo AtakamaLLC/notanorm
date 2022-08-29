@@ -101,6 +101,12 @@ class MySqlDb(DbBase):
                 else:
                     typ = "varchar"
                 typ += '(%s)' % col.size
+            elif col.size and col.typ == DbType.BLOB:
+                if col.fixed:
+                    typ = "binary"
+                else:
+                    typ = "varbinary"
+                typ += '(%s)' % col.size
             else:
                 typ = self._type_map[col.typ]
 
@@ -167,12 +173,17 @@ class MySqlDb(DbBase):
             info.type = "integer"
         fixed = False
         size = 0
-        match = re.match(r"(varchar|char)\((\d+)\)", info.type)
+        match_t = re.match(r"(varchar|char|text)\((\d+)\)", info.type)
+        match_b = re.match(r"(varbinary|binary|blob)\((\d+)\)", info.type)
 
-        if match:
+        if match_t:
             typ = DbType.TEXT
-            fixed = match[1] == 'char'
-            size = int(match[2])
+            fixed = match_t[1] == 'char'
+            size = int(match_t[2])
+        elif match_b:
+            typ = DbType.BLOB
+            fixed = match_b[1] == 'binary'
+            size = int(match_b[2])
         else:
             typ = self._type_map_inverse[info.type]
 
