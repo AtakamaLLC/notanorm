@@ -111,17 +111,17 @@ class MySqlDb(DbBase):
                 typ = self._type_map[col.typ]
 
             if not typ:
-                raise err.SchemaError("mysql doesn't supprt ANY type")
+                raise err.SchemaError(f"mysql doesn't supprt ANY type: {col.name}")
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
             if (col.name, ) == primary_fields:
                 coldef += " primary key"
             if col.default:
-                coldef += " default(" + col.default + ")"
+                coldef += " default " + col.default
             if col.autoinc:
                 if (col.name, ) != primary_fields:
-                    raise err.SchemaError("auto increment only works on primary key")
+                    raise err.SchemaError(f"auto increment only works on primary key: {col.name}")
                 coldef += " auto_increment"
             coldefs.append(coldef)
         create = "create table " + name + "("
