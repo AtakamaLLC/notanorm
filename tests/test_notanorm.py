@@ -333,7 +333,7 @@ def test_model_create(db):
         {
             "foo": DbTable(
                 columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True, default="4"),
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
                     DbCol("blob", typ=DbType.BLOB),
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
