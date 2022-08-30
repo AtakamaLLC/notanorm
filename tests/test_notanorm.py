@@ -338,7 +338,7 @@ def test_model_create(db):
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
                     DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False, default="'yo'"),
+                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
                     DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
                     DbCol("flt", typ=DbType.FLOAT, default="1.1"),
                     DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
