@@ -321,9 +321,8 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             try:
                 fetch = self.execute(sql, tuple(args))
             except Exception as ex:
-                debug_str = "SQL: " + sql + ", ARGS" + str(args)
                 log.debug("sql query error %s", repr(ex))
-                raise type(ex)(str(ex) + ", " + debug_str) from ex
+                raise
 
         try:
             while True:
@@ -357,9 +356,8 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                 fetch = self.execute(sql, tuple(args))
                 rows = fetch.fetchall() if fetch else []
             except Exception as ex:
-                debug_str = "SQL: " + sql + ", ARGS" + str(args)
                 log.debug("sql error %s", repr(ex))
-                raise type(ex)(str(ex) + ", " + debug_str) from ex
+                raise
             finally:
                 if fetch:
                     fetch.close()
