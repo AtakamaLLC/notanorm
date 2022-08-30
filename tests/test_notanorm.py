@@ -161,6 +161,21 @@ def test_db_order(db):
     assert next(iter(db.select("foo", order_by="bar desc"))).bar == 9
 
 
+def test_db_op_gt(db):
+    db.query("create table foo (bar integer)")
+    db.insert("foo", bar=3)
+    db.insert("foo", bar=4)
+    db.insert("foo", bar=5)
+
+    assert db.select_one("foo", bar=notanorm.OpGt(4)).bar == 5
+
+    assert db.select_one("foo", bar=notanorm.OpLt(4)).bar == 3
+
+    assert {r.bar for r in db.select("foo", bar=notanorm.OpGte(4))} == {4, 5}
+
+    assert {r.bar for r in db.select("foo", bar=notanorm.OpLte(4))} == {3, 4}
+
+
 def test_db_select_gen_ex(db):
     db.query("create table foo (bar integer)")
     db.insert("foo", bar=1)
@@ -385,7 +400,6 @@ def test_model_sqlite_cross(db):
     db.create_model(sqlite_model)
     check = db.model()
     assert check == model
-
 
 
 def test_model_create_nopk(db):

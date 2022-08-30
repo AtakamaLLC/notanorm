@@ -36,6 +36,42 @@ class CIKey(str):
         return hash(self.lower())
 
 
+class SqlOp:
+    pass
+
+
+_OpMap = {}
+
+for typ in (int, str, float, bytes):
+    class XOp(typ, SqlOp):
+        pass
+    _OpMap[typ] = XOp
+
+
+def OpGt(val):
+    ret = _OpMap[type(val)](val)
+    ret.op = ">"
+    return ret
+
+
+def OpLt(val):
+    ret = _OpMap[type(val)](val)
+    ret.op = "<"
+    return ret
+
+
+def OpGte(val):
+    ret = _OpMap[type(val)](val)
+    ret.op = ">="
+    return ret
+
+
+def OpLte(val):
+    ret = _OpMap[type(val)](val)
+    ret.op = "<="
+    return ret
+
+
 class DbRow(dict):
     """Default row factory.
 
@@ -400,6 +436,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def quote_keys(self, key):
         return ".".join([self.quote_key(k) for k in key.split(".")])
 
+    def _op_from_val(self, val):
+        if isinstance(val, SqlOp):
+            return val.op
+        return "="
+
     def _where(self, where):
         if not where:
             return "", ()
@@ -410,7 +451,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         del_all(where, none_keys)
         del_all(where, (k[0] for k in listKeys))
 
-        sql = " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where.keys()])
+        sql = " and ".join([self.quote_keys(key) + self._op_from_val(val) + self.placeholder for key, val in where.items()])
 
         if none_keys:
             if sql:
