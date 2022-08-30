@@ -36,40 +36,10 @@ class CIKey(str):
         return hash(self.lower())
 
 
-class SqlOp:
-    pass
-
-
-_OpMap = {}
-
-for typ in (int, str, float, bytes):
-    class XOp(typ, SqlOp):
-        pass
-    _OpMap[typ] = XOp
-
-
-def OpGt(val):
-    ret = _OpMap[type(val)](val)
-    ret.op = ">"
-    return ret
-
-
-def OpLt(val):
-    ret = _OpMap[type(val)](val)
-    ret.op = "<"
-    return ret
-
-
-def OpGte(val):
-    ret = _OpMap[type(val)](val)
-    ret.op = ">="
-    return ret
-
-
-def OpLte(val):
-    ret = _OpMap[type(val)](val)
-    ret.op = "<="
-    return ret
+class Op:
+    def __init__(self, op, val):
+        self.op = op
+        self.val = val
 
 
 class DbRow(dict):
@@ -436,32 +406,35 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def quote_keys(self, key):
         return ".".join([self.quote_key(k) for k in key.split(".")])
 
-    def _op_from_val(self, val):
-        if isinstance(val, SqlOp):
-            return val.op
-        return "="
+    @staticmethod
+    def _op_from_val(val):
+        if isinstance(val, Op):
+            return val
+        return Op("=", val)
 
     def _where(self, where):
         if not where:
             return "", ()
 
         none_keys = [key for key, val in where.items() if val is None]
-        listKeys = [(key, val) for key, val in where.items() if is_list(val)]
+        list_keys = [(key, val) for key, val in where.items() if is_list(val)]
 
         del_all(where, none_keys)
-        del_all(where, (k[0] for k in listKeys))
+        del_all(where, (k[0] for k in list_keys))
 
-        sql = " and ".join([self.quote_keys(key) + self._op_from_val(val) + self.placeholder for key, val in where.items()])
+        sql = " and ".join([self.quote_keys(key) +
+                            self._op_from_val(val).op +
+                            self.placeholder for key, val in where.items()])
 
         if none_keys:
             if sql:
                 sql += " and "
             sql += " and ".join([self.quote_keys(key) + " is NULL" for key in none_keys])
 
-        vals = where.values()
-        if listKeys:
+        vals = [self._op_from_val(val).val for val in where.values()]
+        if list_keys:
             vals = list(vals)
-            for key, lst in listKeys:
+            for key, lst in list_keys:
                 placeholders = ",".join([self.placeholder] * len(lst))
                 if sql:
                     sql += " and "

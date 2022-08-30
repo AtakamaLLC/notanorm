@@ -167,13 +167,13 @@ def test_db_op_gt(db):
     db.insert("foo", bar=4)
     db.insert("foo", bar=5)
 
-    assert db.select_one("foo", bar=notanorm.OpGt(4)).bar == 5
+    assert db.select_one("foo", bar=notanorm.Op(">", 4)).bar == 5
 
-    assert db.select_one("foo", bar=notanorm.OpLt(4)).bar == 3
+    assert db.select_one("foo", bar=notanorm.Op("<", 4)).bar == 3
 
-    assert {r.bar for r in db.select("foo", bar=notanorm.OpGte(4))} == {4, 5}
+    assert {r.bar for r in db.select("foo", bar=notanorm.Op(">=", 4))} == {4, 5}
 
-    assert {r.bar for r in db.select("foo", bar=notanorm.OpLte(4))} == {3, 4}
+    assert {r.bar for r in db.select("foo", bar=notanorm.Op("<=", 4))} == {3, 4}
 
 
 def test_db_select_gen_ex(db):

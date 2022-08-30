@@ -6,9 +6,9 @@ try:
 except ImportError:
     pass
 from .sqlite import SqliteDb
-from .base import DbBase, OpGt, OpLt, OpGte, OpLte
+from .base import DbBase, Op
 from .model import DbType, DbCol, DbTable, DbModel, DbIndex
 from . import errors
 
 __all__ = ["SqliteDb", "MySqlDb", "DbRow", "DbBase", "DbType", "DbCol", "DbTable", "DbModel",
-           "DbIndex", "errors", "OpGt", "OpLt", "OpGte", "OpLte"]
+           "DbIndex", "errors", "Op"]
