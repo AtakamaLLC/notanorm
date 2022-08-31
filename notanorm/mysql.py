@@ -40,7 +40,10 @@ class MySqlDb(DbBase):
         if isinstance(exp, MySQLdb.OperationalError):
             if err_code in (1054, ):
                 return err.NoColumnError(msg)
-            if err_code in (1075, 1212, 1239, 1293):
+            if err_code in (1075, 1212, 1239, 1293):   # pragma: no cover
+                # this error is very hard to support and we should probably drop it
+                # it's used as a base class for TableError and other stuff
+                # using the base here is odd
                 return err.SchemaError(msg)
             if err_code >= 2000:
                 # client connection issues
@@ -111,17 +114,17 @@ class MySqlDb(DbBase):
                 typ = self._type_map[col.typ]
 
             if not typ:
-                raise err.SchemaError("mysql doesn't supprt ANY type")
+                raise err.SchemaError(f"mysql doesn't supprt ANY type: {col.name}")
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
             if (col.name, ) == primary_fields:
                 coldef += " primary key"
             if col.default:
-                coldef += " default(" + col.default + ")"
+                coldef += " default " + col.default
             if col.autoinc:
                 if (col.name, ) != primary_fields:
-                    raise err.SchemaError("auto increment only works on primary key")
+                    raise err.SchemaError(f"auto increment only works on primary key: {col.name}")
                 coldef += " auto_increment"
             coldefs.append(coldef)
         create = "create table " + name + "("

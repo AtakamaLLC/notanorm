@@ -73,6 +73,9 @@ with db.transaction():
 # delete a row
 db.delete("foo", iv=1)
 
+# select greater than
+db.select("foo", iv=notnaorm.Op(">", 3))
+
 # wipe the table
 db.delete_all("foo")
 ```

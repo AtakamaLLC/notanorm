@@ -161,6 +161,21 @@ def test_db_order(db):
     assert next(iter(db.select("foo", order_by="bar desc"))).bar == 9
 
 
+def test_db_op_gt(db):
+    db.query("create table foo (bar integer)")
+    db.insert("foo", bar=3)
+    db.insert("foo", bar=4)
+    db.insert("foo", bar=5)
+
+    assert db.select_one("foo", bar=notanorm.Op(">", 4)).bar == 5
+
+    assert db.select_one("foo", bar=notanorm.Op("<", 4)).bar == 3
+
+    assert {r.bar for r in db.select("foo", bar=notanorm.Op(">=", 4))} == {4, 5}
+
+    assert {r.bar for r in db.select("foo", bar=notanorm.Op("<=", 4))} == {3, 4}
+
+
 def test_db_select_gen_ex(db):
     db.query("create table foo (bar integer)")
     db.insert("foo", bar=1)
@@ -340,8 +355,8 @@ def test_model_create(db):
                     DbCol("tex", typ=DbType.TEXT, notnull=True),
                     DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
                     DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT),
-                    DbCol("dbl", typ=DbType.DOUBLE),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
                 ),
                 indexes={
                     DbIndex(fields=("auto",), primary=True),
@@ -351,6 +366,38 @@ def test_model_create(db):
         }
     )
     db.create_model(model)
+    check = db.model()
+    assert check == model
+
+
+def test_model_sqlite_cross(db):
+    # creating a model using sqlite results in a model that generally works across other db's
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("inty", typ=DbType.INTEGER, autoinc=False, notnull=True, default="4"),
+                    DbCol("blob", typ=DbType.BLOB),
+                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
+                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
+                    DbCol("tex", typ=DbType.TEXT, notnull=True),
+                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
+                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
+                ),
+                indexes={
+                    DbIndex(fields=("auto",), primary=True),
+                    DbIndex(fields=("flt",), unique=True),
+                },
+            )
+        }
+    )
+    db2 = SqliteDb(":memory:")
+    db2.create_model(model)
+    sqlite_model = db2.model()
+    db.create_model(sqlite_model)
     check = db.model()
     assert check == model
 
