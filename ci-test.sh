@@ -5,14 +5,16 @@ make requirements
 
 make lint
 
+python3 -mvenv env
+
 . ./env/bin/activate || . ./env/Scripts/activate
 make test
 
-# this tests pymysql
-. ./env/bin/activate || . ./env/Scripts/activate
+# test mysqlclient
 make test-mysql
 deactivate
 
+# test pymysql
 python3 -m virtualenv env-pymysql
 . ./env-pymysql/bin/activate || . ./env-pymysql/Scripts/activate
 make requirements-pymysql
