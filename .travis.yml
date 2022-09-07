@@ -1,7 +1,4 @@
 language: python
-os:
-  - linux
-  - osx
 
 cache: 
   pip: True
@@ -10,10 +7,22 @@ sudo: false
 
 jobs:
     include:
-    - name: test
+    - name: python 3.9 linux
+      os: linux
+      python: 3.9
       stage: test
       script:
         - ./ci-test.sh
+    - name: python 3.9 macos
+      os: osx
+      osx_image: xcode11.6
+      language: shell
+      stage: test
+      script:
+        - ./ci-test.sh
+
+install:
+    pip3 install --upgrade pip
 
 after_success:
     - ./ci-cov.sh
