@@ -22,7 +22,7 @@ jobs:
         - ./ci-test.sh
 
 install:
-    pip3 install --upgrade pip
+    pip3 install --upgrade pip virtualenv
 
 after_success:
     - ./ci-cov.sh
