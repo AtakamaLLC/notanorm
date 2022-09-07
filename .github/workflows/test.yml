@@ -16,6 +16,7 @@ jobs:
     name: ${{matrix.os}} ${{ matrix.python }}
     steps:
     - uses: actions/checkout@v2
+    - uses: ankane/setup-mysql@v1
     - uses: actions/setup-python@v2
       name: Setup Python ${{ matrix.python }}
       with:
