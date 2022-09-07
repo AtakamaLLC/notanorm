@@ -1,22 +1,22 @@
 requirements:
-	pip install -r requirements.txt
+	python3 -mpip install -r requirements.txt
 
 requirements-pymysql:
-	pip install -r requirements-pymysql.txt
+	python3 -mpip install -r requirements-pymysql.txt
 
 lint:
-	python -m flake8
+	python3 -m flake8
 
 test:
-	pytest -n 2 --cov notanorm -v tests
+	python3 -mpytest -n 2 --cov notanorm -v tests
 
 test-all:
-	pytest --cov notanorm -v tests --db mysql --db sqlite
+	python3 -mpytest --cov notanorm -v tests --db mysql --db sqlite
 
 test-mysql:
-	pytest -v tests --cov notanorm --cov-append --db mysql
+	python3 -mpytest -v tests --cov notanorm --cov-append --db mysql
 
 publish:
 	rm -rf dist
 	python3 setup.py bdist_wheel
-	twine upload dist/*
+	python3 -mtwine upload dist/*

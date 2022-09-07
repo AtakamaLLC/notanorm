@@ -17,6 +17,7 @@ jobs:
       os: osx
       osx_image: xcode11.6
       language: shell
+      python: 3.9
       before_install:
         brew install mysql
       stage: test
