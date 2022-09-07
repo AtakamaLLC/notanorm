@@ -40,7 +40,10 @@ class MySqlDb(DbBase):
         if isinstance(exp, MySQLdb.OperationalError):
             if err_code in (1054, ):
                 return err.NoColumnError(msg)
-            if err_code in (1075, 1212, 1239, 1293):
+            if err_code in (1075, 1212, 1239, 1293):   # pragma: no cover
+                # this error is very hard to support and we should probably drop it
+                # it's used as a base class for TableError and other stuff
+                # using the base here is odd
                 return err.SchemaError(msg)
             if err_code >= 2000:
                 # client connection issues
@@ -101,21 +104,27 @@ class MySqlDb(DbBase):
                 else:
                     typ = "varchar"
                 typ += '(%s)' % col.size
+            elif col.size and col.typ == DbType.BLOB:
+                if col.fixed:
+                    typ = "binary"
+                else:
+                    typ = "varbinary"
+                typ += '(%s)' % col.size
             else:
                 typ = self._type_map[col.typ]
 
             if not typ:
-                raise err.SchemaError("mysql doesn't supprt ANY type")
+                raise err.SchemaError(f"mysql doesn't supprt ANY type: {col.name}")
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
             if (col.name, ) == primary_fields:
                 coldef += " primary key"
             if col.default:
-                coldef += " default(" + col.default + ")"
+                coldef += " default " + col.default
             if col.autoinc:
                 if (col.name, ) != primary_fields:
-                    raise err.SchemaError("auto increment only works on primary key")
+                    raise err.SchemaError(f"auto increment only works on primary key: {col.name}")
                 coldef += " auto_increment"
             coldefs.append(coldef)
         create = "create table " + name + "("
@@ -167,12 +176,17 @@ class MySqlDb(DbBase):
             info.type = "integer"
         fixed = False
         size = 0
-        match = re.match(r"(varchar|char)\((\d+)\)", info.type)
+        match_t = re.match(r"(varchar|char|text)\((\d+)\)", info.type)
+        match_b = re.match(r"(varbinary|binary|blob)\((\d+)\)", info.type)
 
-        if match:
+        if match_t:
             typ = DbType.TEXT
-            fixed = match[1] == 'char'
-            size = int(match[2])
+            fixed = match_t[1] == 'char'
+            size = int(match_t[2])
+        elif match_b:
+            typ = DbType.BLOB
+            fixed = match_b[1] == 'binary'
+            size = int(match_b[2])
         else:
             typ = self._type_map_inverse[info.type]
 

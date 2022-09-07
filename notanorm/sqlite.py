@@ -106,11 +106,16 @@ class SqliteDb(DbBase):
     def __info_to_model(cls, info):
         size = 0
         fixed = False
-        match = re.match(r"(varchar|character)\((\d+)\)", info.type, re.I)
-        if match:
+        match_t = re.match(r"(varchar|character)\((\d+)\)", info.type, re.I)
+        match_b = re.match(r"(varbinary|binary)\((\d+)\)", info.type, re.I)
+        if match_t:
             typ = DbType.TEXT
-            fixed = match[1] == "character"
-            size = int(match[2])
+            fixed = match_t[1] == "character"
+            size = int(match_t[2])
+        elif match_b:
+            typ = DbType.BLOB
+            fixed = match_b[1] == "binary"
+            size = int(match_b[2])
         else:
             try:
                 typ = cls._type_map_inverse[info.type.lower()]
@@ -165,6 +170,13 @@ class SqliteDb(DbBase):
                 typ = "character"
             else:
                 typ = "varchar"
+            typ += '(%s)' % col.size
+
+        if col.size and col.typ == DbType.BLOB:
+            if col.fixed:
+                typ = "binary"
+            else:
+                typ = "varbinary"
             typ += '(%s)' % col.size
 
         if typ:

@@ -161,6 +161,21 @@ def test_db_order(db):
     assert next(iter(db.select("foo", order_by="bar desc"))).bar == 9
 
 
+def test_db_op_gt(db):
+    db.query("create table foo (bar integer)")
+    db.insert("foo", bar=3)
+    db.insert("foo", bar=4)
+    db.insert("foo", bar=5)
+
+    assert db.select_one("foo", bar=notanorm.Op(">", 4)).bar == 5
+
+    assert db.select_one("foo", bar=notanorm.Op("<", 4)).bar == 3
+
+    assert {r.bar for r in db.select("foo", bar=notanorm.Op(">=", 4))} == {4, 5}
+
+    assert {r.bar for r in db.select("foo", bar=notanorm.Op("<=", 4))} == {3, 4}
+
+
 def test_db_select_gen_ex(db):
     db.query("create table foo (bar integer)")
     db.insert("foo", bar=1)
@@ -335,11 +350,13 @@ def test_model_create(db):
                 columns=(
                     DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
                     DbCol("blob", typ=DbType.BLOB),
+                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
+                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
                     DbCol("tex", typ=DbType.TEXT, notnull=True),
                     DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
                     DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT),
-                    DbCol("dbl", typ=DbType.DOUBLE),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
                 ),
                 indexes={
                     DbIndex(fields=("auto",), primary=True),
@@ -349,6 +366,38 @@ def test_model_create(db):
         }
     )
     db.create_model(model)
+    check = db.model()
+    assert check == model
+
+
+def test_model_sqlite_cross(db):
+    # creating a model using sqlite results in a model that generally works across other db's
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("inty", typ=DbType.INTEGER, autoinc=False, notnull=True, default="4"),
+                    DbCol("blob", typ=DbType.BLOB),
+                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
+                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
+                    DbCol("tex", typ=DbType.TEXT, notnull=True),
+                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
+                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
+                ),
+                indexes={
+                    DbIndex(fields=("auto",), primary=True),
+                    DbIndex(fields=("flt",), unique=True),
+                },
+            )
+        }
+    )
+    db2 = SqliteDb(":memory:")
+    db2.create_model(model)
+    sqlite_model = db2.model()
+    db.create_model(sqlite_model)
     check = db.model()
     assert check == model
 
@@ -661,6 +710,50 @@ def test_readonly_fail(db):
     db.query("PRAGMA query_only=ON;")
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
+
+
+@pytest.mark.db("sqlite")
+def test_collation(db):
+
+    def collate(v1, v2):
+        return 1 if v1 > v2 else -1 if v1 < v2 else 0
+
+    db._conn().create_collation("COMP", collate)
+    db.query("create table foo (bar text collate COMP)")
+    # collation + multi-thread mode = possible deadlock
+    db.use_collation_locks = True
+
+    with db.transaction():
+        for i in range(5000):
+            db.insert("foo", bar=str(i))
+
+    evt = threading.Event()
+
+    def select_gen():
+        evt.wait()
+        log.warning("gen-start")
+        for row in db.select_gen("foo", order_by="bar"):
+            log.info("gen: %s", row.bar)
+        log.warning("gen-end")
+
+    def select_one():
+        evt.wait()
+        log.warning("one-start")
+        for i in range(5000):
+            row = db.select_one("foo", bar=str(i))
+            log.info("one: %s", row.bar)
+        log.warning("one-end")
+
+    select_gen_thread = threading.Thread(target=select_gen, daemon=True)
+    select_one_thread = threading.Thread(target=select_one, daemon=True)
+
+    select_gen_thread.start()
+    select_one_thread.start()
+
+    evt.set()
+
+    select_gen_thread.join()
+    select_one_thread.join()
 
 
 def test_missing_column(db):
