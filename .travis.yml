@@ -17,6 +17,8 @@ jobs:
       os: osx
       osx_image: xcode11.6
       language: shell
+      before_install:
+        brew install mysql
       stage: test
       script:
         - ./ci-test.sh
@@ -24,8 +26,10 @@ jobs:
 install:
     pip3 install --upgrade pip virtualenv
 
-after_success:
-    - ./ci-cov.sh
+addons:
+  homebrew:
+    packages:
+      - mysql
 
 branches:
     only:
