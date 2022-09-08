@@ -15,7 +15,7 @@ make test-mysql
 deactivate
 
 # test pymysql
-python3 -m virtualenv env-pymysql
+python3 -mvenv env-pymysql
 . ./env-pymysql/bin/activate || . ./env-pymysql/Scripts/activate
 make requirements-pymysql
 make test-mysql
