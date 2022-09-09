@@ -43,7 +43,7 @@ def db_sqlite_noup():
     assert not hasattr(db, "_upsert_sql")
 
     yield db
-    
+
     db.close()
 
 
