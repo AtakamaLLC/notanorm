@@ -805,4 +805,4 @@ def test_mysql_op_error(db):
 
 def test_syntax_error(db):
     with pytest.raises(notanorm.errors.OperationalError):
-        db.query("create table fo;o (bar text primary key);")
+        db.query("create table fo()o (bar text primary key);")

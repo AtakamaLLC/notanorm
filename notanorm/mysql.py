@@ -181,6 +181,10 @@ class MySqlDb(DbBase):
     def column_model(self, info):
         if info.type == "int(11)":
             info.type = "integer"
+
+        if info.type == "int":  # pragma: no cover
+            # no idea what version i saw this in, but i saw it
+            info.type = "integer"
         fixed = False
         size = 0
         match_t = re.match(r"(varchar|char|text)\((\d+)\)", info.type)
