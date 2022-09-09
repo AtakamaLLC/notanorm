@@ -703,7 +703,7 @@ def test_select_gen_not_lock(db: DbBase):
 @pytest.mark.db("sqlite")
 def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
     print("sqlite3 version", sqlite3.sqlite_version)
-    
+
     db1 = db_notmem
     db2 = get_db(db_name, db1.connection_args)
 
