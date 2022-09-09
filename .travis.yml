@@ -12,16 +12,17 @@ jobs:
     include:
     - name: test
       stage: test
-      script:
-        - ./ci-test.sh
+
+script:
+  - ./ci-test.sh
 
 after_success:
-    - ./ci-cov.sh
+  - ./ci-cov.sh
 
 branches:
-    only:
-    - master
-    - /^v/
+  only:
+  - master
+  - /^v/
 
 services:
     - mysql
