@@ -35,11 +35,15 @@ def db_sqlite():
 def db_sqlite_noup():
     class SqliteDbNoUp(SqliteDb):
         @property
-        def _update_sql(self):
+        def _upsert_sql(self):
             raise AttributeError
 
     db = SqliteDbNoUp(":memory:")
+
+    assert not hasattr(db, "_upsert_sql")
+
     yield db
+    
     db.close()
 
 
@@ -352,8 +356,11 @@ def test_db_upsert(db_sqlup):
     # no-op
     db.upsert("foo", bar="hi")
 
-    # no-op
-    db.update("foo", bar="hi")
+    # update everything
+    db.upsert_all("foo", baz="all")
+
+    assert db.select("foo", bar="lo")[0].baz == "all"
+    assert db.select("foo", bar="hi")[0].baz == "all"
 
 
 def test_db_insert_no_vals(db):

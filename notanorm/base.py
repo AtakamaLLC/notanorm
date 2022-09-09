@@ -617,6 +617,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
             return self.query(sql, *vals)
 
+
         where = self.infer_where(table, where, vals)
 
         # find existing row
