@@ -32,6 +32,18 @@ def db_sqlite():
 
 
 @pytest.fixture
+def db_sqlite_noup():
+    class SqliteDbNoUp(SqliteDb):
+        @property
+        def _update_sql(self):
+            raise AttributeError
+
+    db = SqliteDbNoUp(":memory:")
+    yield db
+    db.close()
+
+
+@pytest.fixture
 def db_sqlite_notmem(tmp_path):
     db = SqliteDb(str(tmp_path / "db"))
     yield db
@@ -70,6 +82,10 @@ def db_mysql_notmem(db_mysql):
 @pytest.fixture(name="db")
 def db_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name)
+
+@pytest.fixture(name="db_sqlup", params=["sqlite", "sqlite_noup"])
+def db_sqlup_fixture(request):
+    yield request.getfixturevalue("db_" + request.param)
 
 
 @pytest.fixture(name="db_notmem")
@@ -314,7 +330,8 @@ def test_db_update_and_select(db):
     assert db.select("foo", ["baz"])[0].baz, "hi"
 
 
-def test_db_upsert(db):
+def test_db_upsert(db_sqlup):
+    db = db_sqlup
     db.query("create table foo (bar varchar(32) not null primary key, baz text)")
     db.insert("foo", bar="hi", baz="ho")
 
