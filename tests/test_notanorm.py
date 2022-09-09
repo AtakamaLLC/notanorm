@@ -83,6 +83,7 @@ def db_mysql_notmem(db_mysql):
 def db_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name)
 
+
 @pytest.fixture(name="db_sqlup", params=["sqlite", "sqlite_noup"])
 def db_sqlup_fixture(request):
     yield request.getfixturevalue("db_" + request.param)
