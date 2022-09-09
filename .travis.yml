@@ -8,11 +8,6 @@ python:
   - 3.6
   - 3.9
 
-jobs:
-    include:
-    - name: test
-      stage: test
-
 script:
   - ./ci-test.sh
 

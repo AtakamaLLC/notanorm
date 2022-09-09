@@ -10,6 +10,7 @@ import logging
 log = logging.getLogger(__name__)
 sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split('.'))
 
+
 class SqliteDb(DbBase):
     placeholder = "?"
     use_pooled_locks = True

@@ -7,19 +7,20 @@ cp ci-my.cnf ~/.my.cnf
 python3 -m virtualenv env
 make requirements
 
-# lint + sqlite + mysql in parallel
-make lint &
-
 . ./env/bin/activate || . ./env/Scripts/activate
+
+make lint
 make test
 
 
-# this tests pymysql
-. ./env/bin/activate || . ./env/Scripts/activate
+# test mysqlclient
 make test-mysql
-deactivate
 
+
+deactivate
 python3 -m virtualenv env-pymysql
 . ./env-pymysql/bin/activate || . ./env-pymysql/Scripts/activate
+
+# test pymysql
 make requirements-pymysql
 make test-mysql

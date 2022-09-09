@@ -402,11 +402,10 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             sql += " " + self.default_values
 
         return sql, vals.values()
-    
+
     def insert(self, table: str, ins=None, **vals):
         sql, vals = self._insql(table, ins, **vals)
         return self.query(sql, *vals)
-
 
     def quote_key(self, key):
         return '"' + key + '"'
@@ -574,7 +573,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         vals = list(vals.values()) + list(where.values())
 
         return sql, vals
-       
+
     def update(self, table, where=None, upd=None, **vals):
         if upd:
             vals.update(upd)
@@ -609,16 +608,17 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             # insert statement + values
             ins_sql, in_vals = self._insql(table, **vals)
 
-            _unused = self.infer_where(table, where, vals)
+            # discard vals
+            self.infer_where(table, where, vals)
 
             # set non-primary key values
             set_sql = ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
             sql, vals = self._upsert_sql(table, ins_sql, in_vals, set_sql, vals.values())
 
             return self.query(sql, *vals)
-        
+
         where = self.infer_where(table, where, vals)
-        
+
         # find existing row
         with self.transaction():
             has = self.select(table, **where)
