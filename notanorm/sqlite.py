@@ -21,7 +21,7 @@ class SqliteDb(DbBase):
     def _begin(self, conn):
         conn.execute("BEGIN IMMEDIATE")
 
-    if sqlite_version >= (3, 35, 0): # pragma: no cover
+    if sqlite_version >= (3, 35, 0):  # pragma: no cover
         # this only works in newer versions, we have no good way of testing different sqlites right now (todo!)
         def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
             if not setvals:
