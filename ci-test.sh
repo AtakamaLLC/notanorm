@@ -5,22 +5,22 @@ set -e
 cp ci-my.cnf ~/.my.cnf
 
 python3 -m virtualenv env
-make requirements
 
 . ./env/bin/activate || . ./env/Scripts/activate
 
+make requirements
+
 make lint
+
 make test
 
-
-# test mysqlclient
 make test-mysql
 
 
+# test pymysql
 deactivate
 python3 -m virtualenv env-pymysql
 . ./env-pymysql/bin/activate || . ./env-pymysql/Scripts/activate
 
-# test pymysql
 make requirements-pymysql
 make test-mysql
