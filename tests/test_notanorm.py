@@ -4,6 +4,7 @@
 import logging
 import multiprocessing
 import copy
+import os
 import sqlite3
 import threading
 import time
@@ -31,21 +32,53 @@ def db_sqlite():
 
 
 @pytest.fixture
+def db_sqlite_noup():
+    class SqliteDbNoUp(SqliteDb):
+        @property
+        def _upsert_sql(self):
+            raise AttributeError
+
+    db = SqliteDbNoUp(":memory:")
+
+    assert not hasattr(db, "_upsert_sql")
+
+    yield db
+
+    db.close()
+
+
+@pytest.fixture
+def db_mysql_noup():
+    from notanorm import MySqlDb
+
+    class MySqlDbNoUp(MySqlDb):
+        @property
+        def _upsert_sql(self):
+            raise AttributeError
+
+    db = get_mysql_db(MySqlDbNoUp)
+
+    assert not hasattr(db, "_upsert_sql")
+
+    yield db
+
+    db.close()
+
+
+@pytest.fixture
 def db_sqlite_notmem(tmp_path):
     db = SqliteDb(str(tmp_path / "db"))
     yield db
     db.close()
 
 
-def get_mysql_db():
-    from notanorm import MySqlDb
-
-    db = MySqlDb(read_default_file="~/.my.cnf")
+def get_mysql_db(typ):
+    db = typ(read_default_file=os.path.expanduser("~/.my.cnf"))
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
 
-    return MySqlDb(read_default_file="~/.my.cnf", db="test_db")
+    return typ(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
 
 
 def cleanup_mysql_db(db):
@@ -56,7 +89,8 @@ def cleanup_mysql_db(db):
 
 @pytest.fixture
 def db_mysql():
-    db = get_mysql_db()
+    from notanorm import MySqlDb
+    db = get_mysql_db(MySqlDb)
     yield db
     cleanup_mysql_db(db)
 
@@ -71,6 +105,11 @@ def db_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name)
 
 
+@pytest.fixture(name="db_sqlup", params=["", "_noup"])
+def db_sqlup_fixture(request, db_name):
+    yield request.getfixturevalue("db_" + db_name + request.param)
+
+
 @pytest.fixture(name="db_notmem")
 def db_notmem_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name + "_notmem")
@@ -81,7 +120,7 @@ def pytest_generate_tests(metafunc):
 
     global PYTEST_REG  # pylint: disable=global-statement
     if not PYTEST_REG:
-        if any(db in metafunc.fixturenames for db in ("db", "db_notmem")):
+        if any(db in metafunc.fixturenames for db in ("db", "db_notmem", "db_sqlup")):
             db_names = metafunc.config.getoption("db", [])
             db_names = db_names or ["sqlite"]
             for mark in metafunc.definition.own_markers:
@@ -164,7 +203,7 @@ def test_db_order(db):
 def test_db_op_gt(db):
     db.query("create table foo (bar integer)")
     db.insert("foo", bar=3)
-    db.insert("foo", bar=4)
+    db.insert("foo", {"bar": 4})
     db.insert("foo", bar=5)
 
     assert db.select_one("foo", bar=notanorm.Op(">", 4)).bar == 5
@@ -282,6 +321,8 @@ def test_db_select_join(db):
 
 
 def test_db_update_and_select(db):
+    print("sqlite3 version", sqlite3.sqlite_version)
+
     db.query("create table foo (bar varchar(32) not null primary key, baz text)")
     db.insert("foo", bar="hi", baz="ho")
 
@@ -297,11 +338,22 @@ def test_db_update_and_select(db):
 
     assert db.select("foo")[0].baz == "up2"
 
+    # alternate interface where the first argument is a where clause dict (reversed primary)
+    db.update("foo", {"baz": "up2"}, bar="yo")
+
+    assert db.select("foo")[0].bar == "yo"
+
+    # alternate interface where the first argument is a where clause dict and second is a update dict
+    db.update("foo", {"baz": "up2"}, {"baz": "hi"})
+
+    assert db.select("foo")[0].baz == "hi"
+
     # alternate interface where the select is explicit
-    assert db.select("foo", ["baz"])[0].baz, "up2"
+    assert db.select("foo", ["baz"])[0].baz, "hi"
 
 
-def test_db_upsert(db):
+def test_db_upsert(db_sqlup):
+    db = db_sqlup
     db.query("create table foo (bar varchar(32) not null primary key, baz text)")
     db.insert("foo", bar="hi", baz="ho")
 
@@ -321,8 +373,11 @@ def test_db_upsert(db):
     # no-op
     db.upsert("foo", bar="hi")
 
-    # no-op
-    db.update("foo", bar="hi")
+    # update everything
+    db.upsert_all("foo", baz="all")
+
+    assert db.select("foo", bar="lo")[0].baz == "all"
+    assert db.select("foo", bar="hi")[0].baz == "all"
 
 
 def test_db_insert_no_vals(db):
@@ -550,6 +605,8 @@ def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
 # todo: maybe using the native "mysql connector" would enable fixing this
 @pytest.mark.db("sqlite")
 def test_upsert_threaded_multidb(db_notmem, db_name):
+    print("sqlite3 version", sqlite3.sqlite_version)
+
     db = db_notmem
     db.query(
         "create table foo (bar integer primary key, baz integer, cnt integer default 0)"
@@ -692,6 +749,8 @@ def test_select_gen_not_lock(db: DbBase):
 # todo: maybe using the native "connector" would enable fixing this
 @pytest.mark.db("sqlite")
 def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
+    print("sqlite3 version", sqlite3.sqlite_version)
+
     db1 = db_notmem
     db2 = get_db(db_name, db1.connection_args)
 
@@ -799,4 +858,4 @@ def test_mysql_op_error(db):
 
 def test_syntax_error(db):
     with pytest.raises(notanorm.errors.OperationalError):
-        db.query("create table fo;o (bar text primary key);")
+        db.query("create table fo()o (bar text primary key);")

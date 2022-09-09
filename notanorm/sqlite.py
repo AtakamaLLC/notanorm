@@ -8,6 +8,7 @@ from . import errors as err
 import logging
 
 log = logging.getLogger(__name__)
+sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split('.'))
 
 
 class SqliteDb(DbBase):
@@ -19,6 +20,21 @@ class SqliteDb(DbBase):
 
     def _begin(self, conn):
         conn.execute("BEGIN IMMEDIATE")
+
+    if sqlite_version >= (3, 35, 0):  # pragma: no cover
+        # this only works in newer versions, we have no good way of testing different sqlites right now (todo!)
+        def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
+            if not setvals:
+                return inssql + " ON CONFLICT DO NOTHING", insvals
+            else:
+                return inssql + " ON CONFLICT DO UPDATE SET " + setsql, (*insvals, *setvals)
+    elif sqlite_version >= (3, 24, 0):
+        def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
+            fds = ",".join(self.primary_fields(table))
+            if not setvals:
+                return inssql + f" ON CONFLICT({fds}) DO NOTHING", insvals
+            else:
+                return inssql + f" ON CONFLICT({fds}) DO UPDATE SET " + setsql, (*insvals, *setvals)
 
     @staticmethod
     def translate_error(exp):

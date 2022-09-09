@@ -28,6 +28,13 @@ class MySqlDb(DbBase):
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
 
+    def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
+        if not setvals:
+            fields = self.primary_fields(table)
+            f0 = next(iter(fields))
+            return inssql + f" ON DUPLICATE KEY UPDATE `{f0}`=`{f0}`", insvals
+        return inssql + " ON DUPLICATE KEY UPDATE " + setsql, (*insvals, *setvals)
+
     @staticmethod
     def translate_error(exp):
         try:
@@ -172,7 +179,8 @@ class MySqlDb(DbBase):
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     def column_model(self, info):
-        if info.type == "int(11)":
+        if info.type == "int(11)" or info.type == "int":
+            # depends on specific mysql version
             info.type = "integer"
         fixed = False
         size = 0
