@@ -283,6 +283,8 @@ def test_db_select_join(db):
 
 
 def test_db_update_and_select(db):
+    print("sqlite3 version", sqlite3.sqlite_version)
+
     db.query("create table foo (bar varchar(32) not null primary key, baz text)")
     db.insert("foo", bar="hi", baz="ho")
 
@@ -556,6 +558,8 @@ def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
 # todo: maybe using the native "mysql connector" would enable fixing this
 @pytest.mark.db("sqlite")
 def test_upsert_threaded_multidb(db_notmem, db_name):
+    print("sqlite3 version", sqlite3.sqlite_version)
+
     db = db_notmem
     db.query(
         "create table foo (bar integer primary key, baz integer, cnt integer default 0)"
@@ -698,6 +702,8 @@ def test_select_gen_not_lock(db: DbBase):
 # todo: maybe using the native "connector" would enable fixing this
 @pytest.mark.db("sqlite")
 def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
+    print("sqlite3 version", sqlite3.sqlite_version)
+    
     db1 = db_notmem
     db2 = get_db(db_name, db1.connection_args)
 
