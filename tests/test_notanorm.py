@@ -46,6 +46,23 @@ def db_sqlite_noup():
 
     db.close()
 
+@pytest.fixture
+def db_mysql_noup():
+    from notanorm import MySqlDb
+
+    class MySqlDbNoUp(MySqlDb):
+        @property
+        def _upsert_sql(self):
+            raise AttributeError
+
+    db = get_mysql_db(MySqlDbNoUp)
+
+    assert not hasattr(db, "_upsert_sql")
+
+    yield db
+
+    db.close()
+
 
 @pytest.fixture
 def db_sqlite_notmem(tmp_path):
@@ -54,15 +71,13 @@ def db_sqlite_notmem(tmp_path):
     db.close()
 
 
-def get_mysql_db():
-    from notanorm import MySqlDb
-
-    db = MySqlDb(read_default_file=os.path.expanduser("~/.my.cnf"))
+def get_mysql_db(typ):
+    db = typ(read_default_file=os.path.expanduser("~/.my.cnf"))
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
 
-    return MySqlDb(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
+    return typ(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
 
 
 def cleanup_mysql_db(db):
@@ -73,7 +88,8 @@ def cleanup_mysql_db(db):
 
 @pytest.fixture
 def db_mysql():
-    db = get_mysql_db()
+    from notanorm import MySqlDb
+    db = get_mysql_db(MySqlDb)
     yield db
     cleanup_mysql_db(db)
 
@@ -88,9 +104,9 @@ def db_fixture(request, db_name):
     yield request.getfixturevalue("db_" + db_name)
 
 
-@pytest.fixture(name="db_sqlup", params=["sqlite", "sqlite_noup"])
-def db_sqlup_fixture(request):
-    yield request.getfixturevalue("db_" + request.param)
+@pytest.fixture(name="db_sqlup", params=["", "_noup"])
+def db_sqlup_fixture(request, db_name):
+    yield request.getfixturevalue("db_" + db_name + request.param)
 
 
 @pytest.fixture(name="db_notmem")
@@ -103,7 +119,7 @@ def pytest_generate_tests(metafunc):
 
     global PYTEST_REG  # pylint: disable=global-statement
     if not PYTEST_REG:
-        if any(db in metafunc.fixturenames for db in ("db", "db_notmem")):
+        if any(db in metafunc.fixturenames for db in ("db", "db_notmem", "db_sqlup")):
             db_names = metafunc.config.getoption("db", [])
             db_names = db_names or ["sqlite"]
             for mark in metafunc.definition.own_markers:
