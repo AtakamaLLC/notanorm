@@ -296,9 +296,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     # probably don't override these
 
     def __is_primary(self, table, field):
-        if table not in self.__primary_cache:
-            self.__primary_cache[table] = self._get_primary(table)
-        return field in self.__primary_cache[table]
+        return field in self.primary_fields(table)
 
     def primary_fields(self, table):
         if table not in self.__primary_cache:
@@ -578,9 +576,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         return sql, vals
        
     def update(self, table, where=None, upd=None, **vals):
-        where = self.infer_where(table, where, vals)
         if upd:
             vals.update(upd)
+        where = self.infer_where(table, where, vals)
         if not vals:
             return
         set_sql, vals = self._setsql(table, where, upd, vals)

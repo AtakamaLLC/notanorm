@@ -165,7 +165,7 @@ def test_db_order(db):
 def test_db_op_gt(db):
     db.query("create table foo (bar integer)")
     db.insert("foo", bar=3)
-    db.insert("foo", bar=4)
+    db.insert("foo", {"bar":4})
     db.insert("foo", bar=5)
 
     assert db.select_one("foo", bar=notanorm.Op(">", 4)).bar == 5
@@ -295,7 +295,12 @@ def test_db_update_and_select(db):
 
     # alternate interface where the first argument is a where clause dict
     db.update("foo", {"bar": "hi"}, baz="up2")
-
+    
+    assert db.select("foo")[0].baz == "up2"
+    
+    # alternate interface where the first argument is a where clause dict (reversed primary)
+    db.update("foo", {"baz": "hi"}, bar="up3")
+    
     assert db.select("foo")[0].baz == "up2"
 
     # alternate interface where the select is explicit

@@ -4,6 +4,10 @@ cache:
 
 sudo: false
 
+python:
+  - 3.6
+  - 3.9
+
 jobs:
     include:
     - name: test
