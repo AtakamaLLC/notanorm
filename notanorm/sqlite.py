@@ -20,6 +20,13 @@ class SqliteDb(DbBase):
     def _begin(self, conn):
         conn.execute("BEGIN IMMEDIATE")
 
+    def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
+        fields = self.primary_fields(table)
+        if not setvals:
+            return inssql + " ON CONFLICT DO NOTHING", insvals
+        else:
+            return inssql + " ON CONFLICT (" + ",".join(fields) + ") DO UPDATE SET " + setsql, (*insvals, *setvals)
+
     @staticmethod
     def translate_error(exp):
         msg = str(exp)

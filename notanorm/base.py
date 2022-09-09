@@ -300,6 +300,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             self.__primary_cache[table] = self._get_primary(table)
         return field in self.__primary_cache[table]
 
+    def primary_fields(self, table):
+        if table not in self.__primary_cache:
+            self.__primary_cache[table] = self._get_primary(table)
+        return self.__primary_cache[table]
+
     class RetList(list):
         rowcount = None
         lastrowid = None
@@ -381,7 +386,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         return ret
 
-    def insert(self, table: str, ins=None, **vals):
+    def _insql(self, table: str, ins=None, **vals):
         if ins:
             vals.update(ins)
 
@@ -398,7 +403,12 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         else:
             sql += " " + self.default_values
 
-        return self.query(sql, *vals.values())
+        return sql, vals.values()
+    
+    def insert(self, table: str, ins=None, **vals):
+        sql, vals = self._insql(table, ins, **vals)
+        return self.query(sql, *vals)
+
 
     def quote_key(self, key):
         return '"' + key + '"'
@@ -552,22 +562,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         return where
 
-    def update(self, table, where=None, upd=None, **vals):
-        where = self.infer_where(table, where, vals)
-
-        if upd:
-            vals.update(upd)
-
-        sql = "update " + table + " set "
-
+    def _setsql(self, table, where, upd, vals):
         none_keys = [key for key, val in where.items() if val is None]
         del_all(where, none_keys)
 
-        if not vals:
-            # nothing to update
-            return
-
-        sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
+        sql = ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         sql += " where "
         sql += " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where])
         if where and none_keys:
@@ -576,6 +575,16 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         vals = list(vals.values()) + list(where.values())
 
+        return sql, vals
+       
+    def update(self, table, where=None, upd=None, **vals):
+        where = self.infer_where(table, where, vals)
+        if upd:
+            vals.update(upd)
+        if not vals:
+            return
+        set_sql, vals = self._setsql(table, where, upd, vals)
+        sql = "update " + table + " set " + set_sql
         return self.query(sql, *vals)
 
     def update_all(self, table, **vals):
@@ -595,9 +604,23 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     def upsert(self, table, where=None, **vals):
         """Select a row, and if present, update it, otherwise insert."""
-        # get where dict from values and primary key
-        where = self.infer_where(table, where, vals)
 
+        if hasattr(self, "_upsert_sql"):
+            # _upsert_sql is a function that takes two sql statements and joins them into one
+
+            # insert statement + values
+            ins_sql, in_vals = self._insql(table, **vals)
+
+            _unused = self.infer_where(table, where, vals)
+
+            # set non-primary key values
+            set_sql = ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
+            sql, vals = self._upsert_sql(table, ins_sql, in_vals, set_sql, vals.values())
+
+            return self.query(sql, *vals)
+        
+        where = self.infer_where(table, where, vals)
+        
         # find existing row
         with self.transaction():
             has = self.select(table, **where)

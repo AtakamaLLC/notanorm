@@ -28,6 +28,13 @@ class MySqlDb(DbBase):
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
 
+    def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
+        if not setvals:
+            fields = self.primary_fields(table)
+            f0 = next(iter(fields))
+            return inssql + f" ON DUPLICATE KEY UPDATE `{f0}`=`{f0}`", insvals
+        return inssql + " ON DUPLICATE KEY UPDATE " + setsql, (*insvals, *setvals)
+
     @staticmethod
     def translate_error(exp):
         try:

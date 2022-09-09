@@ -4,6 +4,7 @@
 import logging
 import multiprocessing
 import copy
+import os
 import sqlite3
 import threading
 import time
@@ -40,12 +41,12 @@ def db_sqlite_notmem(tmp_path):
 def get_mysql_db():
     from notanorm import MySqlDb
 
-    db = MySqlDb(read_default_file="~/.my.cnf")
+    db = MySqlDb(read_default_file=os.path.expanduser("~/.my.cnf"))
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
 
-    return MySqlDb(read_default_file="~/.my.cnf", db="test_db")
+    return MySqlDb(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
 
 
 def cleanup_mysql_db(db):
