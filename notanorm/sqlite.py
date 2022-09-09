@@ -8,7 +8,7 @@ from . import errors as err
 import logging
 
 log = logging.getLogger(__name__)
-
+sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split('.'))
 
 class SqliteDb(DbBase):
     placeholder = "?"
@@ -20,12 +20,12 @@ class SqliteDb(DbBase):
     def _begin(self, conn):
         conn.execute("BEGIN IMMEDIATE")
 
-    def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
-        fields = self.primary_fields(table)
-        if not setvals:
-            return inssql + " ON CONFLICT DO NOTHING", insvals
-        else:
-            return inssql + " ON CONFLICT (" + ",".join(fields) + ") DO UPDATE SET " + setsql, (*insvals, *setvals)
+    if sqlite_version >= (3, 24, 0):
+        def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
+            if not setvals:
+                return inssql + " ON CONFLICT DO NOTHING", insvals
+            else:
+                return inssql + " ON CONFLICT DO UPDATE SET " + setsql, (*insvals, *setvals)
 
     @staticmethod
     def translate_error(exp):
