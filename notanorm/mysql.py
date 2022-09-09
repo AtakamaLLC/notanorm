@@ -179,11 +179,8 @@ class MySqlDb(DbBase):
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     def column_model(self, info):
-        if info.type == "int(11)":
-            info.type = "integer"
-
-        if info.type == "int":  # pragma: no cover
-            # no idea what version i saw this in, but i saw it
+        if info.type == "int(11)" or info.type == "int":
+            # depends on specific mysql version
             info.type = "integer"
         fixed = False
         size = 0
