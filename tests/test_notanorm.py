@@ -46,6 +46,7 @@ def db_sqlite_noup():
 
     db.close()
 
+
 @pytest.fixture
 def db_mysql_noup():
     from notanorm import MySqlDb
