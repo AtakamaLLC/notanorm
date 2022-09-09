@@ -302,9 +302,9 @@ def test_db_update_and_select(db):
 
     # alternate interface where the first argument is a where clause dict (reversed primary)
     db.update("foo", {"baz": "up2"}, bar="yo")
-    
+
     assert db.select("foo")[0].bar == "yo"
-    
+
     # alternate interface where the first argument is a where clause dict and second is a update dict
     db.update("foo", {"baz": "up2"}, {"baz": "hi"})
 
