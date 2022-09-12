@@ -606,9 +606,12 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             # _upsert_sql is a function that takes two sql statements and joins them into one
 
             # insert statement + values
-            ins_sql, in_vals = self._insql(table, **vals)
+            tmp = vals.copy()
+            if where is not None:
+                tmp.update(where)
+            ins_sql, in_vals = self._insql(table, **tmp)
 
-            # discard vals
+            # discard vals, remove where clause stuff
             self.infer_where(table, where, vals)
 
             # set non-primary key values
