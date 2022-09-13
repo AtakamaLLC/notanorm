@@ -428,6 +428,33 @@ def test_model_create(db):
     assert check == model
 
 
+def test_model_create_composite_pk(db):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("part1", typ=DbType.INTEGER, notnull=True),
+                    DbCol("part2", typ=DbType.BLOB, size=16, notnull=True),
+                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
+                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
+                    DbCol("tex", typ=DbType.TEXT, notnull=True),
+                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
+                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
+                ),
+                indexes={
+                    DbIndex(fields=("part1", "part2"), primary=True),
+                },
+            )
+        }
+    )
+    db.create_model(model)
+    check = db.model()
+    assert check == model
+
+
+
 def test_model_sqlite_cross(db):
     # creating a model using sqlite results in a model that generally works across other db's
     model = DbModel(
