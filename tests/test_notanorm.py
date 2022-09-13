@@ -378,9 +378,9 @@ def test_db_upsert(db_sqlup):
 
     assert db.select("foo", bar="lo")[0].baz == "all"
     assert db.select("foo", bar="hi")[0].baz == "all"
-    
+
     # funky upsert!
-    db.upsert("foo", {"bar":"new"}, baz="baznew")
+    db.upsert("foo", {"bar": "new"}, baz="baznew")
 
 
 def test_db_insert_no_vals(db):
