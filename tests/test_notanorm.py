@@ -454,7 +454,6 @@ def test_model_create_composite_pk(db):
     assert check == model
 
 
-
 def test_model_sqlite_cross(db):
     # creating a model using sqlite results in a model that generally works across other db's
     model = DbModel(
