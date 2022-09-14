@@ -31,7 +31,7 @@ ret = db.insert("foo", bar="ho")                   # sqlite autoincrement used
 print(ret.lastrowid)                               # "3"
 
 db.upsert("foo", bar="ho", iv=4)                   # upsert requires a primary key, updates or inserts
-db.upsert("foo", bar="ho", _insert_only={"iv": 4}) # _insert_only values are never used to update rows 
+db.upsert("foo", bar="ho", _insert_only={"iv": 4}) # _insert_only values are never used to update rows
 
 # can update with a where clause, or with an implied one
 db.update("foo", iv=4, bar="up")                   # update, no where clause, inferred from primary key
