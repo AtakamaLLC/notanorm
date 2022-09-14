@@ -599,8 +599,11 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             else:
                 self.update_all(table, **vals)
 
-    def upsert(self, table, where=None, **vals):
+    def upsert(self, table, where=None, _insert_only=None, **vals):
         """Select a row, and if present, update it, otherwise insert."""
+
+        # insert only fields
+        _insert_only = _insert_only or {}
 
         if hasattr(self, "_upsert_sql"):
             # _upsert_sql is a function that takes two sql statements and joins them into one
@@ -609,6 +612,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             tmp = vals.copy()
             if where is not None:
                 tmp.update(where)
+            tmp.update(_insert_only)
             ins_sql, in_vals = self._insql(table, **tmp)
 
             # discard vals, remove where clause stuff
@@ -628,6 +632,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             if not has:
                 # restore value dict
                 vals.update(where)
+                vals.update(_insert_only)
                 return self.insert(table, **vals)
             else:
                 return self.update(table, where, **vals)

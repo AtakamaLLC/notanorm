@@ -379,8 +379,18 @@ def test_db_upsert(db_sqlup):
     assert db.select("foo", bar="lo")[0].baz == "all"
     assert db.select("foo", bar="hi")[0].baz == "all"
 
-    # funky upsert!
+    # where clause doen't update, only inserts
     db.upsert("foo", {"bar": "new"}, baz="baznew")
+
+    assert db.select("foo", bar="new")[0].baz == "baznew"
+
+    db.upsert("foo", {"bar": "new"}, _insert_only={"baz": "bazdef"})
+
+    assert db.select("foo", bar="new")[0].baz == "baznew"
+
+    db.upsert("foo", {"bar": "n2"}, _insert_only={"baz":"i2"})
+
+    assert db.select("foo", bar="n2")[0].baz == "i2"
 
 
 def test_db_insert_no_vals(db):
