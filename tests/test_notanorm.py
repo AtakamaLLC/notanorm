@@ -388,9 +388,13 @@ def test_db_upsert(db_sqlup):
 
     assert db.select("foo", bar="new")[0].baz == "baznew"
 
-    db.upsert("foo", {"bar": "n2"}, _insert_only={"baz": "i2"})
+    db.upsert("foo", bar="n2", baz="uponly", _insert_only={"baz": "i2"})
 
     assert db.select("foo", bar="n2")[0].baz == "i2"
+    
+    db.upsert("foo", bar="n2", baz="uponly", _insert_only={"baz": "i2"})
+    
+    assert db.select("foo", bar="n2")[0].baz == "uponly"
 
 
 def test_db_insert_no_vals(db):
