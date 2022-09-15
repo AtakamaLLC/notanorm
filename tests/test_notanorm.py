@@ -400,6 +400,19 @@ def test_db_upsert(db_sqlup):
 def test_db_insert_no_vals(db):
     db.query("create table foo (bar integer default 1)")
     db.insert("foo")
+    assert db.select_one("foo").bar == 1
+
+
+def test_db_insert_lrid(db):
+    db.query("create table foo (bar integer auto_increment primary key)")
+    ret = db.insert("foo")
+    assert ret.lastrowid
+
+
+def test_db_upsert_lrid(db):
+    db.query("create table foo (bar integer auto_increment primary key, baz integer)")
+    ret = db.upsert("foo", bar=1, baz=2)
+    assert ret.lastrowid
 
 
 def test_db_upsert_non_null(db):
