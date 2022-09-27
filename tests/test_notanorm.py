@@ -83,6 +83,7 @@ def get_mysql_db(typ):
 
 def cleanup_mysql_db(db):
     db._DbBase__closed = False
+    db.query("SET SESSION TRANSACTION READ WRITE;")
     db.query("DROP DATABASE test_db")
     db.close()
 
@@ -818,11 +819,17 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
                 pass
 
 
-@pytest.mark.db("sqlite")
-def test_readonly_fail(db):
+def test_readonly_fail(db, db_name: str):
     db.query("create table foo (bar text)")
     db.insert("foo", bar="y1")
-    db.query("PRAGMA query_only=ON;")
+
+    if db_name == "sqlite":
+        db.query("PRAGMA query_only=ON;")
+    elif db_name == "mysql":
+        db.query("SET SESSION TRANSACTION READ ONLY;")
+    else:
+        raise NotImplementedError
+
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
 

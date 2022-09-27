@@ -52,6 +52,8 @@ class MySqlDb(DbBase):
                 # it's used as a base class for TableError and other stuff
                 # using the base here is odd
                 return err.SchemaError(msg)
+            if err_code in (1792, ):
+                return err.DbReadOnlyError(msg)
             if err_code >= 2000:
                 # client connection issues
                 return err.DbConnectionError(msg)
