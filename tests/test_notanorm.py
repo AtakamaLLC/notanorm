@@ -14,7 +14,7 @@ from typing import Generator
 import pytest
 
 import notanorm.errors
-from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, parse_db_uri
 
 import notanorm.errors as err
 
@@ -365,13 +365,15 @@ def test_db_upsert(db_sqlup):
     assert db.select("foo", bar="hi")[0].baz == "up"
 
     # inserts
-    db.upsert("foo", bar="lo", baz="down")
+    ret = db.upsert("foo", bar="lo", baz="down")
+
+    assert ret.lastrowid
 
     assert db.select("foo", bar="hi")[0].baz == "up"
     assert db.select("foo", bar="lo")[0].baz == "down"
 
     # no-op
-    db.upsert("foo", bar="hi")
+    ret = db.upsert("foo", bar="hi")
 
     # update everything
     db.upsert_all("foo", baz="all")
@@ -915,3 +917,26 @@ def test_mysql_op_error(db):
 def test_syntax_error(db):
     with pytest.raises(notanorm.errors.OperationalError):
         db.query("create table fo()o (bar text primary key);")
+
+
+def test_uri_parse():
+    typ, args, kws = parse_db_uri("sqlite:file.db")
+    assert typ == SqliteDb
+    assert args == ["file.db"]
+    assert kws == {}
+
+    typ, args, kws = parse_db_uri("sqlite://file.db")
+    assert typ == SqliteDb
+    assert args == ["file.db"]
+    assert kws == {}
+
+    typ, args, kws = parse_db_uri("mysql:host=localhost,port=45")
+    from notanorm import MySqlDb
+    assert typ == MySqlDb
+    assert kws == {"host": "localhost", "port": 45}
+
+    typ, args, kws = parse_db_uri("mysql://localhost?port=45")
+    from notanorm import MySqlDb
+    assert typ == MySqlDb
+    assert args == ["localhost"]
+    assert kws == {"port": 45}

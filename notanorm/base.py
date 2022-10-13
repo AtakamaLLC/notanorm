@@ -8,6 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
+from typing import Dict, List
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -149,6 +150,9 @@ class DbTxGuard:
 # noinspection PyMethodMayBeStatic
 class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
+    __known_drivers = {}
+    uri_name = None
+    uri_conn_func = None
     placeholder = '?'
     default_values = 'default values'
     max_reconnect_attempts = 5
@@ -186,6 +190,19 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         self.__classes = {}
         self._transaction = 0
         self._conn()
+
+    def __init_subclass__(cls: "DbBase", **kwargs):
+        if cls.uri_name:
+            cls.__known_drivers[cls.uri_name] = cls
+        cls.__known_drivers[cls.__name__] = cls
+
+    @classmethod
+    def get_driver_by_name(cls, name) -> type:
+        return cls.__known_drivers.get(name)
+
+    @classmethod
+    def uri_adjust(cls, args: List, kws: Dict):
+        ...
 
     def transaction(self):
         return DbTxGuard(self)

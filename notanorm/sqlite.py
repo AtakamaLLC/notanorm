@@ -12,6 +12,8 @@ sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split('.'))
 
 
 class SqliteDb(DbBase):
+    uri_name = "sqlite"
+    uri_conn_func = sqlite3.connect
     placeholder = "?"
     use_pooled_locks = True
 

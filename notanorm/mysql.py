@@ -22,11 +22,19 @@ import logging as log
 
 
 class MySqlDb(DbBase):
+    uri_name = "mysql"
+
     placeholder = "%s"
     default_values = ' () values ()'
 
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
+
+    @classmethod
+    def uri_adjust(cls, args, kws):
+        for kw in kws:
+            if kw == "port":
+                kws["port"] = int(kws["port"])
 
     def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
         if not setvals:
