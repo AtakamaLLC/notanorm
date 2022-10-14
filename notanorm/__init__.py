@@ -9,7 +9,7 @@ from .sqlite import SqliteDb
 from .base import DbBase, Op
 from .model import DbType, DbCol, DbTable, DbModel, DbIndex
 from . import errors
-from .connparse import parse_db_uri
+from .connparse import open_db
 
 __all__ = ["SqliteDb", "MySqlDb", "DbRow", "DbBase", "DbType", "DbCol", "DbTable", "DbModel",
-           "DbIndex", "errors", "Op"]
+           "DbIndex", "errors", "Op", "open_db"]
