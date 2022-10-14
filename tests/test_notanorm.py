@@ -374,7 +374,7 @@ def test_db_upsert(db_sqlup):
     assert db.select("foo", bar="lo")[0].baz == "down"
 
     # no-op
-    ret = db.upsert("foo", bar="hi")
+    db.upsert("foo", bar="hi")
 
     # update everything
     db.upsert_all("foo", baz="all")
