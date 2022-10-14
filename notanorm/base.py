@@ -173,8 +173,8 @@ class DbBase(
     def timeout(self):
         # total timeout for connections == geometric sum
         return self.reconnect_backoff_start * (
-            (1 - self.reconnect_backoff_factor**self.max_reconnect_attempts)
-            / (1 - self.reconnect_backoff_factor)
+            (1 - self.reconnect_backoff_factor**self.max_reconnect_attempts) /
+            (1 - self.reconnect_backoff_factor)
         )
 
     def _lock_key(self, *args, **kws):
@@ -495,7 +495,7 @@ class DbBase(
         sql = "select "
 
         no_from = False
-        if table[0 : len(sql)].lower() == sql and "from" in table.lower():
+        if table[0: len(sql)].lower() == sql and "from" in table.lower():
             sql = ""
             no_from = True
 
