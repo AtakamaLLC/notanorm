@@ -35,6 +35,14 @@ class MySqlDb(DbBase):
         for kw in kws:
             if kw == "port":
                 kws["port"] = int(kws["port"])
+            elif kw == "use_unicode":
+                kws["use_unicode"] = bool(kws["use_unicode"])
+            elif kw == "autocommit":
+                kws["autocommit"] = bool(kws["autocommit"])
+
+        if args:
+            kws["host"] = args[0]
+            args.clear()
 
     def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
         if not setvals:

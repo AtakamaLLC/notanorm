@@ -1,8 +1,12 @@
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, TypeVar, TYPE_CHECKING, Type
 from urllib.parse import urlparse, parse_qs
-from inspect import signature
 
 import notanorm
+
+if TYPE_CHECKING:
+    from notanorm import DbBase
+
+T = TypeVar("T", bound="DbBase")
 
 
 def _db_uri_style_1(dbstr: str) -> Tuple[str, List[str], Dict[str, Any]]:
@@ -62,15 +66,15 @@ def _db_uri_style_2(dbstr: str) -> Tuple[str, List[str], Dict[str, Any]]:
     typ = res.scheme
     args = res.netloc.split(",")
     kws = parse_qs(res.query)
-    kws = {k:v[0] for k, v in kws.items()}
+    kws = {k: v[0] for k, v in kws.items()}
     return typ, args, kws
 
 
-def parse_db_uri(dbstr: str) -> Tuple[type, List[str], Dict[str, Any]]:
+def parse_db_uri(dbstr: str) -> Tuple[Type["DbBase"], List[str], Dict[str, Any]]:
     """DB URI parser.
 
 
-    The first form is easier to type for humans that don't know url syntax.   
+    The first form is easier to type for humans that don't know url syntax.
 
     The second form is more provably complete or correct.
 
@@ -79,7 +83,7 @@ def parse_db_uri(dbstr: str) -> Tuple[type, List[str], Dict[str, Any]]:
     A db uri can be:
 
     db_type:[args,...][,kw=arg]...
-    
+
     or
 
     db_type://[args&...]?[kw=arg]...
@@ -96,7 +100,6 @@ def parse_db_uri(dbstr: str) -> Tuple[type, List[str], Dict[str, Any]]:
     mysql://localhost?port=2203&passwd=moon&amp;pie&db=stuff
     """
 
-
     try:
         typ, args, kws = _db_uri_style_2(dbstr)
     except Exception:
@@ -109,3 +112,8 @@ def parse_db_uri(dbstr: str) -> Tuple[type, List[str], Dict[str, Any]]:
     driver.uri_adjust(args, kws)
 
     return driver, args, kws
+
+
+def open_db(dbstr: str) -> "DbBase":
+    driver, args, kws = parse_db_uri(dbstr)
+    return driver(*args, **kws)

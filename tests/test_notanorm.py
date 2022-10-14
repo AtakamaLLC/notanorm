@@ -17,6 +17,7 @@ import notanorm.errors
 from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, parse_db_uri
 
 import notanorm.errors as err
+from notanorm.connparse import open_db
 
 log = logging.getLogger(__name__)
 
@@ -935,8 +936,17 @@ def test_uri_parse():
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
+    typ, args, kws = parse_db_uri("mysql:localhost,port=45")
+    from notanorm import MySqlDb
+    assert typ == MySqlDb
+    assert kws == {"host": "localhost", "port": 45}
+
     typ, args, kws = parse_db_uri("mysql://localhost?port=45")
     from notanorm import MySqlDb
     assert typ == MySqlDb
-    assert args == ["localhost"]
-    assert kws == {"port": 45}
+    assert kws == {"host": "localhost", "port": 45}
+
+
+def test_open_db():
+    db = open_db("sqlite://:memory:")
+    db.execute("create table foo (bar)")

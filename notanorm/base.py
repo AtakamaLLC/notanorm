@@ -8,7 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, List, Type
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -197,7 +197,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         cls.__known_drivers[cls.__name__] = cls
 
     @classmethod
-    def get_driver_by_name(cls, name) -> type:
+    def get_driver_by_name(cls, name) -> Type["DbBase"]:
         return cls.__known_drivers.get(name)
 
     @classmethod
