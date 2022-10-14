@@ -27,17 +27,24 @@ def _db_uri_style_1(dbstr: str) -> Tuple[str, List[str], Dict[str, Any]]:
     args = []
     kws = {}
 
+    assert chr(0) not in conn
+
+    # escaped commas are not split
     conn = conn.replace("\\,", chr(0))
     for arg in conn.split(","):
+        # put commas back
         arg = arg.replace(chr(0), ",")
 
+        # allow escaped equals signs in values
         arg = arg.replace("\\=", chr(0))
         if "=" in arg:
             kw, val = arg.split("=", 1)
+            # put equals back
             val = val.replace(chr(0), "=")
             assert kw, "invalid uri"
             kws[kw] = val
         else:
+            # put equals back
             arg = arg.replace(chr(0), "=")
             args.append(arg)
     return typ, args, kws

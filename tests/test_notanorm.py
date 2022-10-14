@@ -942,6 +942,11 @@ def test_uri_parse():
     assert args == ["file.db"]
     assert kws == {}
 
+    # escaping works
+    typ, args, kws = parse_db_uri("mysql:host=whatever,password=\\,\\=::yo")
+    assert typ == MySqlDb
+    assert kws == {"host": "whatever", "password": ",=::yo"}
+
     typ, args, kws = parse_db_uri("sqlite://file.db?timeout=5.1")
     assert typ == SqliteDb
     assert args == ["file.db"]
