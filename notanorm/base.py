@@ -8,6 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
+from typing import Dict, List, Type
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -61,10 +62,11 @@ class DbRow(dict):
 
     Access to __dict__ is deprecated (and slow, it makes a case-preserved copy)
     """
+
     __vals = None
 
     # noinspection PyDefaultArgument
-    def __init__(self, dct={}):             # pylint: disable=dangerous-default-value
+    def __init__(self, dct={}):  # pylint: disable=dangerous-default-value
         super().__init__()
         for k, v in dct.items():
             super().__setitem__(CIKey(k), v)
@@ -80,7 +82,7 @@ class DbRow(dict):
         self[key] = val
 
     def __getitem__(self, key):
-        if type(key) is int:                # pylint: disable=unidiomatic-typecheck
+        if type(key) is int:  # pylint: disable=unidiomatic-typecheck
             return self._aslist()[key]
         return super().__getitem__(CIKey(key))
 
@@ -102,7 +104,7 @@ class DbRow(dict):
         return {k: v for k, v in self.__items()}
 
     def __items(self):
-        return ((str(k), v) for k, v in super().items() if k[0:2] != '__')
+        return ((str(k), v) for k, v in super().items() if k[0:2] != "__")
 
     def items(self):
         return list(self.__items())
@@ -147,10 +149,16 @@ class DbTxGuard:
 
 
 # noinspection PyMethodMayBeStatic
-class DbBase(ABC):                          # pylint: disable=too-many-public-methods, too-many-instance-attributes
+class DbBase(
+    ABC
+):  # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
-    placeholder = '?'
-    default_values = 'default values'
+
+    __known_drivers = {}
+    uri_name = None
+    uri_conn_func = None
+    placeholder = "?"
+    default_values = "default values"
     max_reconnect_attempts = 5
     reconnect_backoff_start = 0.1  # seconds
     reconnect_backoff_factor = 2
@@ -165,12 +173,14 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def timeout(self):
         # total timeout for connections == geometric sum
         return self.reconnect_backoff_start * (
-            (1 - self.reconnect_backoff_factor ** self.max_reconnect_attempts) /
+            (1 - self.reconnect_backoff_factor**self.max_reconnect_attempts) /
             (1 - self.reconnect_backoff_factor)
         )
 
     def _lock_key(self, *args, **kws):
-        raise RuntimeError("define _lock_key in your subclass if use_pooled_locks is enabled")
+        raise RuntimeError(
+            "define _lock_key in your subclass if use_pooled_locks is enabled"
+        )
 
     def __init__(self, *args, **kws):
         assert self.reconnect_backoff_factor > 1
@@ -186,6 +196,30 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         self.__classes = {}
         self._transaction = 0
         self._conn()
+
+    def __init_subclass__(cls: "DbBase", **kwargs):
+        if cls.uri_name:
+            cls.__known_drivers[cls.uri_name] = cls
+        cls.__known_drivers[cls.__name__] = cls
+
+    @classmethod
+    def get_driver_by_name(cls, name) -> Type["DbBase"]:
+        return cls.__known_drivers.get(name)
+
+    @classmethod
+    def uri_adjust(cls, args: List, kws: Dict):
+        """Modify the url-parsed and keywords before they are passed to the driver.
+
+        For example, a keyword: `?port=50` might need conversion to an integer.
+
+        Or a parameter might need to be positional.
+
+        Or positional args (url path parameters) might need conversion to keywords.
+
+        Ideally, adjustment of the URI parsed args and keywords should be minimal,
+        so the user can rely on the documentation of the underlying database
+        connection.
+        """
 
     def transaction(self):
         return DbTxGuard(self)
@@ -235,7 +269,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                 raise DbClosedError
             self._conn_p = self._connect(*self._conn_args, **self._conn_kws)
             if not self._conn_p:
-                raise ValueError("No connection returned by _connect for %s" % type(self))
+                raise ValueError(
+                    "No connection returned by _connect for %s" % type(self)
+                )
         return self._conn_p
 
     @property
@@ -262,7 +298,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                     cursor = self._cursor(self._conn())
                     cursor.execute(sql, parameters)
                     break
-                except Exception as exp:                  # pylint: disable=broad-except
+                except Exception as exp:  # pylint: disable=broad-except
                     if cursor:
                         # cursor will be automatically closed on del, but better to do it explicitly
                         # Some tools, like pytest, will capture locals, which may keep the cursor
@@ -391,9 +427,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         sql = "insert into " + table
 
         if vals:
-            sql += '('
-            sql += ','.join([self.quote_keys(k) for k in vals.keys()])
-            sql += ')'
+            sql += "("
+            sql += ",".join([self.quote_keys(k) for k in vals.keys()])
+            sql += ")"
 
             sql += " values ("
             sql += ",".join([self.placeholder for _ in vals.keys()])
@@ -429,14 +465,19 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         del_all(where, none_keys)
         del_all(where, (k[0] for k in list_keys))
 
-        sql = " and ".join([self.quote_keys(key) +
-                            self._op_from_val(val).op +
-                            self.placeholder for key, val in where.items()])
+        sql = " and ".join(
+            [
+                self.quote_keys(key) + self._op_from_val(val).op + self.placeholder
+                for key, val in where.items()
+            ]
+        )
 
         if none_keys:
             if sql:
                 sql += " and "
-            sql += " and ".join([self.quote_keys(key) + " is NULL" for key in none_keys])
+            sql += " and ".join(
+                [self.quote_keys(key) + " is NULL" for key in none_keys]
+            )
 
         vals = [self._op_from_val(val).val for val in where.values()]
         if list_keys:
@@ -454,7 +495,7 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
         sql = "select "
 
         no_from = False
-        if table[0:len(sql)].lower() == sql and "from" in table.lower():
+        if table[0: len(sql)].lower() == sql and "from" in table.lower():
             sql = ""
             no_from = True
 
@@ -490,21 +531,25 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
                 order_by = [order_by]
             order_by_fd = ",".join(order_by)
             # todo: limit order_by more strictly
-            assert ';' not in order_by_fd
+            assert ";" not in order_by_fd
             sql += " order by " + order_by_fd
 
         return sql, vals, factory
 
     def select(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
-           __class keyword optionally replaces Row obj.
+        __class keyword optionally replaces Row obj.
         """
-        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
+        sql, vals, factory = self.__select_to_query(
+            table, fields=fields, dict_where=dict_where, order_by=order_by, **where
+        )
         return self.query(sql, *vals, factory=factory)
 
     def select_gen(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Same as select, but returns a generator."""
-        sql, vals, factory = self.__select_to_query(table, fields=fields, dict_where=dict_where, order_by=order_by, **where)
+        sql, vals, factory = self.__select_to_query(
+            table, fields=fields, dict_where=dict_where, order_by=order_by, **where
+        )
         return self.query_gen(sql, *vals, factory=factory)
 
     def count(self, table, where=None, **kws):
@@ -565,7 +610,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         sql = ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
         sql += " where "
-        sql += " and ".join([self.quote_keys(key) + "=" + self.placeholder for key in where])
+        sql += " and ".join(
+            [self.quote_keys(key) + "=" + self.placeholder for key in where]
+        )
         if where and none_keys:
             sql += " and "
         sql += " and ".join([self.quote_keys(key) + " is NULL" for key in none_keys])
@@ -587,7 +634,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
     def update_all(self, table, **vals):
         """Update all rows in a table to the same values."""
         sql = "update " + table + " set "
-        sql += ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
+        sql += ", ".join(
+            [self.quote_keys(key) + "=" + self.placeholder for key in vals]
+        )
         return self.query(sql, *vals.values())
 
     def upsert_all(self, table, **vals):
@@ -619,8 +668,12 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
             self.infer_where(table, where, vals)
 
             # set non-primary key values
-            set_sql = ", ".join([self.quote_keys(key) + "=" + self.placeholder for key in vals])
-            sql, vals = self._upsert_sql(table, ins_sql, in_vals, set_sql, vals.values())
+            set_sql = ", ".join(
+                [self.quote_keys(key) + "=" + self.placeholder for key in vals]
+            )
+            sql, vals = self._upsert_sql(
+                table, ins_sql, in_vals, set_sql, vals.values()
+            )
 
             return self.query(sql, *vals)
 

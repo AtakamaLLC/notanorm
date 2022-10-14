@@ -15,8 +15,10 @@ import pytest
 
 import notanorm.errors
 from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm.connparse import parse_db_uri
 
 import notanorm.errors as err
+from notanorm.connparse import open_db
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +36,8 @@ def db_sqlite():
 @pytest.fixture
 def db_sqlite_noup():
     class SqliteDbNoUp(SqliteDb):
+        uri_name = None
+
         @property
         def _upsert_sql(self):
             raise AttributeError
@@ -52,6 +56,8 @@ def db_mysql_noup():
     from notanorm import MySqlDb
 
     class MySqlDbNoUp(MySqlDb):
+        uri_name = None
+
         @property
         def _upsert_sql(self):
             raise AttributeError
@@ -91,6 +97,7 @@ def cleanup_mysql_db(db):
 @pytest.fixture
 def db_mysql():
     from notanorm import MySqlDb
+
     db = get_mysql_db(MySqlDb)
     yield db
     cleanup_mysql_db(db)
@@ -366,7 +373,10 @@ def test_db_upsert(db_sqlup):
     assert db.select("foo", bar="hi")[0].baz == "up"
 
     # inserts
-    db.upsert("foo", bar="lo", baz="down")
+    ret = db.upsert("foo", bar="lo", baz="down")
+
+    if db_sqlup.uri_name == "sqlite":
+        assert ret.lastrowid
 
     assert db.select("foo", bar="hi")[0].baz == "up"
     assert db.select("foo", bar="lo")[0].baz == "down"
@@ -489,7 +499,13 @@ def test_model_sqlite_cross(db):
             "foo": DbTable(
                 columns=(
                     DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                    DbCol("inty", typ=DbType.INTEGER, autoinc=False, notnull=True, default="4"),
+                    DbCol(
+                        "inty",
+                        typ=DbType.INTEGER,
+                        autoinc=False,
+                        notnull=True,
+                        default="4",
+                    ),
                     DbCol("blob", typ=DbType.BLOB),
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
@@ -578,6 +594,8 @@ def test_multi_close(db):
     db.close()
 
     class VeryClose(SqliteDb):
+        uri_name = None
+
         def __init__(self):
             self.close()
 
@@ -836,7 +854,6 @@ def test_readonly_fail(db, db_name: str):
 
 @pytest.mark.db("sqlite")
 def test_collation(db):
-
     def collate(v1, v2):
         return 1 if v1 > v2 else -1 if v1 < v2 else 0
 
@@ -922,3 +939,42 @@ def test_mysql_op_error(db):
 def test_syntax_error(db):
     with pytest.raises(notanorm.errors.OperationalError):
         db.query("create table fo()o (bar text primary key);")
+
+
+def test_uri_parse():
+    from notanorm import MySqlDb
+
+    typ, args, kws = parse_db_uri("sqlite:file.db")
+    assert typ == SqliteDb
+    assert args == ["file.db"]
+    assert kws == {}
+
+    # escaping works
+    typ, args, kws = parse_db_uri("mysql:host=whatever,password=\\,\\=::yo")
+    assert typ == MySqlDb
+    assert kws == {"host": "whatever", "password": ",=::yo"}
+
+    typ, args, kws = parse_db_uri("sqlite://file.db?timeout=5.1")
+    assert typ == SqliteDb
+    assert args == ["file.db"]
+    assert kws == {"timeout": 5.1}
+
+    typ, args, kws = parse_db_uri("mysql:host=localhost,port=45")
+
+    assert typ == MySqlDb
+    assert kws == {"host": "localhost", "port": 45}
+
+    typ, args, kws = parse_db_uri("mysql:localhost,port=45")
+
+    assert typ == MySqlDb
+    assert kws == {"host": "localhost", "port": 45}
+
+    typ, args, kws = parse_db_uri("mysql://localhost?port=45")
+
+    assert typ == MySqlDb
+    assert kws == {"host": "localhost", "port": 45}
+
+
+def test_open_db():
+    db = open_db("sqlite://:memory:")
+    db.execute("create table foo (bar)")
