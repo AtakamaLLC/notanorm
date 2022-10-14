@@ -37,6 +37,7 @@ def db_sqlite():
 def db_sqlite_noup():
     class SqliteDbNoUp(SqliteDb):
         uri_name = None
+
         @property
         def _upsert_sql(self):
             raise AttributeError
@@ -93,6 +94,7 @@ def cleanup_mysql_db(db):
 @pytest.fixture
 def db_mysql():
     from notanorm import MySqlDb
+
     db = get_mysql_db(MySqlDb)
     yield db
     cleanup_mysql_db(db)
@@ -493,7 +495,13 @@ def test_model_sqlite_cross(db):
             "foo": DbTable(
                 columns=(
                     DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                    DbCol("inty", typ=DbType.INTEGER, autoinc=False, notnull=True, default="4"),
+                    DbCol(
+                        "inty",
+                        typ=DbType.INTEGER,
+                        autoinc=False,
+                        notnull=True,
+                        default="4",
+                    ),
                     DbCol("blob", typ=DbType.BLOB),
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
@@ -583,6 +591,7 @@ def test_multi_close(db):
 
     class VeryClose(SqliteDb):
         uri_name = None
+
         def __init__(self):
             self.close()
 
@@ -835,7 +844,6 @@ def test_readonly_fail(db):
 
 @pytest.mark.db("sqlite")
 def test_collation(db):
-
     def collate(v1, v2):
         return 1 if v1 > v2 else -1 if v1 < v2 else 0
 
@@ -936,16 +944,19 @@ def test_uri_parse():
 
     typ, args, kws = parse_db_uri("mysql:host=localhost,port=45")
     from notanorm import MySqlDb
+
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
     typ, args, kws = parse_db_uri("mysql:localhost,port=45")
     from notanorm import MySqlDb
+
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
     typ, args, kws = parse_db_uri("mysql://localhost?port=45")
     from notanorm import MySqlDb
+
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
