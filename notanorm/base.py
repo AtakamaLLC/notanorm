@@ -208,9 +208,9 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
         Or a parameter might need to be positional.
         
-        Or positional args (url path parameters) might need conersion to keywords.
+        Or positional args (url path parameters) might need conversion to keywords.
 
-        Ideally, conversion from the URI parsed args and keywords should be minimal, 
+        Ideally, adjustment of the URI parsed args and keywords should be minimal, 
         so the user can rely on the documentation of the underlying database
         connection.
         """
