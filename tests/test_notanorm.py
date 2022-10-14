@@ -36,6 +36,7 @@ def db_sqlite():
 @pytest.fixture
 def db_sqlite_noup():
     class SqliteDbNoUp(SqliteDb):
+        uri_name = None
         @property
         def _upsert_sql(self):
             raise AttributeError
@@ -581,6 +582,7 @@ def test_multi_close(db):
     db.close()
 
     class VeryClose(SqliteDb):
+        uri_name = None
         def __init__(self):
             self.close()
 
