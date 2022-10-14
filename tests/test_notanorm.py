@@ -56,6 +56,8 @@ def db_mysql_noup():
     from notanorm import MySqlDb
 
     class MySqlDbNoUp(MySqlDb):
+        uri_name = None
+        
         @property
         def _upsert_sql(self):
             raise AttributeError
