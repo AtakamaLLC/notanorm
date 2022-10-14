@@ -115,5 +115,35 @@ def parse_db_uri(dbstr: str) -> Tuple[Type["DbBase"], List[str], Dict[str, Any]]
 
 
 def open_db(dbstr: str) -> "DbBase":
+    """Create db instance using a URI-style connection string.
+
+    The first form is easier to type for humans that don't know url syntax.
+
+    The second form is easier to formalize as a URI.
+
+    Both result in args and kwargs that are passed directly to the connection arguments of the db.
+
+    A db uri can be:
+
+    db_type:[args,...][,kw=arg]...
+
+    or
+
+    db_type://[args&...]?[kw=arg]...
+
+
+    The dbtype is case-insensitive, and corresponds to the "uri_name" of the associated class.
+
+    If no uri_name is specified, then the class.__name__ is used instead.
+
+    Some examples:
+
+    ```
+    open_db("sqlite:file.db")
+    open_db("mysql:host=localhost,port=2203,passwd=moonpie,db=stuff")
+    open_db("mysql://localhost?port=2203&passwd=moon&amp;pie&db=stuff")
+    ```
+    """
+
     driver, args, kws = parse_db_uri(dbstr)
     return driver(*args, **kws)
