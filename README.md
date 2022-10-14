@@ -12,13 +12,17 @@ often confusing semantics.
 
 
 ```
-from notanorm import SqliteDb 
+from notanorm import SqliteDb, open_db 
 # from notanorm import MysqlDb 
+
 
 fname = ":memory:"
 
 # accepts all the same parameters as sqlite3.connect
 db = SqliteDb(fname)
+
+# this works too, params turn into kwargs
+db = open_db("sqlite://:memory:")
 
 # no special create support, just use a string
 db.query("create table foo (bar text, iv integer primary key)")

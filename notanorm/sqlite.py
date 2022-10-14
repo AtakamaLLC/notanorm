@@ -13,9 +13,14 @@ sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split('.'))
 
 class SqliteDb(DbBase):
     uri_name = "sqlite"
-    uri_conn_func = sqlite3.connect
     placeholder = "?"
     use_pooled_locks = True
+
+    @classmethod
+    def uri_adjust(cls, args, kws):
+        for nam, typ in [("timeout", float), ("check_same_thread", bool), ("cached_statements", int), ("detect_types", int)]:
+            if nam in kws:
+                kws[nam] = typ(kws[nam])
 
     def _lock_key(self, *args, **kws):
         return args[0]

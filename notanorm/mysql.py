@@ -32,13 +32,9 @@ class MySqlDb(DbBase):
 
     @classmethod
     def uri_adjust(cls, args, kws):
-        for kw in kws:
-            if kw == "port":
-                kws["port"] = int(kws["port"])
-            elif kw == "use_unicode":
-                kws["use_unicode"] = bool(kws["use_unicode"])
-            elif kw == "autocommit":
-                kws["autocommit"] = bool(kws["autocommit"])
+        for nam, typ in [("port", int), ("use_unicode", bool), ("autocommit", bool)]:
+            if nam in kws:
+                kws[nam] = typ(kws[nam])
 
         if args:
             kws["host"] = args[0]

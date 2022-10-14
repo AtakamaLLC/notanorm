@@ -926,10 +926,10 @@ def test_uri_parse():
     assert args == ["file.db"]
     assert kws == {}
 
-    typ, args, kws = parse_db_uri("sqlite://file.db")
+    typ, args, kws = parse_db_uri("sqlite://file.db?timeout=5.1")
     assert typ == SqliteDb
     assert args == ["file.db"]
-    assert kws == {}
+    assert kws == {"timeout": 5.1}
 
     typ, args, kws = parse_db_uri("mysql:host=localhost,port=45")
     from notanorm import MySqlDb
