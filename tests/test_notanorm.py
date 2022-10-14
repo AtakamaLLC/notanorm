@@ -14,7 +14,8 @@ from typing import Generator
 import pytest
 
 import notanorm.errors
-from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, parse_db_uri
+from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm.connparse import parse_db_uri
 
 import notanorm.errors as err
 from notanorm.connparse import open_db
