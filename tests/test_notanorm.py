@@ -374,7 +374,8 @@ def test_db_upsert(db_sqlup):
     # inserts
     ret = db.upsert("foo", bar="lo", baz="down")
 
-    assert ret.lastrowid
+    if db_sqlup.uri_name == "sqlite":
+        assert ret.lastrowid
 
     assert db.select("foo", bar="hi")[0].baz == "up"
     assert db.select("foo", bar="lo")[0].baz == "down"
