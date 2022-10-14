@@ -57,7 +57,7 @@ def db_mysql_noup():
 
     class MySqlDbNoUp(MySqlDb):
         uri_name = None
-        
+
         @property
         def _upsert_sql(self):
             raise AttributeError
@@ -934,6 +934,8 @@ def test_syntax_error(db):
 
 
 def test_uri_parse():
+    from notanorm import MySqlDb
+
     typ, args, kws = parse_db_uri("sqlite:file.db")
     assert typ == SqliteDb
     assert args == ["file.db"]
@@ -945,19 +947,16 @@ def test_uri_parse():
     assert kws == {"timeout": 5.1}
 
     typ, args, kws = parse_db_uri("mysql:host=localhost,port=45")
-    from notanorm import MySqlDb
 
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
     typ, args, kws = parse_db_uri("mysql:localhost,port=45")
-    from notanorm import MySqlDb
 
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
     typ, args, kws = parse_db_uri("mysql://localhost?port=45")
-    from notanorm import MySqlDb
 
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}

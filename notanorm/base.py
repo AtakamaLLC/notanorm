@@ -202,7 +202,18 @@ class DbBase(ABC):                          # pylint: disable=too-many-public-me
 
     @classmethod
     def uri_adjust(cls, args: List, kws: Dict):
-        ...
+        """Modify the url-parsed and keywords before they are passed to the driver.
+
+        For example, a keyword: `?port=50` might need conversion to an integer.
+
+        Or a parameter might need to be positional.
+        
+        Or positional args (url path parameters) might need conersion to keywords.
+
+        Ideally, conversion from the URI parsed args and keywords should be minimal, 
+        so the user can rely on the documentation of the underlying database
+        connection.
+        """
 
     def transaction(self):
         return DbTxGuard(self)
