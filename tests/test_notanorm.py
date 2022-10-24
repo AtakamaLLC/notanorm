@@ -446,6 +446,7 @@ def test_model_create(db):
                 columns=(
                     DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
                     DbCol("blob", typ=DbType.BLOB),
+                    DbCol("bool", typ=DbType.BOOLEAN),
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
                     DbCol("tex", typ=DbType.TEXT, notnull=True),
