@@ -424,7 +424,7 @@ class DbBase(
         if ins:
             vals.update(ins)
 
-        sql = "insert into " + table
+        sql = "insert into " + self.quote_key(table)
 
         if vals:
             sql += "("
@@ -521,7 +521,7 @@ class DbBase(
             else:
                 sql += ",".join(fields)
 
-            sql += " from " + table
+            sql += " from " + self.quote_key(table)
 
         where, vals = self._where(where)
         sql += where
@@ -559,7 +559,7 @@ class DbBase(
         if not where:
             where = kws
 
-        sql = "select count(*) as k from " + table
+        sql = "select count(*) as k from " + self.quote_key(table)
         where, vals = self._where(where)
         sql += where
         return self.query(sql, *vals)[0]["k"]
@@ -571,7 +571,7 @@ class DbBase(
         For example:  db.delete("table_name", column_name="matching value")
         """
         sql = "delete "
-        sql += " from " + table
+        sql += " from " + self.quote_key(table)
 
         where, vals = self._where(where)
         if not where:
@@ -584,7 +584,7 @@ class DbBase(
     def delete_all(self, table):
         """Delete all rows in a table."""
         sql = "delete "
-        sql += " from " + table
+        sql += " from " + self.quote_key(table)
         return self.query(sql)
 
     def infer_where(self, table, where, vals):
@@ -628,12 +628,12 @@ class DbBase(
         if not vals:
             return
         set_sql, vals = self._setsql(table, where, upd, vals)
-        sql = "update " + table + " set " + set_sql
+        sql = "update " + self.quote_key(table) + " set " + set_sql
         return self.query(sql, *vals)
 
     def update_all(self, table, **vals):
         """Update all rows in a table to the same values."""
-        sql = "update " + table + " set "
+        sql = "update " + selg.quote_key(table) + " set "
         sql += ", ".join(
             [self.quote_keys(key) + "=" + self.placeholder for key in vals]
         )

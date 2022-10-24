@@ -104,6 +104,7 @@ class MySqlDb(DbBase):
         DbType.TEXT: "text",
         DbType.BLOB: "blob",
         DbType.INTEGER: "integer",
+        DbType.BOOLEAN: "boolean",
         DbType.FLOAT: "float",
         DbType.DOUBLE: "double",
         DbType.ANY: "",
@@ -197,6 +198,8 @@ class MySqlDb(DbBase):
         if info.type == "int(11)" or info.type == "int":
             # depends on specific mysql version
             info.type = "integer"
+        if info.type == "tinyint(1)":
+            info.type = "boolean"
         fixed = False
         size = 0
         match_t = re.match(r"(varchar|char|text)\((\d+)\)", info.type)
