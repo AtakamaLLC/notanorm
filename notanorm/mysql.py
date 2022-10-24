@@ -94,7 +94,7 @@ class MySqlDb(DbBase):
         return '`' + key + '`'
 
     def _get_primary(self, table):
-        info = self.query("SHOW KEYS FROM " + table + " WHERE Key_name = 'PRIMARY'")
+        info = self.query("SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'")
         prim = set()
         for x in info:
             prim.add(x.column_name)
