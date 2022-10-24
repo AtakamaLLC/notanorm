@@ -521,7 +521,10 @@ class DbBase(
             else:
                 sql += ",".join(fields)
 
-            sql += " from " + self.quote_key(table)
+            if " join " not in table.lower():
+                sql += " from " + self.quote_key(table)
+            else:
+                sql += " from " + table
 
         where, vals = self._where(where)
         sql += where
