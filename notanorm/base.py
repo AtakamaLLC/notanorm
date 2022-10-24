@@ -633,7 +633,7 @@ class DbBase(
 
     def update_all(self, table, **vals):
         """Update all rows in a table to the same values."""
-        sql = "update " + selg.quote_key(table) + " set "
+        sql = "update " + self.quote_key(table) + " set "
         sql += ", ".join(
             [self.quote_keys(key) + "=" + self.placeholder for key in vals]
         )

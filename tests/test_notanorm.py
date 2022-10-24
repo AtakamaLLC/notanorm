@@ -929,6 +929,14 @@ def test_db_integ(db):
         db.insert("zop", bar=2)
 
 
+def test_db_annoying_col_names(db):
+    db.query("create table \"group\" (bar integer primary key, \"group\" integer)")
+    db.insert("group", bar=1, group=1)
+    db.update("group", bar=1, group=1)
+    db.upsert("group", bar=1, group=1)
+    db.select("group", group=1)
+
+
 @pytest.mark.db("mysql")
 def test_mysql_op_error(db):
     # test that connection errors don't happen when you do stuf like this
