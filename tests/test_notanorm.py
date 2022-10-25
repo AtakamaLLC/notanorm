@@ -531,6 +531,25 @@ def test_model_sqlite_cross(db):
     assert check == model
 
 
+def test_model_sqlite_aliases(db):
+    # creating a model using sqlite results in a model that generally works across other db's
+    db.query("create table foo (x integer, y bigint, z, smallint)")
+    check = db.model()
+    same = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("x", typ=DbType.INTEGER),
+                    DbCol("y", typ=DbType.INTEGER),
+                    DbCol("z", typ=DbType.INTEGER),
+                    ),
+            )
+        }
+    )
+    assert check["foo"].columns
+
+
+
 def test_model_create_nopk(db):
     model = DbModel(
         {
