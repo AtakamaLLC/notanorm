@@ -446,6 +446,7 @@ def test_model_create(db):
                 columns=(
                     DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
                     DbCol("blob", typ=DbType.BLOB),
+                    DbCol("bool", typ=DbType.BOOLEAN),
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
                     DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
                     DbCol("tex", typ=DbType.TEXT, notnull=True),
@@ -528,6 +529,25 @@ def test_model_sqlite_cross(db):
     db.create_model(sqlite_model)
     check = db.model()
     assert check == model
+
+
+def test_model_sqlite_aliases(db):
+    # creating a model using sqlite results in a model that generally works across other db's
+    db.query("create table foo (x integer, y bigint, z smallint)")
+    check = db.model()
+    same = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("x", typ=DbType.INTEGER),
+                    DbCol("y", typ=DbType.INTEGER),
+                    DbCol("z", typ=DbType.INTEGER),
+                ),
+                indexes=set(),
+            )
+        }
+    )
+    assert check == same
 
 
 def test_model_create_nopk(db):
@@ -927,6 +947,14 @@ def test_db_integ(db):
     db.insert("zop", bar=1)
     with pytest.raises(err.IntegrityError):
         db.insert("zop", bar=2)
+
+
+def test_db_annoying_col_names(db):
+    db.query('create table "group" (bar integer primary key, "group" integer)')
+    db.insert("group", bar=1, group=1)
+    db.update("group", bar=1, group=1)
+    db.upsert("group", bar=1, group=1)
+    db.select("group", group=1)
 
 
 @pytest.mark.db("mysql")

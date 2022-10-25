@@ -262,7 +262,7 @@ class SqliteDb(DbBase):
         return conn
 
     def _get_primary(self, table):
-        info = self.query("pragma table_info(" + table + ");")
+        info = self.query("pragma table_info(\"" + table + "\");")
         prim = set()
         for x in info:
             if x.pk:
