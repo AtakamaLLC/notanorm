@@ -533,7 +533,7 @@ def test_model_sqlite_cross(db):
 
 def test_model_sqlite_aliases(db):
     # creating a model using sqlite results in a model that generally works across other db's
-    db.query("create table foo (x integer, y bigint, z, smallint)")
+    db.query("create table foo (x integer, y bigint, z smallint)")
     check = db.model()
     same = DbModel(
         {
@@ -542,12 +542,12 @@ def test_model_sqlite_aliases(db):
                     DbCol("x", typ=DbType.INTEGER),
                     DbCol("y", typ=DbType.INTEGER),
                     DbCol("z", typ=DbType.INTEGER),
-                    ),
+                ),
+                indexes=set(),
             )
         }
     )
-    assert check["foo"].columns
-
+    assert check == same
 
 
 def test_model_create_nopk(db):
@@ -950,7 +950,7 @@ def test_db_integ(db):
 
 
 def test_db_annoying_col_names(db):
-    db.query("create table \"group\" (bar integer primary key, \"group\" integer)")
+    db.query('create table "group" (bar integer primary key, "group" integer)')
     db.insert("group", bar=1, group=1)
     db.update("group", bar=1, group=1)
     db.upsert("group", bar=1, group=1)
