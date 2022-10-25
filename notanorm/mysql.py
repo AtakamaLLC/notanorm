@@ -103,13 +103,17 @@ class MySqlDb(DbBase):
     _type_map = {
         DbType.TEXT: "text",
         DbType.BLOB: "blob",
-        DbType.INTEGER: "integer",
+        DbType.INTEGER: "bigint",
         DbType.BOOLEAN: "boolean",
         DbType.FLOAT: "float",
         DbType.DOUBLE: "double",
         DbType.ANY: "",
     }
     _type_map_inverse = {v: k for k, v in _type_map.items()}
+    _type_map_inverse.update({
+        "integer": DbType.INTEGER,
+        "smallint": DbType.INTEGER,
+    })
 
     def create_table(self, name, schema):
         coldefs = []
