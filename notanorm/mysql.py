@@ -113,6 +113,7 @@ class MySqlDb(DbBase):
     _type_map_inverse.update({
         "integer": DbType.INTEGER,
         "smallint": DbType.INTEGER,
+        "bigint": DbType.INTEGER,
     })
 
     def create_table(self, name, schema):
@@ -199,11 +200,15 @@ class MySqlDb(DbBase):
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     def column_model(self, info):
+        # depends on specific mysql version, these are display width hints
         if info.type == "int(11)" or info.type == "int":
-            # depends on specific mysql version
             info.type = "integer"
-        if info.type == "tinyint(1)":
+        elif info.type == "tinyint(1)":
             info.type = "boolean"
+        elif info.type.startswith("bigint("):
+            info.type = "bigint"
+        elif info.type.startswith("smallint("):
+            info.type = "smallint"
         fixed = False
         size = 0
         match_t = re.match(r"(varchar|char|text)\((\d+)\)", info.type)
