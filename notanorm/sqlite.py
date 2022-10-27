@@ -187,22 +187,8 @@ class SqliteDb(DbBase):
 
     @classmethod
     def _column_def(cls, col: DbCol, single_primary: str):
-        coldef = col.name
+        coldef = cls.quote_key(col.name)
         typ = cls._type_map[col.typ]
-        if col.size and col.typ == DbType.TEXT:
-            if col.fixed:
-                typ = "character"
-            else:
-                typ = "varchar"
-            typ += '(%s)' % col.size
-
-        if col.size and col.typ == DbType.BLOB:
-            if col.fixed:
-                typ = "binary"
-            else:
-                typ = "varbinary"
-            typ += '(%s)' % col.size
-
         if typ:
             coldef += " " + typ
         if col.notnull:
@@ -235,15 +221,15 @@ class SqliteDb(DbBase):
         create += ",".join(coldefs)
         create += ")"
         log.info(create)
-        self.query(create)
+        self.execute(create)
         for idx in schema.indexes:
             if not idx.primary:
                 index_name = "ix_" + name + "_" + "_".join(idx.fields)
                 unique = "unique " if idx.unique else ""
-                icreate = "create " + unique + "index " + index_name + " on " + name + " ("
+                icreate = "create " + unique + "index " + self.quote_key(index_name) + " on " + name + " ("
                 icreate += ",".join(idx.fields)
                 icreate += ")"
-                self.query(icreate)
+                self.execute(icreate)
 
     @staticmethod
     def _obj_factory(cursor, row):
