@@ -1,66 +1,26 @@
 """Model definition support."""
 
-from enum import Enum
-from typing import NamedTuple, Tuple, Any, Set
+import sqlglot
 
-__all__ = ["DbType", "DbCol", "DbIndex", "DbTable", "DbModel"]
+__all__ = ["DbModel"]
 
-
-class DbType(Enum):
-    """Database types that should work on all providers."""
-    TEXT = "text"
-    BLOB = "blob"
-    INTEGER = "int"
-    FLOAT = "float"
-    DOUBLE = "double"
-    ANY = "any"
-    BOOLEAN = "bool"
+from sqlglot import Dialect
 
 
-class DbCol(NamedTuple):
-    """Database column definition that should work on all providers."""
-    name: str                       # column name
-    typ: DbType                     # column type
-    autoinc: bool = False           # autoincrement (only integer)
-    size: int = 0                   # for certain types, size is available
-    notnull: bool = False           # not null
-    fixed: bool = False             # not varchar
-    default: Any = None             # has a default value
+class DbModel:
+    """Container holding a parsed table definition"""
 
-    def _as_tup(self):
-        return (self.name.lower(), self.typ, self.autoinc, self.size, self.notnull, self.fixed, self.default)
+    def __init__(self, ddl, dialect=None):
+        self.__bnf = sqlglot.parse(ddl, read=dialect)
 
     def __eq__(self, other):
-        return self._as_tup() == other._as_tup()
+        a = self.__bnf
+        b = other.__bnf
+        return a == b
 
-
-class DbIndex(NamedTuple):
-    """Index definition."""
-    fields: Tuple[str, ...]         # list of fields in the index
-    unique: bool = False            # has a unique index?
-    primary: bool = False           # is the primary key?
-
-    def _as_tup(self):
-        return (tuple(f.lower() for f in self.fields), self.unique, self.primary)
-
-    def __eq__(self, other):
-        return self._as_tup() == other._as_tup()
-
-    def __hash__(self):
-        return hash(self._as_tup())
-
-
-class DbTable(NamedTuple):
-    """Table definition."""
-    columns: Tuple[DbCol, ...]
-    indexes: Set[DbIndex] = ()
-
-
-class DbModel(dict):
-    """Container of table definitions."""
-
-    def _as_cmp(self):
-        return {k.lower(): v for k, v in self.items()}
-
-    def __eq__(self, other):
-        return self._as_cmp() == other._as_cmp()
+    def to_sql(self, dialect, **opts):
+        write = dialect
+        return [
+            Dialect.get_or_raise(write)().generate(expression, **opts)
+            for expression in self.__bnf
+        ]

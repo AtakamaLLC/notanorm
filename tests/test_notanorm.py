@@ -14,7 +14,7 @@ from typing import Generator
 import pytest
 
 import notanorm.errors
-from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm import SqliteDb, DbRow, DbModel, DbBase
 from notanorm.connparse import parse_db_uri
 
 import notanorm.errors as err
@@ -79,12 +79,12 @@ def db_sqlite_notmem(tmp_path):
 
 
 def get_mysql_db(typ):
-    db = typ(read_default_file=os.path.expanduser("~/.my.cnf"))
+    db = typ(user="root",read_default_file=os.path.expanduser("~/.my.cnf"))
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
 
-    return typ(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
+    return typ(user="root",read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
 
 
 def cleanup_mysql_db(db):
@@ -439,92 +439,15 @@ def test_db_upsert_non_null(db):
     assert db.select_one("foo").bop == "keep"
 
 
-def test_model_create(db):
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                    DbCol("blob", typ=DbType.BLOB),
-                    DbCol("bool", typ=DbType.BOOLEAN),
-                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
-                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
-                    DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
-                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
-                ),
-                indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
-                },
-            )
-        }
-    )
-    db.create_model(model)
-    check = db.model()
-    assert check == model
-
-
-def test_model_create_composite_pk(db):
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("part1", typ=DbType.INTEGER, notnull=True),
-                    DbCol("part2", typ=DbType.BLOB, size=16, notnull=True),
-                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
-                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
-                    DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
-                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
-                ),
-                indexes={
-                    DbIndex(fields=("part1", "part2"), primary=True),
-                },
-            )
-        }
-    )
-    db.create_model(model)
-    check = db.model()
-    assert check == model
-
-
 def test_model_sqlite_cross(db):
     # creating a model using sqlite results in a model that generally works across other db's
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                    DbCol(
-                        "inty",
-                        typ=DbType.INTEGER,
-                        autoinc=False,
-                        notnull=True,
-                        default="4",
-                    ),
-                    DbCol("blob", typ=DbType.BLOB),
-                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
-                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
-                    DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
-                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
-                ),
-                indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
-                },
-            )
-        }
-    )
+    src = """
+        create table foo (auto integer primary key, inty integer default 4, "blob" blob, tex text, flt float default 1.1, dbl double default 1.2);
+        create index ix_foo_flt on foo(flt)
+    """
+    model = DbModel(src, dialect="sqlite")
     db2 = SqliteDb(":memory:")
-    db2.create_model(model)
+    db2.execute(src, script=True)
     sqlite_model = db2.model()
     db.create_model(sqlite_model)
     check = db.model()

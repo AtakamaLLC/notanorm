@@ -1,8 +1,7 @@
 import sqlite3
-import re
 
 from .base import DbBase, DbRow
-from .model import DbType, DbCol, DbTable, DbIndex, DbModel
+from .model import DbModel
 from . import errors as err
 
 import logging
@@ -79,171 +78,17 @@ class SqliteDb(DbBase):
     def timeout(self, val):
         self.__timeout = val
 
-    def __columns(self, table):
-        self.query("SELECT name, type from sqlite_master")
-
-        tinfo = self.query("PRAGMA table_info(" + table + ")")
-        if len(tinfo) == 0:
-            raise KeyError(f"Table {table} not found in db {self}")
-
-        one_pk = True
-        for col in tinfo:
-            if col.pk > 1:
-                one_pk = False
-
-        cols = []
-        for col in tinfo:
-            col.type = col.type.lower()
-            col.autoinc = False
-            if col.type == "integer" and col.pk == 1 and one_pk:
-                col.autoinc = True
-            cols.append(self.__info_to_model(col))
-        return tuple(cols)
-
-    def __indexes(self, table):
-        tinfo = self.query("PRAGMA table_info(" + table + ")")
-        pks = []
-        for col in tinfo:
-            if col.pk:
-                pks.append((col.pk, col.name))
-        pks = [p[1] for p in sorted(pks)]
-
-        clist = []
-        res = self.query("PRAGMA index_list(" + table + ")")
-        for row in res:
-            res = self.query("PRAGMA index_info(" + row.name + ")")
-            clist.append(self.__info_to_index(row, res))
-
-        if pks:
-            if not any(c.primary for c in clist):
-                clist.append(DbIndex(fields=tuple(pks), primary=True))
-        return set(clist)
-
-    @staticmethod
-    def __info_to_index(index, cols):
-        primary = index.origin == "pk"
-        unique = bool(index.unique) and not primary
-        field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
-        return DbIndex(fields=tuple(field_names), primary=primary, unique=unique)
-
-    @classmethod
-    def __info_to_model(cls, info):
-        size = 0
-        fixed = False
-        match_t = re.match(r"(varchar|character)\((\d+)\)", info.type, re.I)
-        match_b = re.match(r"(varbinary|binary)\((\d+)\)", info.type, re.I)
-        if match_t:
-            typ = DbType.TEXT
-            fixed = match_t[1] == "character"
-            size = int(match_t[2])
-        elif match_b:
-            typ = DbType.BLOB
-            fixed = match_b[1] == "binary"
-            size = int(match_b[2])
-        else:
-            try:
-                typ = cls._type_map_inverse[info.type.lower()]
-            except KeyError:
-                typ = DbType.ANY
-
-        return DbCol(name=info.name, typ=typ, notnull=bool(info.notnull),
-                     default=info.dflt_value, autoinc=info.autoinc,
-                     size=size, fixed=fixed)
-
     def model(self):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
-        res = self.query("SELECT name, type from sqlite_master")
-        model = DbModel()
-        for tab in res:
-            if tab.name == "sqlite_sequence":
-                continue
-            if tab.type == "table":
-                cols = self.__columns(tab.name)
-                indxs = self.__indexes(tab.name)
-                model[tab.name] = DbTable(cols, indxs)
-        return model
+        res = self.query("SELECT sql from sqlite_master")
+        ddl = ""
+        for ent in res:
+            ddl += ent.sql + ";\n"
+        return DbModel(ddl, dialect="sqlite")
 
-    _type_map = {
-        DbType.TEXT: "text",
-        DbType.BLOB: "blob",
-        DbType.INTEGER: "integer",
-        DbType.FLOAT: "float",
-        DbType.DOUBLE: "double",
-        DbType.BOOLEAN: "boolean",
-        DbType.ANY: "",
-    }
-    _type_map_inverse = {v: k for k, v in _type_map.items()}
-
-    # allow "double/float" reverse map
-    _type_map_inverse.update({
-        "real": DbType.DOUBLE,
-        "int": DbType.INTEGER,
-        "smallint": DbType.INTEGER,
-        "tinyint": DbType.INTEGER,
-        "bigint": DbType.INTEGER,
-        "clob": DbType.TEXT,
-        "bool": DbType.BOOLEAN,
-    })
-
-    @classmethod
-    def _column_def(cls, col: DbCol, single_primary: str):
-        coldef = col.name
-        typ = cls._type_map[col.typ]
-        if col.size and col.typ == DbType.TEXT:
-            if col.fixed:
-                typ = "character"
-            else:
-                typ = "varchar"
-            typ += '(%s)' % col.size
-
-        if col.size and col.typ == DbType.BLOB:
-            if col.fixed:
-                typ = "binary"
-            else:
-                typ = "varbinary"
-            typ += '(%s)' % col.size
-
-        if typ:
-            coldef += " " + typ
-        if col.notnull:
-            coldef += " not null"
-        if col.default:
-            coldef += " default(" + col.default + ")"
-        if single_primary and single_primary.lower() == col.name.lower():
-            coldef += " primary key"
-        if col.autoinc:
-            if single_primary.lower() == col.name.lower():
-                coldef += " autoincrement"
-            else:
-                raise err.SchemaError("sqlite only supports autoincrement on integer primary keys")
-        return coldef
-
-    def create_table(self, name, schema):
-        coldefs = []
-        single_primary = None
-        for idx in schema.indexes:
-            if idx.primary:
-                single_primary = idx.fields[0] if len(idx.fields) == 1 else None
-
-        for col in schema.columns:
-            coldefs.append(self._column_def(col, single_primary))
-        for idx in schema.indexes:
-            if idx.primary and not single_primary:
-                coldef = "primary key (" + ",".join(idx.fields) + ")"
-                coldefs.append(coldef)
-        create = "create table " + name + "("
-        create += ",".join(coldefs)
-        create += ")"
-        log.info(create)
-        self.query(create)
-        for idx in schema.indexes:
-            if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(idx.fields)
-                unique = "unique " if idx.unique else ""
-                icreate = "create " + unique + "index " + index_name + " on " + name + " ("
-                icreate += ",".join(idx.fields)
-                icreate += ")"
-                self.query(icreate)
+    def create_model(self, model: DbModel):
+        for ent in model.to_sql("sqlite"):
+            self.execute(ent)
 
     @staticmethod
     def _obj_factory(cursor, row):

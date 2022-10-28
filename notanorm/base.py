@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Type
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
-from .model import DbModel, DbTable
+from .model import DbModel
 from . import errors as err
 
 
@@ -282,13 +282,10 @@ class DbBase(
         raise RuntimeError("Generic models not supported")
 
     def create_model(self, model: DbModel):
-        for name, schema in model.items():
-            self.create_table(name, schema)
+        for ent in model.to_sql(self.uri_name):
+            self.execute(ent)
 
-    def create_table(self, name, schema: DbTable):
-        raise RuntimeError("Generic models not supported")
-
-    def execute(self, sql, parameters=()):
+    def execute(self, sql, parameters=(), script=False):
         with self.r_lock:
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):
@@ -296,7 +293,11 @@ class DbBase(
 
                 try:
                     cursor = self._cursor(self._conn())
-                    cursor.execute(sql, parameters)
+                    if script:
+                        assert not parameters
+                        cursor.executescript(sql)
+                    else:
+                        cursor.execute(sql, parameters)
                     break
                 except Exception as exp:  # pylint: disable=broad-except
                     if cursor:
