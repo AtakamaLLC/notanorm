@@ -29,6 +29,19 @@ def del_all(mapping, to_remove):
         del mapping[key]
 
 
+class FakeCursor:
+    rowcount = 0
+    lastrowid = 0
+
+    @staticmethod
+    def fetchall():
+        return []
+
+    @staticmethod
+    def close():
+        pass
+
+
 class CIKey(str):
     def __eq__(self, other):
         return other.lower() == self.lower()
@@ -315,7 +328,7 @@ class DbBase(
         with self.r_lock:
             if self.__capture:
                 self.__capture_stmts.append((sql, parameters))
-                return
+                return FakeCursor()
 
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):

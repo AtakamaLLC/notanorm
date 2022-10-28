@@ -113,6 +113,7 @@ class MySqlDb(DbBase):
     _type_map_inverse.update({
         "integer": DbType.INTEGER,
         "smallint": DbType.INTEGER,
+        "tinyblob": DbType.BLOB,
     })
 
     def create_table(self, name, schema):
@@ -134,7 +135,7 @@ class MySqlDb(DbBase):
                 if col.fixed:
                     typ = "binary"
                 else:
-                    typ = "varbinary"
+                    typ = "blob"
                 typ += '(%s)' % col.size
             else:
                 typ = self._type_map[col.typ]

@@ -17,16 +17,9 @@ from notanorm.connparse import parse_db_uri
 import notanorm.errors as err
 from notanorm.connparse import open_db
 
-from notanorm.ddh_helper import DDLHelper
+from notanorm.ddl_helper import DDLHelper
 
 log = logging.getLogger(__name__)
-
-# noinspection PyUnresolvedReferences
-from .test_notanorm import db_fixture, db_sqlite
-
-@pytest.fixture
-def db_name():
-    return "sqlite"
 
 
 def test_model_ddl_cap(db):
@@ -63,14 +56,17 @@ def test_model_ddl_cap(db):
     # ddl / create + model are the same
     ddl = db.ddl_from_model(model)
     for ent in ddl.split(";"):
-        db.execute(ent)
-    db2 = SqliteDb(":memory:")
-    db2.create_model(model)
+        if ent.strip():
+            db.execute(ent)
     captured_model1 = db.model()
-    captured_model2 = db2.model()
+
+    db.execute("drop table foo")
+
+    db.create_model(model)
+    captured_model2 = db.model()
     assert captured_model1 == captured_model2
 
-    extracted = DDLHelper(ddl, "sqlite").model()
+    extracted = DDLHelper(ddl, db.uri_name).model()
 
     assert not model_diff(extracted, captured_model1)
 
@@ -91,7 +87,7 @@ def model_diff(a: DbModel, b: DbModel):
                 continue
 
             if acol != bcols.columns[i]:
-                diff.append(("!", {tab: acol.name}))
+                diff.append(("!", {tab: acol.name, "<": acol, ">": bcols.columns[i]}))
 
         for i, bcol in enumerate(bcols.columns):
             if i >= len(bcols.columns):
