@@ -135,7 +135,7 @@ class MySqlDb(DbBase):
                 if col.fixed:
                     typ = "binary"
                 else:
-                    typ = "blob"
+                    typ = "varbinary"
                 typ += '(%s)' % col.size
             else:
                 typ = self._type_map[col.typ]
