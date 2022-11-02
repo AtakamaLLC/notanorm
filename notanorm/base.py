@@ -2,13 +2,13 @@
 
 NOTE: Make sure to close the db handle when you are done.
 """
-
+import contextlib
 import time
 import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type
+from typing import Dict, List, Type, Any, Tuple
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -27,6 +27,19 @@ def del_all(mapping, to_remove):
     """Remove list of elements from mapping."""
     for key in to_remove:
         del mapping[key]
+
+
+class FakeCursor:
+    rowcount = 0
+    lastrowid = 0
+
+    @staticmethod
+    def fetchall():
+        return []
+
+    @staticmethod
+    def close():
+        pass
 
 
 class CIKey(str):
@@ -183,6 +196,8 @@ class DbBase(
         )
 
     def __init__(self, *args, **kws):
+        self.__capture = None
+        self.__capture_stmts = []
         assert self.reconnect_backoff_factor > 1
         self.__closed = False
         self._conn_p = None
@@ -281,6 +296,27 @@ class DbBase(
     def model(self) -> DbModel:
         raise RuntimeError("Generic models not supported")
 
+    def ddl_stmts_from_model(self, model: DbModel):
+        with self.capture_sql() as cap:
+            self.create_model(model)
+        return cap
+
+    def ddl_from_model(self, model: DbModel):
+        res = ""
+        for sql, params in self.ddl_stmts_from_model(model):
+            assert not params, "Ddl parameter expansion is not supported"
+            res += sql + ";\n"
+        return res
+
+    @contextlib.contextmanager
+    def capture_sql(self) -> List[Tuple[str, Tuple[Any, ...]]]:
+        self.__capture = True
+        self.__capture_stmts = []
+        try:
+            yield self.__capture_stmts
+        finally:
+            self.__capture = False
+
     def create_model(self, model: DbModel):
         for name, schema in model.items():
             self.create_table(name, schema)
@@ -290,6 +326,10 @@ class DbBase(
 
     def execute(self, sql, parameters=()):
         with self.r_lock:
+            if self.__capture:
+                self.__capture_stmts.append((sql, parameters))
+                return FakeCursor()
+
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):
                 cursor = None
@@ -443,7 +483,8 @@ class DbBase(
         sql, vals = self._insql(table, ins, **vals)
         return self.query(sql, *vals)
 
-    def quote_key(self, key):
+    @classmethod
+    def quote_key(cls, key):
         return '"' + key + '"'
 
     def quote_keys(self, key):
