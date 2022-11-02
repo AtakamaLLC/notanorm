@@ -573,15 +573,14 @@ def test_model_cap(db):
             )
         }
     )
-    
-    ddl = db.ddl_from_model(model)
 
+    ddl = db.ddl_from_model(model)
 
     expect = """
 create table foo(inty integer);
 create index ix_foo_inty on foo (inty);
 """
-    assert ddl.strip() == expect.strip() 
+    assert ddl.strip() == expect.strip()
 
 
 def test_model_cmp(db):
