@@ -583,7 +583,10 @@ create index ix_foo_inty on foo (inty);
     if db.uri_name == "sqlite":
         assert ddl.strip() == expect.strip()
     else:
-        assert "create table" in ddl
+        # vague assertion that we captured stuff
+        assert "create table" in ddl.lower()
+        assert "foo" in ddl
+        assert "inty" in ddl
 
 
 def test_model_cmp(db):
