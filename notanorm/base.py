@@ -384,6 +384,7 @@ class DbBase(
                     if type(row) is not DbRow:
                         row = DbRow(row)
                 yield row
+            fetch = None
         finally:
             if fetch:
                 fetch.close()
