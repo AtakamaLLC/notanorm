@@ -564,6 +564,31 @@ def test_model_create_nopk(db):
     assert check == model
 
 
+def test_model_cap(db):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(DbCol("inty", typ=DbType.INTEGER),),
+                indexes={DbIndex(fields=("inty",), primary=False)},
+            )
+        }
+    )
+
+    ddl = db.ddl_from_model(model)
+
+    expect = """
+create table foo(inty integer);
+create index ix_foo_inty on foo (inty);
+"""
+    if db.uri_name == "sqlite":
+        assert ddl.strip() == expect.strip()
+    else:
+        # vague assertion that we captured stuff
+        assert "create table" in ddl.lower()
+        assert "foo" in ddl
+        assert "inty" in ddl
+
+
 def test_model_cmp(db):
     model1 = DbModel(
         {
@@ -1006,3 +1031,13 @@ def test_uri_parse():
 def test_open_db():
     db = open_db("sqlite://:memory:")
     db.execute("create table foo (bar)")
+
+
+def test_cap_exec(db):
+    with db.capture_sql(execute=True) as stmts:
+        db.execute("create table foo(inty integer)")
+        db.insert("foo", inty=4)
+
+    assert stmts[0] == ("create table foo(inty integer)", ())
+    if db.uri_name == "sqlite":
+        assert stmts[1] == ('insert into "foo"("inty") values (?)', (4,))
