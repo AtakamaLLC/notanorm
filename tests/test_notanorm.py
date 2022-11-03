@@ -1025,3 +1025,12 @@ def test_uri_parse():
 def test_open_db():
     db = open_db("sqlite://:memory:")
     db.execute("create table foo (bar)")
+
+
+def test_cap_exec(db):
+    with db.capture_sql(execute=True) as stmts:
+        db.execute("create table foo(inty integer)")
+        db.insert("foo", inty=4)
+
+    assert stmts[0] == ("create table foo(inty integer)", ())
+    assert stmts[1] == ('insert into "foo"("inty") values (?)', (4,))

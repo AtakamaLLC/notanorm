@@ -197,6 +197,7 @@ class DbBase(
 
     def __init__(self, *args, **kws):
         self.__capture = None
+        self.__capture_exec = None
         self.__capture_stmts = []
         assert self.reconnect_backoff_factor > 1
         self.__closed = False
@@ -309,8 +310,9 @@ class DbBase(
         return res
 
     @contextlib.contextmanager
-    def capture_sql(self) -> List[Tuple[str, Tuple[Any, ...]]]:
+    def capture_sql(self, execute=False) -> List[Tuple[str, Tuple[Any, ...]]]:
         self.__capture = True
+        self.__capture_exec = execute
         self.__capture_stmts = []
         try:
             yield self.__capture_stmts
@@ -328,7 +330,8 @@ class DbBase(
         with self.r_lock:
             if self.__capture:
                 self.__capture_stmts.append((sql, parameters))
-                return FakeCursor()
+                if not self.__capture_exec:
+                    return FakeCursor()
 
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):
