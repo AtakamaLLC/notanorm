@@ -6,7 +6,7 @@ from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 log = logging.getLogger(__name__)
 
 if tuple(sys.version_info[0: 2]) <= (3, 6):
-    pytest.skip("sqlglot requires python 3.7 or greateer")
+    pytest.skip("sqlglot requires python 3.7 or greateer", allow_module_level=True)
 
 
 from notanorm.ddl_helper import model_from_ddl  # noqa
