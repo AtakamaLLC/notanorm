@@ -100,6 +100,20 @@ def test_model_ddl_cross(db):
     assert check == extracted_model
 
 
+def test_model_preserve_types(db):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(DbCol("vtex", typ=DbType.TEXT, size=3, notnull=True), DbCol("vbin", typ=DbType.BLOB, size=2)),
+                indexes={DbIndex(fields=("vtex",), primary=False)},
+            )
+        }
+    )
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+
 def test_model_create_nopk(db):
     model = DbModel(
         {

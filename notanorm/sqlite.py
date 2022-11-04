@@ -134,12 +134,8 @@ class SqliteDb(DbBase):
         match_b = re.match(r"(varbinary|binary)\((\d+)\)", info.type, re.I)
         if match_t:
             typ = DbType.TEXT
-            fixed = match_t[1] == "character"
-            size = int(match_t[2])
         elif match_b:
             typ = DbType.BLOB
-            fixed = match_b[1] == "binary"
-            size = int(match_b[2])
         else:
             try:
                 typ = cls._type_map_inverse[info.type.lower()]
