@@ -3,12 +3,13 @@ import logging
 import pytest
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 
-from notanorm.ddl_helper import model_from_ddl
-
 log = logging.getLogger(__name__)
 
 if tuple(sys.version_info[0: 2]) <= (3, 6):
     pytest.skip("sqlglot requires python 3.7 or greateer")
+
+
+from notanorm.ddl_helper import model_from_ddl  # noqa
 
 
 def test_model_ddl_cap(db):
