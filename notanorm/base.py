@@ -427,6 +427,7 @@ class DbBase(
                     if type(row) is not DbRow:
                         row = DbRow(row)
                 yield row
+            fetch = None
         finally:
             if fetch:
                 fetch.close()
@@ -441,13 +442,15 @@ class DbBase(
 
         with self.r_lock:
             try:
+                done = False
                 fetch = self.execute(sql, tuple(args))
                 rows = fetch.fetchall() if fetch else []
+                done = True
             except Exception as ex:
                 log.debug("sql %s, error %s", sql, repr(ex))
                 raise
             finally:
-                if fetch:
+                if fetch and not done:
                     fetch.close()
 
         for row in rows:

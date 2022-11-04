@@ -10,6 +10,7 @@ import threading
 import time
 from multiprocessing.pool import ThreadPool
 from typing import Generator
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -992,6 +993,27 @@ def test_mysql_op_error(db):
 def test_syntax_error(db):
     with pytest.raises(notanorm.errors.OperationalError):
         db.query("create table fo()o (bar text primary key);")
+
+
+@pytest.mark.db("sqlite")
+def test_no_extra_close(db):
+    db.query("create table foo (bar integer primary key);")
+    db.insert("foo", bar=1)
+
+    mok = MagicMock()
+
+    def newx(*a):
+        # mock cursor
+        ret = MagicMock()
+        ret.fetchall = lambda: []
+        ret.fetchone = lambda: None
+        ret.close = mok
+        return ret
+
+    db.execute = newx
+    db.select("foo")
+    list(db.select_gen("foo"))
+    mok.close.assert_not_called()
 
 
 def test_uri_parse():
