@@ -60,12 +60,12 @@ def db_sqlite_notmem(tmp_path):
 
 
 def get_mysql_db(typ):
-    db = typ(read_default_file=os.path.expanduser("~/.my.cnf"), user="root")
+    db = typ(read_default_file=os.path.expanduser("~/.my.cnf"))
     db.query("DROP DATABASE IF EXISTS test_db")
     db.query("CREATE DATABASE test_db")
     db.query("USE test_db")
 
-    return typ(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db", user="root")
+    return typ(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
 
 
 def cleanup_mysql_db(db):
