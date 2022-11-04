@@ -1,13 +1,15 @@
 import sys
 import logging
+import pytest
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 
 from notanorm.ddl_helper import model_from_ddl
 
 log = logging.getLogger(__name__)
 
-if tuple(sys.version_info[0:2]) <= (3,6):
-  pytest.skip("sqlglot requires python 3.7 or greateer")
+if tuple(sys.version_info[0: 2]) <= (3, 6):
+    pytest.skip("sqlglot requires python 3.7 or greateer")
+
 
 def test_model_ddl_cap(db):
     # creating a model using sqlite results in a model that generally works across other db's
