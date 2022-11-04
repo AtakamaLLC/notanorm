@@ -8,7 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple
+from typing import Dict, List, Type, Any, Tuple, Generator
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -319,7 +319,7 @@ class DbBase(
         return model
 
     @contextlib.contextmanager
-    def capture_sql(self, execute=False) -> List[Tuple[str, Tuple[Any, ...]]]:
+    def capture_sql(self, execute=False) -> Generator[List[Tuple[str, Tuple[Any, ...]]]]:
         self.__capture = True
         self.__capture_exec = execute
         self.__capture_stmts = []
