@@ -1,3 +1,4 @@
+import sys
 import logging
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 
