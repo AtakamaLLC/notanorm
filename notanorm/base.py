@@ -407,7 +407,7 @@ class DbBase(
                 log.debug("sql %s, error %s", sql, repr(ex))
                 raise
             finally:
-                if not done:
+                if fetch and not done:
                     fetch.close()
 
         for row in rows:
