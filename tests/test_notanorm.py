@@ -975,6 +975,7 @@ def test_no_extra_close(db):
     db.insert("foo", bar=1)
     orig = db.execute
     mok = MagicMock()
+
     def newx(*a):
         ret = orig(*a)
         ret.close = mok
