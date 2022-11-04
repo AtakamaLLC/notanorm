@@ -105,11 +105,10 @@ def test_model_preserve_types(db):
         {
             "foo": DbTable(
                 columns=(DbCol("vtex", typ=DbType.TEXT, size=3, notnull=True), DbCol("vbin", typ=DbType.BLOB, size=2)),
-                indexes={DbIndex(fields=("vtex",), primary=False)},
             )
         }
     )
-    db.create_model(model)
+    db.execute("create table foo (vtex varchar(3) not null, vbin varbinary(2))")
     check = db.model()
     assert db.simplify_model(check) == db.simplify_model(model)
 
