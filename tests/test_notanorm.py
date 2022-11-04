@@ -977,13 +977,16 @@ def test_no_extra_close(db):
     mok = MagicMock()
 
     def newx(*a):
-        ret = orig(*a)
+        # mock cursor
+        ret = MagicMock()
+        ret.fetchall = lambda: []
+        ret.fetchone = lambda: None
         ret.close = mok
-        return ret
+        return mok
     db.execute = newx
     db.select("foo")
     list(db.select_gen("foo"))
-    mok.assert_not_called()
+    mok.close.assert_not_called()
 
 
 def test_uri_parse():
