@@ -186,8 +186,8 @@ class DbBase(
     def timeout(self):
         # total timeout for connections == geometric sum
         return self.reconnect_backoff_start * (
-            (1 - self.reconnect_backoff_factor**self.max_reconnect_attempts) /
-            (1 - self.reconnect_backoff_factor)
+            (1 - self.reconnect_backoff_factor**self.max_reconnect_attempts)
+            / (1 - self.reconnect_backoff_factor)
         )
 
     def _lock_key(self, *args, **kws):
@@ -197,6 +197,7 @@ class DbBase(
 
     def __init__(self, *args, **kws):
         self.__capture = None
+        self.__capture_exec = None
         self.__capture_stmts = []
         assert self.reconnect_backoff_factor > 1
         self.__closed = False
@@ -309,8 +310,9 @@ class DbBase(
         return res
 
     @contextlib.contextmanager
-    def capture_sql(self) -> List[Tuple[str, Tuple[Any, ...]]]:
+    def capture_sql(self, execute=False) -> List[Tuple[str, Tuple[Any, ...]]]:
         self.__capture = True
+        self.__capture_exec = execute
         self.__capture_stmts = []
         try:
             yield self.__capture_stmts
@@ -328,7 +330,8 @@ class DbBase(
         with self.r_lock:
             if self.__capture:
                 self.__capture_stmts.append((sql, parameters))
-                return FakeCursor()
+                if not self.__capture_exec:
+                    return FakeCursor()
 
             backoff = self.reconnect_backoff_start
             for tries in range(self.max_reconnect_attempts):
@@ -424,6 +427,7 @@ class DbBase(
                     if type(row) is not DbRow:
                         row = DbRow(row)
                 yield row
+            fetch = None
         finally:
             if fetch:
                 fetch.close()
@@ -438,13 +442,15 @@ class DbBase(
 
         with self.r_lock:
             try:
+                done = False
                 fetch = self.execute(sql, tuple(args))
                 rows = fetch.fetchall() if fetch else []
+                done = True
             except Exception as ex:
                 log.debug("sql %s, error %s", sql, repr(ex))
                 raise
             finally:
-                if fetch:
+                if fetch and not done:
                     fetch.close()
 
         for row in rows:
@@ -536,7 +542,7 @@ class DbBase(
         sql = "select "
 
         no_from = False
-        if table[0: len(sql)].lower() == sql and "from" in table.lower():
+        if table[0 : len(sql)].lower() == sql and "from" in table.lower():
             sql = ""
             no_from = True
 
