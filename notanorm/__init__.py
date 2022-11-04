@@ -26,4 +26,5 @@ __all__ = [
     "errors",
     "Op",
     "open_db",
+    "model_from_ddl",
 ]

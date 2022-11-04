@@ -163,4 +163,3 @@ def test_model_cmp(db):
 
     assert model1["foo"].columns[0] == model2["FOO"].columns[0]
     assert model1 == model2
-

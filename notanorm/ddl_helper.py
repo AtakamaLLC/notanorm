@@ -23,13 +23,13 @@ class DDLHelper:
         exp.DataType.Type.VARIANT: DbType.ANY,
         exp.DataType.Type.DECIMAL: DbType.DOUBLE,
         exp.DataType.Type.DOUBLE: DbType.DOUBLE,
-        exp.DataType.Type.FLOAT: DbType.FLOAT
+        exp.DataType.Type.FLOAT: DbType.FLOAT,
     }
 
     FIXED_MAP = {
         exp.DataType.Type.CHAR,
-#  todo: add support for varbinary vs binary in sqlglot
-#        exp.DataType.Type.BINARY
+        #  todo: add support for varbinary vs binary in sqlglot
+        #        exp.DataType.Type.BINARY
     }
 
     def __init__(self, ddl, *dialects):
@@ -73,7 +73,12 @@ class DDLHelper:
         tab = index.args["this"].args["table"]
         cols = index.args["this"].args["columns"]
         field_names = [ent.name for ent in cols.find_all(exp.Column)]
-        return DbIndex(fields=tuple(field_names), primary=bool(primary), unique=bool(unique)), tab.name
+        return (
+            DbIndex(
+                fields=tuple(field_names), primary=bool(primary), unique=bool(unique)
+            ),
+            tab.name,
+        )
 
     @classmethod
     def __info_to_model(cls, info) -> Tuple[DbCol, bool]:
@@ -97,9 +102,18 @@ class DDLHelper:
                 default = lit.this
             else:
                 default = str(lit)
-        return DbCol(name=info.name, typ=typ, notnull=bool(notnull),
-                     default=default, autoinc=bool(autoinc),
-                     size=size, fixed=fixed), is_primary
+        return (
+            DbCol(
+                name=info.name,
+                typ=typ,
+                notnull=bool(notnull),
+                default=default,
+                autoinc=bool(autoinc),
+                size=size,
+                fixed=fixed,
+            ),
+            is_primary,
+        )
 
     def model(self):
         """Get generic db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary."""

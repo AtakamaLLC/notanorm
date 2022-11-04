@@ -1,7 +1,7 @@
 import logging
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 
-from notanorm.ddl_helper import DDLHelper, model_from_ddl
+from notanorm.ddl_helper import model_from_ddl
 
 log = logging.getLogger(__name__)
 
