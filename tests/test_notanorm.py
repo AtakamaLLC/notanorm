@@ -970,19 +970,20 @@ def test_syntax_error(db):
         db.query("create table fo()o (bar text primary key);")
 
 
+@pytest.mark.db("sqlite")
 def test_no_extra_close(db):
     db.query("create table foo (bar integer primary key);")
     db.insert("foo", bar=1)
-    orig = db.execute
-    mok = MagicMock()
 
+    mok = MagicMock()
     def newx(*a):
         # mock cursor
         ret = MagicMock()
         ret.fetchall = lambda: []
         ret.fetchone = lambda: None
         ret.close = mok
-        return mok
+        return ret
+
     db.execute = newx
     db.select("foo")
     list(db.select_gen("foo"))
