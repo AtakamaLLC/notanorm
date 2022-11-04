@@ -319,7 +319,7 @@ class DbBase(
         return model
 
     @contextlib.contextmanager
-    def capture_sql(self, execute=False) -> Generator[List[Tuple[str, Tuple[Any, ...]]]]:
+    def capture_sql(self, execute=False) -> Generator[List[Tuple[str, Tuple[Any, ...]]], None, None]:
         self.__capture = True
         self.__capture_exec = execute
         self.__capture_stmts = []
