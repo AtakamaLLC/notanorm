@@ -11,6 +11,7 @@ from .base import DbBase, Op
 from .model import DbType, DbCol, DbTable, DbModel, DbIndex
 from . import errors
 from .connparse import open_db
+from .ddl_helper import model_from_ddl
 
 __all__ = [
     "SqliteDb",

@@ -123,3 +123,8 @@ class DDLHelper:
             dbcols: Tuple[DbCol, ...] = tabs[tab]
             model[tab] = DbTable(dbcols, set(indxs[tab]))
         return model
+
+
+def model_from_ddl(ddl, dialect="mysql"):
+    """Convert indexes and create statements to internal model, without needing a database connection."""
+    return DDLHelper(ddl, dialect).model()

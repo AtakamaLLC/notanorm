@@ -309,6 +309,15 @@ class DbBase(
             res += sql + ";\n"
         return res
 
+    @staticmethod
+    def simplify_model(model):
+        """Override if you want to allow model comparisons.
+
+        For example, if you have a model that defines a fixed-width char, but your db doesn't support
+        fixed-with char, you can
+        """
+        return model
+
     @contextlib.contextmanager
     def capture_sql(self, execute=False) -> List[Tuple[str, Tuple[Any, ...]]]:
         self.__capture = True

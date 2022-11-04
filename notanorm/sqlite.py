@@ -204,6 +204,21 @@ class SqliteDb(DbBase):
                 raise err.SchemaError("sqlite only supports autoincrement on integer primary keys")
         return coldef
 
+    @staticmethod
+    def simplify_model(model: DbModel):
+        new_mod = DbModel()
+        for tab, tdef in model.items():
+            tdef: DbTable
+            new_cols = []
+            for coldef in tdef.columns:
+                # sizes & fixed-width specifiers are ignored in sqlite
+                newcol = DbCol(name=coldef.name, typ=coldef.typ, autoinc=coldef.autoinc,
+                               notnull=coldef.notnull, default=coldef.default)
+                new_cols.append(newcol)
+            new_tab = DbTable(columns=tuple(new_cols), indexes=tdef.indexes)
+            new_mod[tab] = new_tab
+        return new_mod
+
     def create_table(self, name, schema):
         coldefs = []
         single_primary = None
@@ -227,7 +242,7 @@ class SqliteDb(DbBase):
                 index_name = "ix_" + name + "_" + "_".join(idx.fields)
                 unique = "unique " if idx.unique else ""
                 icreate = "create " + unique + "index " + self.quote_key(index_name) + " on " + name + " ("
-                icreate += ",".join(idx.fields)
+                icreate += ",".join(self.quote_key(f) for f in idx.fields)
                 icreate += ")"
                 self.execute(icreate)
 

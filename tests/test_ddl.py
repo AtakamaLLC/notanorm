@@ -1,7 +1,7 @@
 import logging
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 
-from notanorm.ddl_helper import DDLHelper
+from notanorm.ddl_helper import DDLHelper, model_from_ddl
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,6 @@ def test_model_ddl_cap(db):
     captured_model2 = db.model()
     assert captured_model1 == captured_model2
 
-    extracted = DDLHelper(ddl, db.uri_name).model()
+    extracted = model_from_ddl(ddl, db.uri_name)
 
     assert extracted == captured_model1
