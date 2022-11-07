@@ -1,7 +1,6 @@
 import sys
 import logging
 import pytest
-import sqlglot.errors
 
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 import notanorm.errors as err
@@ -13,6 +12,8 @@ if tuple(sys.version_info[0: 2]) <= (3, 6):
     pytest.skip("sqlglot requires python 3.7 or greateer", allow_module_level=True)
 
 
+# has to come below the version check above
+import sqlglot.errors  # noqa
 from notanorm.ddl_helper import model_from_ddl  # noqa
 
 
