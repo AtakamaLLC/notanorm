@@ -335,7 +335,10 @@ class DbBase(
     def create_table(self, name, schema: DbTable):
         raise RuntimeError("Generic models not supported")
 
-    def execute(self, sql, parameters=()):
+    def executescript(self, sql):
+        self.execute(sql, _script=True)
+
+    def execute(self, sql, parameters=(), _script=False):
         with self.r_lock:
             if self.__capture:
                 self.__capture_stmts.append((sql, parameters))
@@ -348,7 +351,11 @@ class DbBase(
 
                 try:
                     cursor = self._cursor(self._conn())
-                    cursor.execute(sql, parameters)
+                    if _script:
+                        assert not parameters, "Script isn't compatible with parameters"
+                        cursor.executescript(sql)
+                    else:
+                        cursor.execute(sql, parameters)
                     break
                 except Exception as exp:  # pylint: disable=broad-except
                     if cursor:

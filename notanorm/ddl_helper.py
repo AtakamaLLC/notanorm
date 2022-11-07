@@ -1,10 +1,10 @@
 from collections import defaultdict
 from typing import Tuple, Dict, List
 
-import sqlglot
 from sqlglot import parse, exp
 
 from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone
+from .sqlite import SqliteDb
 
 import logging
 
@@ -38,21 +38,42 @@ class DDLHelper:
             # guess dialect
             dialects = ("mysql", "sqlite")
 
-        last_x = None
+        first_x = None
+
+        self.__sqlglot = None
+        self.__model = None
 
         for dialect in dialects:
-            if dialect == "mysql":
-                # bug sqlglot doesn't support varbinary
-                ddl = ddl.replace("varbinary", "binary")
             try:
-                res = parse(ddl, read=dialect)
-                self.ddl = res
-                break
-            except sqlglot.ParseError as ex:
-                last_x = ex
+                if dialect == "sqlite":
+                    self.__model_from_sqlite(ddl)
+                else:
+                    self.__model_from_sqlglot(ddl, dialect)
+                return
+            except Exception as ex:
+                first_x = first_x or ex
 
-        if last_x:
-            raise last_x
+        # earlier (more picky) dialects give better errors
+        if first_x:
+            raise first_x
+
+    def __model_from_sqlglot(self, ddl, dialect):
+        # sqlglot generic parser
+        tmp_ddl = ddl
+        if dialect == "mysql":
+            # bug sqlglot doesn't support varbinary
+            tmp_ddl = ddl.replace("varbinary", "binary")
+        res = parse(tmp_ddl, read=dialect)
+        self.__sqlglot = res
+        self.dialect = dialect
+
+    def __model_from_sqlite(self, ddl):
+        # sqlite memory parser
+        ddl = ddl.replace("auto_increment", "autoincrement")
+        tmp_db = SqliteDb(":memory:")
+        tmp_db.executescript(ddl)
+        self.__model = tmp_db.model()
+        self.dialect = "sqlite"
 
     def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], DbIndex]:
         """Get a tuple of DbCols from a parsed statement
@@ -110,9 +131,15 @@ class DDLHelper:
 
         if default:
             lit = default.find(exp.Literal)
+            bool_val = default.find(exp.Boolean)
             if default.find(exp.Null):
                 # None means no default, so we have this silly thing
                 default = ExplicitNone()
+            elif bool_val:
+                # None means no default, so we have this silly thing
+                default = bool_val.this
+            elif not lit:
+                default = str(default.this)
             elif lit.is_string:
                 default = lit.this
             else:
@@ -132,10 +159,13 @@ class DDLHelper:
 
     def model(self):
         """Get generic db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary."""
+        if self.__model:
+            return self.__model
+
         model = DbModel()
         tabs: Dict[str, Tuple[DbCol, ...]] = {}
         indxs = defaultdict(lambda: [])
-        for ent in self.ddl:
+        for ent in self.__sqlglot:
             tab = ent.find(exp.Table)
             assert tab, f"unknonwn ddl entry {ent}"
             idx = ent.find(exp.Index)
@@ -150,6 +180,9 @@ class DDLHelper:
         for tab in tabs:
             dbcols: Tuple[DbCol, ...] = tabs[tab]
             model[tab] = DbTable(dbcols, set(indxs[tab]))
+
+        self.__model = model
+
         return model
 
 

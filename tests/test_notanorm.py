@@ -770,3 +770,12 @@ def test_cap_exec(db):
     assert stmts[0] == ("create table foo(inty integer)", ())
     if db.uri_name == "sqlite":
         assert stmts[1] == ('insert into "foo"("inty") values (?)', (4,))
+
+
+def test_exec_script(db):
+    db.executescript("""
+        create table foo (x integer);
+        create table bar (y integer);
+    """)
+    db.insert("foo", x=1)
+    db.insert("bar", y=2)

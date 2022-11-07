@@ -76,13 +76,34 @@ def test_primary_key():
 
 
 def test_autoinc():
-    mod = model_from_ddl("create table foo (bar integer auto_increment)")
+    mod = model_from_ddl("create table foo (bar integer auto_increment)", "mysql")
     assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True),)
 
 
 def test_default_none():
     mod = model_from_ddl("create table foo (bar text default null)")
     assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default=ExplicitNone()),)
+
+
+def test_sqlite_only():
+    mod = model_from_ddl("create table foo (bar default 1)")
+    assert mod["foo"].columns == (DbCol("bar", DbType.ANY, default="1"),)
+
+
+def test_primary_key_auto():
+    mod = model_from_ddl("create table cars(id integer auto_increment primary key, gas_level double default 1.0);", "mysql")
+    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True), DbCol("gas_level", DbType.DOUBLE, default='1.0'))
+    assert mod["cars"].indexes == {DbIndex(("id",), primary=True), }
+
+
+def test_default_bool():
+    mod = model_from_ddl("create table foo (bar boolean default TRUE)")
+    assert mod["foo"].columns == (DbCol("bar", DbType.BOOLEAN, default=True),)
+
+
+def test_default_str():
+    mod = model_from_ddl("create table foo (bar text default 'txt')")
+    assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default='txt'),)
 
 
 def test_err_autoinc(db):
