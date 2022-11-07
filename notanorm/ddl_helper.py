@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 
 class DDLHelper:
+    # map of sqlglot expression types to internal model types
     TYPE_MAP = {
         exp.DataType.Type.INT: DbType.INTEGER,
         exp.DataType.Type.BIGINT: DbType.INTEGER,
@@ -34,6 +35,7 @@ class DDLHelper:
 
     def __init__(self, ddl, *dialects):
         if not dialects:
+            # guess dialect
             dialects = ("mysql", "sqlite")
 
         last_x = None
@@ -53,6 +55,12 @@ class DDLHelper:
             raise last_x
 
     def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], DbIndex]:
+        """Get a tuple of DbCols from a parsed statement
+
+        Argument is a sqlglot parsed grammar of a CREATE TABLE statement.
+
+        If a primary key is specified, return it too.
+        """
         cols: List[DbCol] = []
         primary = None
         for col in ent.find_all(exp.Anonymous):
@@ -67,7 +75,8 @@ class DDLHelper:
         return tuple(cols), primary
 
     @staticmethod
-    def __info_to_index(index):
+    def __info_to_index(index) -> Tuple[DbIndex, str]:
+        """Get a DbIndex and a table name, given a sqlglot parsed index"""
         primary = index.find(exp.PrimaryKeyColumnConstraint)
         unique = index.args.get("unique")
         tab = index.args["this"].args["table"]
@@ -82,6 +91,7 @@ class DDLHelper:
 
     @classmethod
     def __info_to_model(cls, info) -> Tuple[DbCol, bool]:
+        """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         fixed = typ.this in cls.FIXED_MAP
         typ = cls.TYPE_MAP[typ.this]
@@ -89,14 +99,19 @@ class DDLHelper:
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
         default = info.find(exp.DefaultColumnConstraint)
+
+        # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
+        # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
         expr = info.args["kind"].args.get("expressions")
         if expr:
             size = int(expr[0].this)
         else:
             size = 0
+
         if default:
             lit = default.find(exp.Literal)
             if default.find(exp.Null):
+                # None means no default, so we have this silly thing
                 default = ExplicitNone()
             elif lit.is_string:
                 default = lit.this
