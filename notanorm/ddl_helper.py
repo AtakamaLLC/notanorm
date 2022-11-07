@@ -52,17 +52,17 @@ class DDLHelper:
         if last_x:
             raise last_x
 
-    def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], DbCol]:
+    def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], DbIndex]:
         cols: List[DbCol] = []
         primary = None
-        primary_list = []
         for col in ent.find_all(exp.Anonymous):
             if col.name == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
+                primary = DbIndex(fields=tuple(primary_list), primary=True, unique=False)
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim = self.__info_to_model(col)
-            if is_prim or [col.name] == primary_list:
-                primary = dbcol
+            if is_prim:
+                primary = DbIndex(fields=(col.name,), primary=True, unique=False)
             cols.append(dbcol)
         return tuple(cols), primary
 
@@ -127,8 +127,7 @@ class DDLHelper:
             if not idx:
                 tabs[tab.name], primary = self.__columns(ent)
                 if primary:
-                    idx = DbIndex(fields=(primary.name,), primary=True, unique=False)
-                    indxs[tab.name].append(idx)
+                    indxs[tab.name].append(primary)
             else:
                 idx, tab_name = self.__info_to_index(ent)
                 indxs[tab_name].append(idx)

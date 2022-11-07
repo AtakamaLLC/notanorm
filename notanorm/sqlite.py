@@ -194,7 +194,7 @@ class SqliteDb(DbBase):
         if single_primary and single_primary.lower() == col.name.lower():
             coldef += " primary key"
         if col.autoinc:
-            if single_primary.lower() == col.name.lower():
+            if single_primary and single_primary.lower() == col.name.lower():
                 coldef += " autoincrement"
             else:
                 raise err.SchemaError("sqlite only supports autoincrement on integer primary keys")

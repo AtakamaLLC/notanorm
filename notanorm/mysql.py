@@ -202,7 +202,9 @@ class MySqlDb(DbBase):
 
     def column_model(self, info):
         # depends on specific mysql version, these are display width hints
-        if info.type == "int(11)" or info.type == "int":
+
+        if info.type == "int(11)" or info.type == "int":  # pragma: no cover
+            # whether you see this depends on the version of mysql
             info.type = "integer"
         elif info.type == "tinyint(1)":
             info.type = "boolean"

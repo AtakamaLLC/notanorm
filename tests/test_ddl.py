@@ -58,3 +58,18 @@ def test_model_ddl_cap(db):
     extracted = model_from_ddl(ddl, db.uri_name)
 
     assert extracted == captured_model1
+
+
+def test_multi_key():
+    mod = model_from_ddl("create table foo (bar integer, baz integer, primary key (bar, baz))")
+    assert mod["foo"].indexes == {DbIndex(("bar", "baz"), primary=True), }
+
+
+def test_primary_key():
+    mod = model_from_ddl("create table foo (bar integer primary key, baz integer)")
+    assert mod["foo"].indexes == {DbIndex(("bar", ), primary=True), }
+
+
+def test_autoinc():
+    mod = model_from_ddl("create table foo (bar integer auto_increment)")
+    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True),)
