@@ -4,7 +4,7 @@ from typing import Tuple, Dict, List
 import sqlglot
 from sqlglot import parse, exp
 
-from .model import DbType, DbCol, DbIndex, DbTable, DbModel
+from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone
 
 import logging
 
@@ -34,7 +34,7 @@ class DDLHelper:
 
     def __init__(self, ddl, *dialects):
         if not dialects:
-            dialects = ("sqlite", "mysql")
+            dialects = ("mysql", "sqlite")
 
         last_x = None
 
@@ -97,7 +97,7 @@ class DDLHelper:
         if default:
             lit = default.find(exp.Literal)
             if default.find(exp.Null):
-                default = None
+                default = ExplicitNone()
             elif lit.is_string:
                 default = lit.this
             else:
@@ -138,6 +138,6 @@ class DDLHelper:
         return model
 
 
-def model_from_ddl(ddl, dialect="mysql"):
+def model_from_ddl(ddl, *dialects, dialect=None):
     """Convert indexes and create statements to internal model, without needing a database connection."""
-    return DDLHelper(ddl, dialect).model()
+    return DDLHelper(ddl, *dialects).model()

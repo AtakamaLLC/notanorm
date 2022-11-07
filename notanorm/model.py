@@ -17,6 +17,17 @@ class DbType(Enum):
     BOOLEAN = "bool"
 
 
+class ExplicitNone:
+    def __eq__(self, other):
+        return isinstance(other, ExplicitNone)
+
+    def __str__(self):
+        return str(None)
+
+    def __repr__(self):
+        return repr(None)
+
+
 class DbCol(NamedTuple):
     """Database column definition that should work on all providers."""
     name: str                       # column name

@@ -1,8 +1,12 @@
 import sys
 import logging
 import pytest
+import sqlglot.errors
+
+import notanorm.errors
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 import notanorm.errors as err
+from notanorm.model import ExplicitNone
 
 log = logging.getLogger(__name__)
 
@@ -76,8 +80,28 @@ def test_autoinc():
     assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True),)
 
 
+def test_default_none():
+    mod = model_from_ddl("create table foo (bar text default null)")
+    assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default=ExplicitNone()),)
+
+
 def test_err_autoinc(db):
     # for now, this restriction applies to all db's.   could move it to sqlite only, but needs testing
     model = model_from_ddl("create table foo (bar integer auto_increment, baz integer auto_increment)")
     with pytest.raises(err.SchemaError):
         db.create_model(model)
+
+
+def test_detect_dialect():
+    # mysql
+    mod = model_from_ddl("create table foo (`bar` integer auto_increment, baz varchar(32))")
+    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True), DbCol("baz", DbType.TEXT, size=32))
+
+    # sqlite
+    mod = model_from_ddl("create table foo (\"bar\" integer, baz blob)")
+    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER), DbCol("baz", DbType.BLOB))
+
+
+def test_parser_error():
+    with pytest.raises(sqlglot.errors.ParseError):
+        model_from_ddl("create table foo (bar integer auto_increment, ")
