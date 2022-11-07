@@ -243,6 +243,10 @@ class SqliteDb(DbBase):
                 self.execute(icreate)
 
     @staticmethod
+    def _executemany(cursor, sql):
+        cursor.executescript(sql)
+
+    @staticmethod
     def _obj_factory(cursor, row):
         d = DbRow()
         for idx, col in enumerate(cursor.description):

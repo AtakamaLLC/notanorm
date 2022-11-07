@@ -49,9 +49,7 @@ def test_model_ddl_cap(db):
 
     # ddl / create + model are the same
     ddl = db.ddl_from_model(model)
-    for ent in ddl.split(";"):
-        if ent.strip():
-            db.execute(ent)
+    db.executescript(ddl)
     captured_model1 = db.model()
 
     db.execute("drop table foo")
@@ -92,7 +90,7 @@ def test_sqlite_only():
 
 def test_primary_key_auto():
     mod = model_from_ddl("create table cars(id integer auto_increment primary key, gas_level double default 1.0);", "mysql")
-    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True), DbCol("gas_level", DbType.DOUBLE, default='1.0'))
+    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=True), DbCol("gas_level", DbType.DOUBLE, default='1.0'))
     assert mod["cars"].indexes == {DbIndex(("id",), primary=True), }
 
 

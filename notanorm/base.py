@@ -338,6 +338,10 @@ class DbBase(
     def executescript(self, sql):
         self.execute(sql, _script=True)
 
+    @staticmethod
+    def _executemany(cursor, sql):
+        return cursor.execute(sql)
+
     def execute(self, sql, parameters=(), _script=False):
         with self.r_lock:
             if self.__capture:
@@ -353,7 +357,7 @@ class DbBase(
                     cursor = self._cursor(self._conn())
                     if _script:
                         assert not parameters, "Script isn't compatible with parameters"
-                        cursor.executescript(sql)
+                        self._executemany(cursor,  sql)
                     else:
                         cursor.execute(sql, parameters)
                     break
