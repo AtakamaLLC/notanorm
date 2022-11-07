@@ -121,8 +121,6 @@ class DDLHelper:
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
         default = info.find(exp.DefaultColumnConstraint)
 
-        if is_primary or primary and info.name in primary.fields:
-            notnull = True
         # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
         expr = info.args["kind"].args.get("expressions")

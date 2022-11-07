@@ -175,10 +175,6 @@ class MySqlDb(DbBase):
         return ret
 
     def table_model(self, tab):
-        res = self.query("describe `" + tab + "`")
-        cols = []
-        for col in res:
-            cols.append(self.column_model(col))
         res = self.query("show index from  `" + tab + "`")
 
         idxunique = {}
@@ -194,9 +190,17 @@ class MySqlDb(DbBase):
             unique = idxunique[name] and not primary
             indexes.append(DbIndex(tuple(fds), primary=primary, unique=unique))
 
+        res = self.query("describe `" + tab + "`")
+        cols = []
+        for col in res:
+            primary = [idx.fields for idx in indexes if idx.primary]
+            in_primary = primary and col.field in primary[0]
+            dbcol = self.column_model(col, in_primary)
+            cols.append(dbcol)
+
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
-    def column_model(self, info):
+    def column_model(self, info, in_primary):
         # depends on specific mysql version, these are display width hints
 
         if info.type == "int(11)" or info.type == "int":  # pragma: no cover
@@ -224,10 +228,12 @@ class MySqlDb(DbBase):
         else:
             typ = self._type_map_inverse[info.type]
 
+        autoinc_primary = in_primary and info.extra == "auto_increment"
+
         ret = DbCol(info.field, typ,
                     fixed=fixed,
                     size=size,
-                    notnull=info.null == "NO", default=info.default,
+                    notnull=not autoinc_primary and info.null == "NO", default=info.default,
                     autoinc=info.extra == "auto_increment")
 
         return ret

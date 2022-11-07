@@ -23,7 +23,7 @@ def test_model_ddl_cap(db):
         {
             "foo": DbTable(
                 columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True),
                     DbCol(
                         "inty",
                         typ=DbType.INTEGER,
@@ -90,7 +90,7 @@ def test_sqlite_only():
 
 def test_primary_key_auto():
     mod = model_from_ddl("create table cars(id integer auto_increment primary key, gas_level double default 1.0);", "mysql")
-    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=True), DbCol("gas_level", DbType.DOUBLE, default='1.0'))
+    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=False), DbCol("gas_level", DbType.DOUBLE, default='1.0'))
     assert mod["cars"].indexes == {DbIndex(("id",), primary=True), }
 
 
@@ -101,6 +101,13 @@ def test_default_bool():
 
 def test_not_null_pk():
     create = "CREATE TABLE a (id INTEGER, dd TEXT, PRIMARY KEY(id));"
+    mod = model_from_ddl(create)
+    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=False), DbCol("dd", DbType.TEXT))
+    assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
+
+
+def test_explicit_not_null_pk():
+    create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
     assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True), DbCol("dd", DbType.TEXT))
     assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
