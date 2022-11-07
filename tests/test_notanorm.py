@@ -17,7 +17,6 @@ import notanorm.errors
 import notanorm.errors as err
 from notanorm import SqliteDb, DbRow, DbBase
 from notanorm.connparse import open_db, parse_db_uri
-from notanorm.ddl_helper import model_from_ddl
 
 from tests.conftest import cleanup_mysql_db
 
@@ -303,13 +302,6 @@ def test_db_insert_lrid(db):
     db.query("create table foo (bar integer auto_increment primary key)")
     ret = db.insert("foo")
     assert ret.lastrowid
-
-
-def test_err_autoinc(db):
-    # for now, this restriction applies to all db's.   could move it to sqlite only, but needs testing
-    model = model_from_ddl("create table foo (bar integer auto_increment, baz integer auto_increment)")
-    with pytest.raises(err.SchemaError):
-        db.create_model(model)
 
 
 def test_db_upsert_lrid(db):

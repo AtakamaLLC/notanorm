@@ -2,6 +2,7 @@ import sys
 import logging
 import pytest
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
+import notanorm.errors as err
 
 log = logging.getLogger(__name__)
 
@@ -73,3 +74,10 @@ def test_primary_key():
 def test_autoinc():
     mod = model_from_ddl("create table foo (bar integer auto_increment)")
     assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True),)
+
+
+def test_err_autoinc(db):
+    # for now, this restriction applies to all db's.   could move it to sqlite only, but needs testing
+    model = model_from_ddl("create table foo (bar integer auto_increment, baz integer auto_increment)")
+    with pytest.raises(err.SchemaError):
+        db.create_model(model)

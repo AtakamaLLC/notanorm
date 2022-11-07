@@ -17,7 +17,7 @@ from .connparse import open_db
 try:
     # if you want this, install sqlglot
     from .ddl_helper import model_from_ddl
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     pass
 
 __all__ = [
