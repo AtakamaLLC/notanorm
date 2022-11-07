@@ -3,7 +3,6 @@ import logging
 import pytest
 import sqlglot.errors
 
-import notanorm.errors
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
 import notanorm.errors as err
 from notanorm.model import ExplicitNone
