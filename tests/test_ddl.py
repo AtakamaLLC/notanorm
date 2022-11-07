@@ -101,6 +101,13 @@ def test_default_bool():
     assert mod["foo"].columns == (DbCol("bar", DbType.BOOLEAN, default=True),)
 
 
+def test_not_null_pk():
+    create = "CREATE TABLE a (id INTEGER, dd TEXT, PRIMARY KEY(id));"
+    mod = model_from_ddl(create)
+    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True), DbCol("dd", DbType.TEXT))
+    assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
+
+
 def test_default_str():
     mod = model_from_ddl("create table foo (bar text default 'txt')")
     assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default='txt'),)

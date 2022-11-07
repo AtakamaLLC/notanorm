@@ -17,9 +17,6 @@ from .model import DbType, DbModel, DbTable, DbCol, DbIndex
 from . import errors as err
 import re
 
-import logging as log
-# driver for mysql
-
 
 class MySqlDb(DbBase):
     uri_name = "mysql"
@@ -159,7 +156,6 @@ class MySqlDb(DbBase):
         create = "create table " + name + "("
         create += ",".join(coldefs)
         create += ")"
-        log.error(create)
         self.query(create)
 
         for idx in schema.indexes:

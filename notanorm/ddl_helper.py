@@ -85,11 +85,11 @@ class DDLHelper:
         cols: List[DbCol] = []
         primary = None
         for col in ent.find_all(exp.Anonymous):
-            if col.name == "primary key":
+            if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
                 primary = DbIndex(fields=tuple(primary_list), primary=True, unique=False)
         for col in ent.find_all(exp.ColumnDef):
-            dbcol, is_prim = self.__info_to_model(col)
+            dbcol, is_prim = self.__info_to_model(col, primary)
             if is_prim:
                 primary = DbIndex(fields=(col.name,), primary=True, unique=False)
             cols.append(dbcol)
@@ -111,7 +111,7 @@ class DDLHelper:
         )
 
     @classmethod
-    def __info_to_model(cls, info) -> Tuple[DbCol, bool]:
+    def __info_to_model(cls, info, primary) -> Tuple[DbCol, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         fixed = typ.this in cls.FIXED_MAP
@@ -121,6 +121,8 @@ class DDLHelper:
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
         default = info.find(exp.DefaultColumnConstraint)
 
+        if is_primary or primary and info.name in primary.fields:
+            notnull = True
         # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
         expr = info.args["kind"].args.get("expressions")
