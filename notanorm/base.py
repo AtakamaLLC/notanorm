@@ -357,7 +357,7 @@ class DbBase(
                     cursor = self._cursor(self._conn())
                     if _script:
                         assert not parameters, "Script isn't compatible with parameters"
-                        self._executemany(cursor,  sql)
+                        self._executemany(cursor, sql)
                     else:
                         cursor.execute(sql, parameters)
                     break
