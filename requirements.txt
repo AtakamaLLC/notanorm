@@ -4,4 +4,5 @@ codecov
 pytest-cov
 pytest-xdist
 flake8
+sqlglot
 mysqlclient

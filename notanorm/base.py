@@ -8,7 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple
+from typing import Dict, List, Type, Any, Tuple, Generator
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -309,8 +309,17 @@ class DbBase(
             res += sql + ";\n"
         return res
 
+    @staticmethod
+    def simplify_model(model):
+        """Override if you want to allow model comparisons.
+
+        For example, if you have a model that defines a fixed-width char, but your db ignores
+        fixed-with chars, you can remove or normalize the fixed-width flag in the model.
+        """
+        return model
+
     @contextlib.contextmanager
-    def capture_sql(self, execute=False) -> List[Tuple[str, Tuple[Any, ...]]]:
+    def capture_sql(self, execute=False) -> Generator[List[Tuple[str, Tuple[Any, ...]]], None, None]:
         self.__capture = True
         self.__capture_exec = execute
         self.__capture_stmts = []
@@ -326,7 +335,14 @@ class DbBase(
     def create_table(self, name, schema: DbTable):
         raise RuntimeError("Generic models not supported")
 
-    def execute(self, sql, parameters=()):
+    def executescript(self, sql):
+        self.execute(sql, _script=True)
+
+    @staticmethod
+    def _executemany(cursor, sql):
+        return cursor.execute(sql)
+
+    def execute(self, sql, parameters=(), _script=False):
         with self.r_lock:
             if self.__capture:
                 self.__capture_stmts.append((sql, parameters))
@@ -339,7 +355,11 @@ class DbBase(
 
                 try:
                     cursor = self._cursor(self._conn())
-                    cursor.execute(sql, parameters)
+                    if _script:
+                        assert not parameters, "Script isn't compatible with parameters"
+                        self._executemany(cursor, sql)
+                    else:
+                        cursor.execute(sql, parameters)
                     break
                 except Exception as exp:  # pylint: disable=broad-except
                     if cursor:

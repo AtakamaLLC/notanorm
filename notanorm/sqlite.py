@@ -134,12 +134,8 @@ class SqliteDb(DbBase):
         match_b = re.match(r"(varbinary|binary)\((\d+)\)", info.type, re.I)
         if match_t:
             typ = DbType.TEXT
-            fixed = match_t[1] == "character"
-            size = int(match_t[2])
         elif match_b:
             typ = DbType.BLOB
-            fixed = match_b[1] == "binary"
-            size = int(match_b[2])
         else:
             try:
                 typ = cls._type_map_inverse[info.type.lower()]
@@ -187,22 +183,8 @@ class SqliteDb(DbBase):
 
     @classmethod
     def _column_def(cls, col: DbCol, single_primary: str):
-        coldef = col.name
+        coldef = cls.quote_key(col.name)
         typ = cls._type_map[col.typ]
-        if col.size and col.typ == DbType.TEXT:
-            if col.fixed:
-                typ = "character"
-            else:
-                typ = "varchar"
-            typ += '(%s)' % col.size
-
-        if col.size and col.typ == DbType.BLOB:
-            if col.fixed:
-                typ = "binary"
-            else:
-                typ = "varbinary"
-            typ += '(%s)' % col.size
-
         if typ:
             coldef += " " + typ
         if col.notnull:
@@ -212,11 +194,26 @@ class SqliteDb(DbBase):
         if single_primary and single_primary.lower() == col.name.lower():
             coldef += " primary key"
         if col.autoinc:
-            if single_primary.lower() == col.name.lower():
+            if single_primary and single_primary.lower() == col.name.lower():
                 coldef += " autoincrement"
             else:
                 raise err.SchemaError("sqlite only supports autoincrement on integer primary keys")
         return coldef
+
+    @staticmethod
+    def simplify_model(model: DbModel):
+        new_mod = DbModel()
+        for tab, tdef in model.items():
+            tdef: DbTable
+            new_cols = []
+            for coldef in tdef.columns:
+                # sizes & fixed-width specifiers are ignored in sqlite
+                newcol = DbCol(name=coldef.name, typ=coldef.typ, autoinc=coldef.autoinc,
+                               notnull=coldef.notnull, default=coldef.default)
+                new_cols.append(newcol)
+            new_tab = DbTable(columns=tuple(new_cols), indexes=tdef.indexes)
+            new_mod[tab] = new_tab
+        return new_mod
 
     def create_table(self, name, schema):
         coldefs = []
@@ -235,15 +232,19 @@ class SqliteDb(DbBase):
         create += ",".join(coldefs)
         create += ")"
         log.info(create)
-        self.query(create)
+        self.execute(create)
         for idx in schema.indexes:
             if not idx.primary:
                 index_name = "ix_" + name + "_" + "_".join(idx.fields)
                 unique = "unique " if idx.unique else ""
-                icreate = "create " + unique + "index " + index_name + " on " + name + " ("
-                icreate += ",".join(idx.fields)
+                icreate = "create " + unique + "index " + self.quote_key(index_name) + " on " + name + " ("
+                icreate += ",".join(self.quote_key(f) for f in idx.fields)
                 icreate += ")"
-                self.query(icreate)
+                self.execute(icreate)
+
+    @staticmethod
+    def _executemany(cursor, sql):
+        cursor.executescript(sql)
 
     @staticmethod
     def _obj_factory(cursor, row):

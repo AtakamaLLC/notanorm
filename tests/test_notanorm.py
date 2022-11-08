@@ -1,10 +1,9 @@
 # pylint: disable=missing-docstring, protected-access, unused-argument, too-few-public-methods
 # pylint: disable=import-outside-toplevel, unidiomatic-typecheck
 
+import copy
 import logging
 import multiprocessing
-import copy
-import os
 import sqlite3
 import threading
 import time
@@ -15,129 +14,13 @@ from unittest.mock import MagicMock
 import pytest
 
 import notanorm.errors
-from notanorm import SqliteDb, DbRow, DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
-from notanorm.connparse import parse_db_uri
-
 import notanorm.errors as err
-from notanorm.connparse import open_db
+from notanorm import SqliteDb, DbRow, DbBase
+from notanorm.connparse import open_db, parse_db_uri
+
+from tests.conftest import cleanup_mysql_db
 
 log = logging.getLogger(__name__)
-
-
-PYTEST_REG = False
-
-
-@pytest.fixture
-def db_sqlite():
-    db = SqliteDb(":memory:")
-    yield db
-    db.close()
-
-
-@pytest.fixture
-def db_sqlite_noup():
-    class SqliteDbNoUp(SqliteDb):
-        uri_name = None
-
-        @property
-        def _upsert_sql(self):
-            raise AttributeError
-
-    db = SqliteDbNoUp(":memory:")
-
-    assert not hasattr(db, "_upsert_sql")
-
-    yield db
-
-    db.close()
-
-
-@pytest.fixture
-def db_mysql_noup():
-    from notanorm import MySqlDb
-
-    class MySqlDbNoUp(MySqlDb):
-        uri_name = None
-
-        @property
-        def _upsert_sql(self):
-            raise AttributeError
-
-    db = get_mysql_db(MySqlDbNoUp)
-
-    assert not hasattr(db, "_upsert_sql")
-
-    yield db
-
-    db.close()
-
-
-@pytest.fixture
-def db_sqlite_notmem(tmp_path):
-    db = SqliteDb(str(tmp_path / "db"))
-    yield db
-    db.close()
-
-
-def get_mysql_db(typ):
-    db = typ(read_default_file=os.path.expanduser("~/.my.cnf"))
-    db.query("DROP DATABASE IF EXISTS test_db")
-    db.query("CREATE DATABASE test_db")
-    db.query("USE test_db")
-
-    return typ(read_default_file=os.path.expanduser("~/.my.cnf"), db="test_db")
-
-
-def cleanup_mysql_db(db):
-    db._DbBase__closed = False
-    db.query("SET SESSION TRANSACTION READ WRITE;")
-    db.query("DROP DATABASE test_db")
-    db.close()
-
-
-@pytest.fixture
-def db_mysql():
-    from notanorm import MySqlDb
-
-    db = get_mysql_db(MySqlDb)
-    yield db
-    cleanup_mysql_db(db)
-
-
-@pytest.fixture
-def db_mysql_notmem(db_mysql):
-    yield db_mysql
-
-
-@pytest.fixture(name="db")
-def db_fixture(request, db_name):
-    yield request.getfixturevalue("db_" + db_name)
-
-
-@pytest.fixture(name="db_sqlup", params=["", "_noup"])
-def db_sqlup_fixture(request, db_name):
-    yield request.getfixturevalue("db_" + db_name + request.param)
-
-
-@pytest.fixture(name="db_notmem")
-def db_notmem_fixture(request, db_name):
-    yield request.getfixturevalue("db_" + db_name + "_notmem")
-
-
-def pytest_generate_tests(metafunc):
-    """Converts user-argument --db to fixture parameters."""
-
-    global PYTEST_REG  # pylint: disable=global-statement
-    if not PYTEST_REG:
-        if any(db in metafunc.fixturenames for db in ("db", "db_notmem", "db_sqlup")):
-            db_names = metafunc.config.getoption("db", [])
-            db_names = db_names or ["sqlite"]
-            for mark in metafunc.definition.own_markers:
-                if mark.name == "db":
-                    db_names = set(mark.args).intersection(set(db_names))
-                    break
-            db_names = sorted(db_names)  # xdist compat
-            metafunc.parametrize("db_name", db_names, scope="function")
 
 
 def test_db_basic(db):
@@ -438,182 +321,6 @@ def test_db_upsert_non_null(db):
 
     assert db.select_one("foo").baz == "up"
     assert db.select_one("foo").bop == "keep"
-
-
-def test_model_create(db):
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                    DbCol("blob", typ=DbType.BLOB),
-                    DbCol("bool", typ=DbType.BOOLEAN),
-                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
-                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
-                    DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
-                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
-                ),
-                indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
-                },
-            )
-        }
-    )
-    db.create_model(model)
-    check = db.model()
-    assert check == model
-
-
-def test_model_create_composite_pk(db):
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("part1", typ=DbType.INTEGER, notnull=True),
-                    DbCol("part2", typ=DbType.BLOB, size=16, notnull=True),
-                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
-                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
-                    DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
-                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
-                ),
-                indexes={
-                    DbIndex(fields=("part1", "part2"), primary=True),
-                },
-            )
-        }
-    )
-    db.create_model(model)
-    check = db.model()
-    assert check == model
-
-
-def test_model_sqlite_cross(db):
-    # creating a model using sqlite results in a model that generally works across other db's
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                    DbCol(
-                        "inty",
-                        typ=DbType.INTEGER,
-                        autoinc=False,
-                        notnull=True,
-                        default="4",
-                    ),
-                    DbCol("blob", typ=DbType.BLOB),
-                    DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
-                    DbCol("blob4", typ=DbType.BLOB, size=4, fixed=False),
-                    DbCol("tex", typ=DbType.TEXT, notnull=True),
-                    DbCol("siz3v", typ=DbType.TEXT, size=3, fixed=False),
-                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
-                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
-                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
-                ),
-                indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
-                },
-            )
-        }
-    )
-    db2 = SqliteDb(":memory:")
-    db2.create_model(model)
-    sqlite_model = db2.model()
-    db.create_model(sqlite_model)
-    check = db.model()
-    assert check == model
-
-
-def test_model_sqlite_aliases(db):
-    # creating a model using sqlite results in a model that generally works across other db's
-    db.query("create table foo (x integer, y bigint, z smallint)")
-    check = db.model()
-    same = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("x", typ=DbType.INTEGER),
-                    DbCol("y", typ=DbType.INTEGER),
-                    DbCol("z", typ=DbType.INTEGER),
-                ),
-                indexes=set(),
-            )
-        }
-    )
-    assert check == same
-
-
-def test_model_create_nopk(db):
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(DbCol("inty", typ=DbType.INTEGER),),
-                indexes={DbIndex(fields=("inty",), primary=False)},
-            )
-        }
-    )
-    db.create_model(model)
-    check = db.model()
-    assert check == model
-
-
-def test_model_cap(db):
-    model = DbModel(
-        {
-            "foo": DbTable(
-                columns=(DbCol("inty", typ=DbType.INTEGER),),
-                indexes={DbIndex(fields=("inty",), primary=False)},
-            )
-        }
-    )
-
-    ddl = db.ddl_from_model(model)
-
-    expect = """
-create table foo(inty integer);
-create index ix_foo_inty on foo (inty);
-"""
-    if db.uri_name == "sqlite":
-        assert ddl.strip() == expect.strip()
-    else:
-        # vague assertion that we captured stuff
-        assert "create table" in ddl.lower()
-        assert "foo" in ddl
-        assert "inty" in ddl
-
-
-def test_model_cmp(db):
-    model1 = DbModel(
-        {
-            "foo": DbTable(
-                columns=(
-                    DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                ),
-                indexes={DbIndex(fields=("Auto",), primary=True)},
-            )
-        }
-    )
-    model2 = DbModel(
-        {
-            "FOO": DbTable(
-                columns=(
-                    DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
-                ),
-                indexes={DbIndex(fields=("autO",), primary=True)},
-            )
-        }
-    )
-
-    assert model1["foo"].columns[0] == model2["FOO"].columns[0]
-    assert model1 == model2
 
 
 def test_conn_retry(db):
@@ -1063,3 +770,12 @@ def test_cap_exec(db):
     assert stmts[0] == ("create table foo(inty integer)", ())
     if db.uri_name == "sqlite":
         assert stmts[1] == ('insert into "foo"("inty") values (?)', (4,))
+
+
+def test_exec_script(db):
+    db.executescript("""
+        create table foo (x integer);
+        create table bar (y integer);
+    """)
+    db.insert("foo", x=1)
+    db.insert("bar", y=2)

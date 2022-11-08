@@ -4,21 +4,20 @@ try:
     import MySQLdb
     import MySQLdb.cursors
     InterfaceError = type(None)
+    pymysql_force_flags = 0
 except ImportError:
     import pymysql
     pymysql.install_as_MySQLdb()
     import MySQLdb
     import MySQLdb.cursors
     from pymysql.err import InterfaceError
-
+    import pymysql.constants.CLIENT
+    pymysql_force_flags = pymysql.constants.CLIENT.MULTI_STATEMENTS
 
 from .base import DbBase
 from .model import DbType, DbModel, DbTable, DbCol, DbIndex
 from . import errors as err
 import re
-
-import logging as log
-# driver for mysql
 
 
 class MySqlDb(DbBase):
@@ -32,7 +31,11 @@ class MySqlDb(DbBase):
 
     @classmethod
     def uri_adjust(cls, args, kws):
-        for nam, typ in [("port", int), ("use_unicode", bool), ("autocommit", bool)]:
+        # adjust to appropriate types
+        for nam, typ in [("port", int), ("use_unicode", bool), ("autocommit", bool),
+                         ("buffered", bool), ("ssl_verify_cert", bool),
+                         ("ssl_verify_identity", bool), ("compress", bool), ("pool_size", int),
+                         ("client_flag", int), ("raise_on_warnings", bool)]:
             if nam in kws:
                 kws[nam] = typ(kws[nam])
 
@@ -82,6 +85,8 @@ class MySqlDb(DbBase):
         return exp
 
     def _connect(self, *args, **kws):
+        if pymysql_force_flags:
+            kws["client_flag"] = kws.get("client_flag", 0) | pymysql_force_flags
         conn = MySQLdb.connect(*args, **kws)
         conn.autocommit(True)
         conn.cursor().execute("SET SESSION sql_mode = 'ANSI';")
@@ -113,6 +118,7 @@ class MySqlDb(DbBase):
     _type_map_inverse.update({
         "integer": DbType.INTEGER,
         "smallint": DbType.INTEGER,
+        "tinyblob": DbType.BLOB,
         "bigint": DbType.INTEGER,
     })
 
@@ -158,7 +164,6 @@ class MySqlDb(DbBase):
         create = "create table " + name + "("
         create += ",".join(coldefs)
         create += ")"
-        log.error(create)
         self.query(create)
 
         for idx in schema.indexes:
@@ -178,10 +183,6 @@ class MySqlDb(DbBase):
         return ret
 
     def table_model(self, tab):
-        res = self.query("describe `" + tab + "`")
-        cols = []
-        for col in res:
-            cols.append(self.column_model(col))
         res = self.query("show index from  `" + tab + "`")
 
         idxunique = {}
@@ -197,11 +198,40 @@ class MySqlDb(DbBase):
             unique = idxunique[name] and not primary
             indexes.append(DbIndex(tuple(fds), primary=primary, unique=unique))
 
+        res = self.query("describe `" + tab + "`")
+        cols = []
+        for col in res:
+            primary = [idx.fields for idx in indexes if idx.primary]
+            in_primary = primary and col.field in primary[0]
+            dbcol = self.column_model(col, in_primary)
+            cols.append(dbcol)
+
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
-    def column_model(self, info):
+    @staticmethod
+    def simplify_model(model: DbModel):
+        model2 = DbModel()
+        primary_fields = []
+        for nam, tab in model.items():
+            for index in tab.indexes:
+                if index.primary:
+                    primary_fields = index.fields
+            cols = []
+            for col in tab.columns:
+                if col.name in primary_fields:
+                    d = col._asdict()
+                    d["notnull"] = True
+                    col = DbCol(*d)
+                cols.append(col)
+            model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
+
+        return model2
+
+    def column_model(self, info, in_primary):
         # depends on specific mysql version, these are display width hints
-        if info.type == "int(11)" or info.type == "int":
+
+        if info.type == "int(11)" or info.type == "int":  # pragma: no cover
+            # whether you see this depends on the version of mysql
             info.type = "integer"
         elif info.type == "tinyint(1)":
             info.type = "boolean"
@@ -225,10 +255,12 @@ class MySqlDb(DbBase):
         else:
             typ = self._type_map_inverse[info.type]
 
+        autoinc_primary = in_primary and info.extra == "auto_increment"
+
         ret = DbCol(info.field, typ,
                     fixed=fixed,
                     size=size,
-                    notnull=info.null == "NO", default=info.default,
+                    notnull=not autoinc_primary and info.null == "NO", default=info.default,
                     autoinc=info.extra == "auto_increment")
 
         return ret

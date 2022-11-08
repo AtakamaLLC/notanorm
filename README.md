@@ -83,6 +83,21 @@ db.select("foo", iv=notnaorm.Op(">", 3))
 
 # wipe the table
 db.delete_all("foo")
+
+### cross database ddl management
+
+# this requires: pip install sqlglot
+
+model = notanorm.model_from_ddl("create table foo(bar integer)")
+
+# create tables and indices from the generic model
+db.create_model(model)
+
+# capture sql statements instead of executing them
+with db.capture_sql(execute=False) as cap:
+   ... do some stuff
+
+print(cap)
 ```
 
 ## Database support
