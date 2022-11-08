@@ -124,6 +124,7 @@ class DDLHelper:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         fixed = typ.this in cls.FIXED_MAP
+        size = cls.SIZE_MAP.get(typ.this, 0)
         typ = cls.TYPE_MAP[typ.this]
         notnull = info.find(exp.NotNullColumnConstraint)
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
@@ -135,8 +136,6 @@ class DDLHelper:
         expr = info.args["kind"].args.get("expressions")
         if expr:
             size = int(expr[0].this)
-        else:
-            size = cls.SIZE_MAP.get(typ.this, 0)
 
         if default:
             lit = default.find(exp.Literal)
