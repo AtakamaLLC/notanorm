@@ -41,6 +41,7 @@ def test_model_intsize(db):
         {
             "foo": DbTable(
                 columns=(
+                    DbCol("int1", typ=DbType.INTEGER, size=1),
                     DbCol("int2", typ=DbType.INTEGER, size=2),
                     DbCol("int4", typ=DbType.INTEGER, size=4),
                     DbCol("int8", typ=DbType.INTEGER, size=8),
@@ -54,9 +55,10 @@ def test_model_intsize(db):
     assert db.simplify_model(check) == db.simplify_model(model)
     if db.uri_name != "sqlite":
         # other db's support varying size integers
-        assert check["foo"].columns[0].size == 2
-        assert check["foo"].columns[1].size == 4
-        assert check["foo"].columns[2].size == 8
+        assert check["foo"].columns[0].size == 1
+        assert check["foo"].columns[1].size == 2
+        assert check["foo"].columns[2].size == 4
+        assert check["foo"].columns[3].size == 8
 
 
 def test_model_create_composite_pk(db):
