@@ -96,7 +96,9 @@ class DDLHelper:
         for col in ent.find_all(exp.Anonymous):
             if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
-                primary = DbIndex(fields=tuple(primary_list), primary=True, unique=False)
+                primary = DbIndex(
+                    fields=tuple(primary_list), primary=True, unique=False
+                )
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim = self.__info_to_model(col)
             if is_prim:

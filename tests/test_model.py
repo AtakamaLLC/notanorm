@@ -131,7 +131,10 @@ def test_model_preserve_types(db):
     model = DbModel(
         {
             "foo": DbTable(
-                columns=(DbCol("vtex", typ=DbType.TEXT, size=3, notnull=True), DbCol("vbin", typ=DbType.BLOB, size=2)),
+                columns=(
+                    DbCol("vtex", typ=DbType.TEXT, size=3, notnull=True),
+                    DbCol("vbin", typ=DbType.BLOB, size=2),
+                ),
             )
         }
     )
@@ -145,7 +148,7 @@ def test_model_primary_key(db):
         {
             "foo": DbTable(
                 columns=(DbCol("vtex", typ=DbType.TEXT, size=8),),
-                indexes={DbIndex(("vtex",), primary=True)}
+                indexes={DbIndex(("vtex",), primary=True)},
             )
         }
     )
@@ -202,9 +205,7 @@ def test_model_any(db):
     mod = DbModel(
         {
             "foo": DbTable(
-                columns=(
-                    DbCol("any", typ=DbType.ANY),
-                ),
+                columns=(DbCol("any", typ=DbType.ANY),),
             )
         }
     )

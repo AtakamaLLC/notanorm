@@ -7,7 +7,7 @@ import multiprocessing
 import sqlite3
 import threading
 import time
-from multiprocessing.pool import ThreadPool
+from multiprocessing.pool import ThreadPool, Pool as ProcessPool
 from typing import Generator
 from unittest.mock import MagicMock
 
@@ -530,6 +530,32 @@ def test_upsert_thready_one(db_notmem):
     assert len(db.select("foo")) == mod
 
 
+def upserty(arg, kws, i):
+    db = SqliteDb(*arg, **kws)
+    for row in db.select_gen("foo"):
+        db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+    return i
+
+
+@pytest.mark.skip("sqlite doesnt work")
+def test_generator_proc(db_notmem):
+    db = db_notmem
+    ars, kws = db_notmem._conn_args, db_notmem._conn_kws
+
+    db.use_collation_locks = False
+    db.query("CREATE table foo (bar integer primary key, baz integer not null)")
+    for ins in range(10):
+        db.insert("foo", bar=ins, baz=0)
+    db.close()
+
+    pool = ProcessPool(processes=3)
+
+    import functools
+
+    func = functools.partial(upserty, ars, kws)
+    print(pool.map(func, range(3)))
+
+
 def test_select_gen_not_lock(db: DbBase):
     db.query("CREATE table foo (bar integer primary key)")
 
@@ -773,9 +799,11 @@ def test_cap_exec(db):
 
 
 def test_exec_script(db):
-    db.executescript("""
+    db.executescript(
+        """
         create table foo (x integer);
         create table bar (y integer);
-    """)
+    """
+    )
     db.insert("foo", x=1)
     db.insert("bar", y=2)
