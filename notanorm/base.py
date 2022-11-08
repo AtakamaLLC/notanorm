@@ -310,7 +310,7 @@ class DbBase(
         return res
 
     @staticmethod
-    def simplify_model(model):
+    def simplify_model(model: DbModel) -> DbModel:
         """Override if you want to allow model comparisons.
 
         For example, if you have a model that defines a fixed-width char, but your db ignores

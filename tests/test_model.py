@@ -3,7 +3,7 @@
 
 import logging
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
+from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 
 log = logging.getLogger(__name__)
 
@@ -153,7 +153,8 @@ def test_model_primary_key(db):
     assert db.simplify_model(check) == db.simplify_model(model)
 
 
-def test_model_create_nopk(db):
+def test_model_create_nopk(db: "DbBase"):
+    # no primary key
     model = DbModel(
         {
             "foo": DbTable(
@@ -164,7 +165,8 @@ def test_model_create_nopk(db):
     )
     db.create_model(model)
     check = db.model()
-    assert check == model
+    assert db.simplify_model(check) == db.simplify_model(model)
+    assert not check["foo"].indexes.pop().primary
 
 
 def test_model_cap(db):
