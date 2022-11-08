@@ -113,6 +113,23 @@ def test_model_preserve_types(db):
     assert db.simplify_model(check) == db.simplify_model(model)
 
 
+def test_model_primary_key(db):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(DbCol("vtex", typ=DbType.TEXT, size=8),),
+                indexes={DbIndex(("vtex",), primary=True)}
+            )
+        }
+    )
+    db.create_model(model)
+    check = db.model()
+    # simplify model is needed, since many db's will quietly default the column to not null
+    # and that's ok
+    # so we "simplify" by forcing all primary keys to not-null
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+
 def test_model_create_nopk(db):
     model = DbModel(
         {

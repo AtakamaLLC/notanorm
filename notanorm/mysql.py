@@ -200,6 +200,25 @@ class MySqlDb(DbBase):
 
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
+    @staticmethod
+    def simplify_model(model: DbModel):
+        model2 = DbModel()
+        primary_fields = []
+        for nam, tab in model.items():
+            for index in tab.indexes:
+                if index.primary:
+                    primary_fields = index.fields
+            cols = []
+            for col in tab.columns:
+                if col.name in primary_fields:
+                    d = col._asdict()
+                    d["notnull"] = True
+                    col = DbCol(*d)
+                cols.append(col)
+            model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
+
+        return model2
+
     def column_model(self, info, in_primary):
         # depends on specific mysql version, these are display width hints
 
