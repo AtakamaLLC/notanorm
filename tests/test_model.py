@@ -36,6 +36,29 @@ def test_model_create(db):
     assert db.simplify_model(check) == db.simplify_model(model)
 
 
+def test_model_intsize(db):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("int2", typ=DbType.INTEGER, size=2),
+                    DbCol("int4", typ=DbType.INTEGER, size=4),
+                    DbCol("int8", typ=DbType.INTEGER, size=8),
+                ),
+                indexes=set(),
+            )
+        }
+    )
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+    if db.uri_name != "sqlite":
+        # other db's support varying size integers
+        assert check["foo"].columns[0].size == 2
+        assert check["foo"].columns[1].size == 4
+        assert check["foo"].columns[2].size == 8
+
+
 def test_model_create_composite_pk(db):
     model = DbModel(
         {
@@ -62,7 +85,7 @@ def test_model_create_composite_pk(db):
 
 
 def test_model_ddl_cross(db):
-    # creating a model using sqlite results in a model that generally works across other db's
+    # create db mased on model, extract the model, recreate.  same db.
     model = DbModel(
         {
             "foo": DbTable(

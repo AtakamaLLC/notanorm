@@ -118,9 +118,15 @@ class MySqlDb(DbBase):
     _type_map_inverse.update({
         "integer": DbType.INTEGER,
         "smallint": DbType.INTEGER,
-        "tinyblob": DbType.BLOB,
         "bigint": DbType.INTEGER,
+        "tinyblob": DbType.BLOB,
     })
+    _int_map = {
+        1: "tinyint",
+        2: "smallint",
+        4: "integer",
+        8: "bigint"
+    }
 
     def create_table(self, name, schema):
         coldefs = []
@@ -143,6 +149,8 @@ class MySqlDb(DbBase):
                 else:
                     typ = "varbinary"
                 typ += '(%s)' % col.size
+            elif col.size and col.typ == DbType.INTEGER and col.size in self._int_map:
+                typ = self._int_map[col.size]
             else:
                 typ = self._type_map[col.typ]
 
@@ -228,19 +236,24 @@ class MySqlDb(DbBase):
         return model2
 
     def column_model(self, info, in_primary):
-        # depends on specific mysql version, these are display width hints
-
-        if info.type == "int(11)" or info.type == "int":  # pragma: no cover
+        # depends on specific mysql version, these are often display width hints
+        size = 0
+        if info.type in ("int(11)", "integer", "int"):
             # whether you see this depends on the version of mysql
             info.type = "integer"
+            size = 4
         elif info.type == "tinyint(1)":
             info.type = "boolean"
-        elif info.type.startswith("bigint("):
+        elif info.type == "tinyint":
+            info.type = "integer"
+            size = 1
+        elif info.type.startswith("bigint"):
             info.type = "bigint"
-        elif info.type.startswith("smallint("):
+            size = 8
+        elif info.type.startswith("smallint"):
             info.type = "smallint"
+            size = 2
         fixed = False
-        size = 0
         match_t = re.match(r"(varchar|char|text)\((\d+)\)", info.type)
         match_b = re.match(r"(varbinary|binary|blob)\((\d+)\)", info.type)
 
