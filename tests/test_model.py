@@ -2,8 +2,10 @@
 # pylint: disable=import-outside-toplevel, unidiomatic-typecheck
 
 import logging
+import pytest
 
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm.errors import SchemaError
 
 log = logging.getLogger(__name__)
 
@@ -194,6 +196,23 @@ create index "ix_foo_inty" on foo ("inty");
         assert "create table" in ddl.lower()
         assert "foo" in ddl
         assert "inty" in ddl
+
+
+def test_model_any(db):
+    mod = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("any", typ=DbType.ANY),
+                ),
+            )
+        }
+    )
+    if db.uri_name != "sqlite":
+        with pytest.raises(SchemaError):
+            db.create_model(mod)
+    else:
+        db.create_model(mod)
 
 
 def test_model_cmp(db):
