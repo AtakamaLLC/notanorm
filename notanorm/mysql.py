@@ -4,13 +4,15 @@ try:
     import MySQLdb
     import MySQLdb.cursors
     InterfaceError = type(None)
+    pymysql_force_flags = 0
 except ImportError:
     import pymysql
     pymysql.install_as_MySQLdb()
     import MySQLdb
     import MySQLdb.cursors
     from pymysql.err import InterfaceError
-
+    import pymysql.constants.CLIENT
+    pymysql_force_flags = pymysql.constants.CLIENT.MULTI_STATEMENTS
 
 from .base import DbBase
 from .model import DbType, DbModel, DbTable, DbCol, DbIndex
@@ -29,7 +31,11 @@ class MySqlDb(DbBase):
 
     @classmethod
     def uri_adjust(cls, args, kws):
-        for nam, typ in [("port", int), ("use_unicode", bool), ("autocommit", bool)]:
+        # adjust to appropriate types
+        for nam, typ in [("port", int), ("use_unicode", bool), ("autocommit", bool),
+                         ("buffered", bool), ("ssl_verify_cert", bool),
+                         ("ssl_verify_identity", bool), ("compress", bool), ("pool_size", int),
+                         ("client_flag", int), ("raise_on_warnings", bool)]:
             if nam in kws:
                 kws[nam] = typ(kws[nam])
 
@@ -79,6 +85,8 @@ class MySqlDb(DbBase):
         return exp
 
     def _connect(self, *args, **kws):
+        if pymysql_force_flags:
+            kws["client_flag"] = kws.get("client_flag", 0) | pymysql_force_flags
         conn = MySQLdb.connect(*args, **kws)
         conn.autocommit(True)
         conn.cursor().execute("SET SESSION sql_mode = 'ANSI';")
