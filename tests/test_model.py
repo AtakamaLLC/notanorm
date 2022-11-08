@@ -157,7 +157,7 @@ def test_model_create_nopk(db):
     model = DbModel(
         {
             "foo": DbTable(
-                columns=(DbCol("inty", typ=DbType.INTEGER),),
+                columns=(DbCol("inty", typ=DbType.INTEGER, size=4),),
                 indexes={DbIndex(fields=("inty",), primary=False)},
             )
         }
