@@ -11,6 +11,10 @@ import logging
 log = logging.getLogger(__name__)
 
 
+# some support for different sqlglot versions
+has_varb = getattr(exp.DataType.Type, "VARBINARY", None)
+
+
 class DDLHelper:
     # map of sqlglot expression types to internal model types
     TYPE_MAP = {
@@ -28,6 +32,11 @@ class DDLHelper:
         exp.DataType.Type.FLOAT: DbType.FLOAT,
     }
 
+    if has_varb:
+        TYPE_MAP.update({
+            exp.DataType.Type.VARBINARY: DbType.BLOB,
+        })
+
     SIZE_MAP = {
         exp.DataType.Type.TINYINT: 1,
         exp.DataType.Type.SMALLINT: 2,
@@ -37,8 +46,6 @@ class DDLHelper:
 
     FIXED_MAP = {
         exp.DataType.Type.CHAR,
-        #  todo: add support for varbinary vs binary in sqlglot
-        #        exp.DataType.Type.BINARY
     }
 
     def __init__(self, ddl, *dialects):
@@ -68,10 +75,10 @@ class DDLHelper:
     def __model_from_sqlglot(self, ddl, dialect):
         # sqlglot generic parser
         tmp_ddl = ddl
-        if dialect == "mysql":
-            # bug sqlglot doesn't support varbinary
-            tmp_ddl = tmp_ddl.replace("varbinary", "binary")
-            tmp_ddl = tmp_ddl.replace("VARBINARY", "BINARY")
+        if dialect == "mysql" and not has_varb:  # pragma: no cover
+            # sqlglot 9 doesn't support varbinary
+            tmp_ddl = ddl.replace("varbinary", "binary")
+            tmp_ddl = ddl.replace("VARBINARY", "BINARY")
         res = parse(tmp_ddl, read=dialect)
         self.__sqlglot = res
         self.dialect = dialect
