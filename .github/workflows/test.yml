@@ -15,6 +15,9 @@ jobs:
           - os: ubuntu-latest
             python: 3.9
             mysql: 8.0
+          - os: ubuntu-latest
+            python: 3.6
+            mysql: 8.0
           - os: ubuntu-18.04
             python: 3.9
             mysql: 5.7
