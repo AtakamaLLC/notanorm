@@ -1,5 +1,6 @@
 """Simple db accessor system: not an orm."""
 
+import sys
 from .base import DbRow
 
 try:
@@ -16,9 +17,9 @@ from .connparse import open_db
 
 try:
     # if you want this, install sqlglot
-    from .ddl_helper import model_from_ddl
-except Exception:
-    # requires it to be installed, and requires python > 3.6
+    if tuple(sys.version_info[:2]) > (3, 6):
+        from .ddl_helper import model_from_ddl
+except ImportError:
     pass
 
 __all__ = [
