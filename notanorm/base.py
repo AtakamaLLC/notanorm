@@ -300,11 +300,11 @@ class DbBase(
 
     @property
     def uri(self) -> str:
-        """Uri can be used to create a copy of my connection"""
+        """Uri that represents a copy of my connection"""
         return self.uri_name + ":" + ",".join(str(v) for v in self._conn_args) + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
 
     def clone(self) -> T:
-        """Uri can be used to create a copy of my connection"""
+        """Make a copy of my connection"""
         return type(self)(*self._conn_args, **self._conn_kws)
 
     def model(self) -> DbModel:
