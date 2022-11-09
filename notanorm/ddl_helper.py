@@ -11,6 +11,10 @@ import logging
 log = logging.getLogger(__name__)
 
 
+# some support for different sqlglot versions
+has_varb = getattr(exp.DataType.Type, "VARBINARY", None)
+
+
 class DDLHelper:
     # map of sqlglot expression types to internal model types
     TYPE_MAP = {
@@ -27,10 +31,13 @@ class DDLHelper:
         exp.DataType.Type.FLOAT: DbType.FLOAT,
     }
 
+    if has_varb:
+        TYPE_MAP.update({
+            exp.DataType.Type.VARBINARY: DbType.BLOB,
+        })
+
     FIXED_MAP = {
         exp.DataType.Type.CHAR,
-        #  todo: add support for varbinary vs binary in sqlglot
-        #        exp.DataType.Type.BINARY
     }
 
     def __init__(self, ddl, *dialects):
