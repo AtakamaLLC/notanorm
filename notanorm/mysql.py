@@ -244,7 +244,7 @@ class MySqlDb(DbBase):
             size = 4
         elif info.type == "tinyint(1)":
             info.type = "boolean"
-        elif info.type == "tinyint":
+        elif info.type.startswith("tinyint"):
             info.type = "integer"
             size = 1
         elif info.type.startswith("bigint"):
