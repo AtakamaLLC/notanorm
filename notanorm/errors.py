@@ -44,3 +44,7 @@ class ProgrammingError(DbError):
 
 class MoreThanOneError(DbError, AssertionError):
     pass
+
+
+class UnsafeGeneratorError(DbError):
+    pass

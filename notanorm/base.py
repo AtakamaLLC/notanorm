@@ -8,7 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple, Generator
+from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Generic
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -161,8 +161,12 @@ class DbTxGuard:
         self.lock.release()
 
 
+T = TypeVar('T', bound="DbBase")
+
+
 # noinspection PyMethodMayBeStatic
 class DbBase(
+    Generic[T],
     ABC
 ):  # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
@@ -294,6 +298,15 @@ class DbBase(
     def closed(self) -> bool:
         return self.__closed
 
+    @property
+    def uri(self) -> str:
+        """Uri that represents a copy of my connection"""
+        return self.uri_name + ":" + ",".join(str(v) for v in self._conn_args) + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
+
+    def clone(self) -> T:
+        """Make a copy of my connection"""
+        return type(self)(*self._conn_args, **self._conn_kws)
+
     def model(self) -> DbModel:
         raise RuntimeError("Generic models not supported")
 
@@ -342,46 +355,50 @@ class DbBase(
     def _executemany(cursor, sql):
         return cursor.execute(sql)
 
+    @staticmethod
+    def _executeone(cursor, sql, parameters):
+        return cursor.execute(sql, parameters)
+
     def execute(self, sql, parameters=(), _script=False):
-        with self.r_lock:
-            if self.__capture:
-                self.__capture_stmts.append((sql, parameters))
-                if not self.__capture_exec:
-                    return FakeCursor()
+        if self.__capture:
+            self.__capture_stmts.append((sql, parameters))
+            if not self.__capture_exec:
+                return FakeCursor()
 
-            backoff = self.reconnect_backoff_start
-            for tries in range(self.max_reconnect_attempts):
-                cursor = None
+        backoff = self.reconnect_backoff_start
+        for tries in range(self.max_reconnect_attempts):
+            cursor = None
 
-                try:
+            try:
+                with self.r_lock:
                     cursor = self._cursor(self._conn())
                     if _script:
                         assert not parameters, "Script isn't compatible with parameters"
                         self._executemany(cursor, sql)
                     else:
-                        cursor.execute(sql, parameters)
+                        self._executeone(cursor, sql, parameters)
                     break
-                except Exception as exp:  # pylint: disable=broad-except
-                    if cursor:
-                        # cursor will be automatically closed on del, but better to do it explicitly
-                        # Some tools, like pytest, will capture locals, which may keep the cursor
-                        # alive indefinitely
-                        try:
-                            cursor.close()
-                        except Exception as close_exc:
-                            log.debug("Failed to close temp cursor: %r", close_exc)
+            except Exception as exp:  # pylint: disable=broad-except
+                if cursor:
+                    # cursor will be automatically closed on del, but better to do it explicitly
+                    # Some tools, like pytest, will capture locals, which may keep the cursor
+                    # alive indefinitely
+                    try:
+                        cursor.close()
+                    except Exception as close_exc:
+                        log.debug("Failed to close temp cursor: %r", close_exc)
 
-                    was = exp
-                    exp = self.translate_error(exp)
-                    log.debug("exception %s -> %s", repr(was), repr(exp))
-                    if isinstance(exp, err.DbConnectionError):
-                        self._conn_p = None
-                        if tries == self.max_reconnect_attempts - 1:
-                            raise
-                        time.sleep(backoff)
-                        backoff *= self.reconnect_backoff_factor
-                    else:
-                        raise exp
+                was = exp
+                exp = self.translate_error(exp)
+                log.debug("exception %s -> %s", repr(was), repr(exp))
+                if isinstance(exp, err.DbConnectionError):
+                    self._conn_p = None
+                    if tries == self.max_reconnect_attempts - 1:
+                        raise
+                    time.sleep(backoff)
+                    backoff *= self.reconnect_backoff_factor
+                else:
+                    raise exp
         return cursor
 
     def close(self):
@@ -425,12 +442,11 @@ class DbBase(
 
         fetch = None
 
-        with self.r_lock:
-            try:
-                fetch = self.execute(sql, tuple(args))
-            except Exception as ex:
-                log.debug("sql query %s, error %s", sql, repr(ex))
-                raise
+        try:
+            fetch = self.execute(sql, tuple(args))
+        except Exception as ex:
+            log.debug("sql query %s, error %s", sql, repr(ex))
+            raise
 
         try:
             while True:
@@ -507,7 +523,7 @@ class DbBase(
 
     def insert(self, table: str, ins=None, **vals):
         sql, vals = self._insql(table, ins, **vals)
-        return self.query(sql, *vals)
+        return self.execute(sql, tuple(vals))
 
     @classmethod
     def quote_key(cls, key):
@@ -649,13 +665,13 @@ class DbBase(
 
         sql += where
 
-        return self.query(sql, *vals)
+        return self.execute(sql, tuple(vals))
 
     def delete_all(self, table):
         """Delete all rows in a table."""
         sql = "delete "
         sql += " from " + self.quote_key(table)
-        return self.query(sql)
+        return self.execute(sql)
 
     def infer_where(self, table, where, vals):
         if not where:
@@ -699,7 +715,7 @@ class DbBase(
             return
         set_sql, vals = self._setsql(table, where, upd, vals)
         sql = "update " + self.quote_key(table) + " set " + set_sql
-        return self.query(sql, *vals)
+        return self.execute(sql, tuple(vals))
 
     def update_all(self, table, **vals):
         """Update all rows in a table to the same values."""
@@ -707,7 +723,7 @@ class DbBase(
         sql += ", ".join(
             [self.quote_keys(key) + "=" + self.placeholder for key in vals]
         )
-        return self.query(sql, *vals.values())
+        return self.execute(sql, tuple(vals.values()))
 
     def upsert_all(self, table, **vals):
         """Update all rows in a table to the same values, or insert if not present."""
@@ -745,7 +761,7 @@ class DbBase(
                 table, ins_sql, in_vals, set_sql, vals.values()
             )
 
-            return self.query(sql, *vals)
+            return self.execute(sql, tuple(vals))
 
         where = self.infer_where(table, where, vals)
 
