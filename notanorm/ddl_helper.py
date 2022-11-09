@@ -15,6 +15,7 @@ class DDLHelper:
     # map of sqlglot expression types to internal model types
     TYPE_MAP = {
         exp.DataType.Type.INT: DbType.INTEGER,
+        exp.DataType.Type.TINYINT: DbType.INTEGER,
         exp.DataType.Type.BIGINT: DbType.INTEGER,
         exp.DataType.Type.BOOLEAN: DbType.BOOLEAN,
         exp.DataType.Type.BINARY: DbType.BLOB,
@@ -25,6 +26,13 @@ class DDLHelper:
         exp.DataType.Type.DECIMAL: DbType.DOUBLE,
         exp.DataType.Type.DOUBLE: DbType.DOUBLE,
         exp.DataType.Type.FLOAT: DbType.FLOAT,
+    }
+
+    SIZE_MAP = {
+        exp.DataType.Type.TINYINT: 1,
+        exp.DataType.Type.SMALLINT: 2,
+        exp.DataType.Type.INT: 4,
+        exp.DataType.Type.BIGINT: 8,
     }
 
     FIXED_MAP = {
@@ -62,7 +70,8 @@ class DDLHelper:
         tmp_ddl = ddl
         if dialect == "mysql":
             # bug sqlglot doesn't support varbinary
-            tmp_ddl = ddl.replace("varbinary", "binary")
+            tmp_ddl = tmp_ddl.replace("varbinary", "binary")
+            tmp_ddl = tmp_ddl.replace("VARBINARY", "BINARY")
         res = parse(tmp_ddl, read=dialect)
         self.__sqlglot = res
         self.dialect = dialect
@@ -89,7 +98,7 @@ class DDLHelper:
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
                 primary = DbIndex(fields=tuple(primary_list), primary=True, unique=False)
         for col in ent.find_all(exp.ColumnDef):
-            dbcol, is_prim = self.__info_to_model(col, primary)
+            dbcol, is_prim = self.__info_to_model(col)
             if is_prim:
                 primary = DbIndex(fields=(col.name,), primary=True, unique=False)
             cols.append(dbcol)
@@ -111,10 +120,11 @@ class DDLHelper:
         )
 
     @classmethod
-    def __info_to_model(cls, info, primary) -> Tuple[DbCol, bool]:
+    def __info_to_model(cls, info) -> Tuple[DbCol, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         fixed = typ.this in cls.FIXED_MAP
+        size = cls.SIZE_MAP.get(typ.this, 0)
         typ = cls.TYPE_MAP[typ.this]
         notnull = info.find(exp.NotNullColumnConstraint)
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
@@ -126,8 +136,6 @@ class DDLHelper:
         expr = info.args["kind"].args.get("expressions")
         if expr:
             size = int(expr[0].this)
-        else:
-            size = 0
 
         if default:
             lit = default.find(exp.Literal)

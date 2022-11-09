@@ -1,7 +1,7 @@
 """Model definition support."""
 
 from enum import Enum
-from typing import NamedTuple, Tuple, Any, Set
+from typing import NamedTuple, Tuple, Any, Set, Dict
 
 __all__ = ["DbType", "DbCol", "DbIndex", "DbTable", "DbModel"]
 
@@ -67,7 +67,7 @@ class DbTable(NamedTuple):
     indexes: Set[DbIndex] = set()
 
 
-class DbModel(dict):
+class DbModel(Dict[str, DbTable]):
     """Container of table definitions."""
 
     def _as_cmp(self):
