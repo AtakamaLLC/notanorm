@@ -370,8 +370,8 @@ class DbBase(
             cursor = None
 
             try:
-                cursor = self._cursor(self._conn())
                 with self.r_lock:
+                    cursor = self._cursor(self._conn())
                     if _script:
                         assert not parameters, "Script isn't compatible with parameters"
                         self._executemany(cursor, sql)
