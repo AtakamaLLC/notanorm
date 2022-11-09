@@ -11,12 +11,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
-        python: [3.6, 3.9]
-    name: ${{matrix.os}} ${{ matrix.python }}
+        - os: [ubuntu-latest]
+          python: 3.9
+          mysql: 8.0
+        - os: [ubuntu-latest]
+          python: 3.6
+          mysql: 8.0
+        - os: [ubuntu-18.04]
+          python: 3.9
+          mysql: 5.7
+    name: ${{matrix.os}} ${{ matrix.python }} ${{ matrix.mysql }}
     steps:
     - uses: actions/checkout@v2
     - uses: ankane/setup-mysql@v1
+      with:
+        mysql-version: ${{ matrix.mysql }}
     - uses: actions/setup-python@v2
       name: Setup Python ${{ matrix.python }}
       with:
