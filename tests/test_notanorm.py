@@ -305,7 +305,7 @@ def test_db_insert_lrid(db):
 
 
 def test_db_upsert_lrid(db):
-    db.query("create table foo (bar integer auto_increment primary key, baz integer)")
+    create_and_fill_test_db(db, 0)
     ret = db.upsert("foo", bar=1, baz=2)
     assert ret.lastrowid
 
@@ -400,9 +400,7 @@ def _test_upsert_i(db_name, i, db_conn, mod):
 @pytest.mark.db("sqlite")
 def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
     db = db_notmem
-    db.query(
-        "create table foo (bar integer primary key, baz integer, cnt integer default 0)"
-    )
+    create_and_fill_test_db(db, 0)
 
     num = 22
     ts = []
@@ -501,7 +499,7 @@ def test_transactions_deadlock(db):
 def test_upsert_thready_one(db_notmem):
     db = db_notmem
 
-    db.query("create table foo (bar integer primary key, baz integer)")
+    create_and_fill_test_db(db, 0)
 
     failed = False
     num = 100
@@ -781,6 +779,30 @@ def test_exec_script(db):
     db.insert("bar", y=2)
 
 
+def create_and_fill_test_db(db, num):
+    db.query("CREATE table foo (bar integer primary key, baz integer not null, cnt integer default 0)")
+    for ins in range(num):
+        db.insert("foo", bar=ins, baz=0)
+
+
+@pytest.mark.db("sqlite")
+def test_sqlite_unsafe_gen(db_notmem):
+    db = db_notmem
+    create_and_fill_test_db(db, 5)
+    db.generator_guard = True
+    with pytest.raises(err.UnsafeGeneratorError):
+        for row in db.select_gen("foo"):
+            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+
+
+@pytest.mark.db("sqlite")
+def test_sqlite_ok_gen(db):
+    create_and_fill_test_db(db, 5)
+    db.generator_guard = True
+    for row in db.select_gen("foo"):
+        db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+
+
 def upserty(uri, i):
     db = open_db(uri)
     try:
@@ -800,9 +822,7 @@ def test_generator_proc(db_notmem):
     uri = db.uri
     log.debug("using uri" + uri)
 
-    db.query("CREATE table foo (bar integer primary key, baz integer not null)")
-    for ins in range(20):
-        db.insert("foo", bar=ins, baz=0)
+    create_and_fill_test_db(db, 20)
     db.close()
 
     proc_num = 4

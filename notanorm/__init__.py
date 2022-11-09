@@ -19,7 +19,7 @@ try:
     # if you want this, install sqlglot
     if tuple(sys.version_info[:2]) > (3, 6):
         from .ddl_helper import model_from_ddl
-except ImportError:
+except ImportError:  # pragma: no cover
     pass
 
 __all__ = [

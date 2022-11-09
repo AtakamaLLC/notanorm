@@ -75,7 +75,7 @@ class DDLHelper:
     def __model_from_sqlglot(self, ddl, dialect):
         # sqlglot generic parser
         tmp_ddl = ddl
-        if dialect == "mysql" and not has_varb:
+        if dialect == "mysql" and not has_varb:  # pragma: no cover
             # sqlglot 9 doesn't support varbinary
             tmp_ddl = ddl.replace("varbinary", "binary")
             tmp_ddl = ddl.replace("VARBINARY", "BINARY")
