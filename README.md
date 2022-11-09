@@ -24,6 +24,9 @@ db = SqliteDb(fname)
 # this works too, params turn into kwargs
 db = open_db("sqlite://:memory:")
 
+db.uri      # get my uri
+db.clone()  # make a copy of the db connection
+
 # no special create support, just use a string
 db.query("create table foo (bar text, iv integer primary key)")
 
