@@ -7,7 +7,7 @@ import multiprocessing
 import sqlite3
 import threading
 import time
-from multiprocessing.pool import ThreadPool
+from multiprocessing.pool import ThreadPool, Pool as ProcessPool
 from typing import Generator
 from unittest.mock import MagicMock
 
@@ -779,3 +779,54 @@ def test_exec_script(db):
     """)
     db.insert("foo", x=1)
     db.insert("bar", y=2)
+
+
+def upserty(uri, i):
+    db = open_db(uri)
+    try:
+        db.generator_guard = True
+        for row in db.select_gen("foo"):
+            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+        # this is ok: we passed
+        return i
+    except err.UnsafeGeneratorError:
+        # this is ok: we created a consistent error
+        return -1
+
+
+def test_generator_proc(db_notmem):
+    db = db_notmem
+
+    uri = db.uri
+    log.debug("using uri" + uri)
+
+    db.query("CREATE table foo (bar integer primary key, baz integer not null)")
+    for ins in range(20):
+        db.insert("foo", bar=ins, baz=0)
+    db.close()
+
+    proc_num = 4
+
+    pool = ProcessPool(processes=proc_num)
+
+    import functools
+    func = functools.partial(upserty, uri)
+
+    expected = list(range(proc_num * 2))
+
+    if db.uri_name == "sqlite":
+        expected = [-1] * proc_num * 2
+
+    assert pool.map(func, range(proc_num * 2)) == expected
+
+
+def test_db_direct_clone(db_notmem):
+    db = db_notmem.clone()
+    db.query("CREATE table foo (bar integer primary key)")
+    db_notmem.insert("foo", bar=1)
+
+
+def test_db_uri_clone(db_notmem):
+    db = open_db(db_notmem.uri)
+    db.query("CREATE table foo (bar integer primary key)")
+    db_notmem.insert("foo", bar=1)

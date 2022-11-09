@@ -15,6 +15,8 @@ class SqliteDb(DbBase):
     uri_name = "sqlite"
     placeholder = "?"
     use_pooled_locks = True
+    in_generator = False
+    generator_guard = False
 
     @classmethod
     def uri_adjust(cls, args, kws):
@@ -42,6 +44,23 @@ class SqliteDb(DbBase):
                 return inssql + f" ON CONFLICT({fds}) DO NOTHING", insvals
             else:
                 return inssql + f" ON CONFLICT({fds}) DO UPDATE SET " + setsql, (*insvals, *setvals)
+
+    def query_gen(self, sql: str, *args, factory=None):
+        try:
+            for row in super().query_gen(sql, *args, factory=factory):
+                self.in_generator = True
+                yield row
+        finally:
+            self.in_generator = False
+
+    def execute(self, sql, parameters=(), _script=False):
+        if self.in_generator and self.generator_guard:
+            raise err.UnsafeGeneratorError("change your generator to a list when updating within a loop using sqlite")
+        return super().execute(sql, parameters, _script=_script)
+
+    def clone(self):
+        assert self._conn_args[0] != ":memory:", "cannot clone memory db"
+        return super().clone()
 
     @staticmethod
     def translate_error(exp):

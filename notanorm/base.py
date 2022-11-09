@@ -8,7 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple, Generator
+from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Generic
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError
 from .model import DbModel, DbTable
@@ -161,8 +161,12 @@ class DbTxGuard:
         self.lock.release()
 
 
+T = TypeVar('T', bound="DbBase")
+
+
 # noinspection PyMethodMayBeStatic
 class DbBase(
+    Generic[T],
     ABC
 ):  # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
@@ -294,6 +298,15 @@ class DbBase(
     def closed(self) -> bool:
         return self.__closed
 
+    @property
+    def uri(self) -> str:
+        """Uri can be used to create a copy of my connection"""
+        return self.uri_name + ":" + ",".join(str(v) for v in self._conn_args) + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
+
+    def clone(self) -> T:
+        """Uri can be used to create a copy of my connection"""
+        return type(self)(*self._conn_args, **self._conn_kws)
+
     def model(self) -> DbModel:
         raise RuntimeError("Generic models not supported")
 
@@ -342,6 +355,10 @@ class DbBase(
     def _executemany(cursor, sql):
         return cursor.execute(sql)
 
+    @staticmethod
+    def _executeone(cursor, sql, parameters):
+        return cursor.execute(sql, parameters)
+
     def execute(self, sql, parameters=(), _script=False):
         with self.r_lock:
             if self.__capture:
@@ -359,7 +376,7 @@ class DbBase(
                         assert not parameters, "Script isn't compatible with parameters"
                         self._executemany(cursor, sql)
                     else:
-                        cursor.execute(sql, parameters)
+                        self._executeone(cursor, sql, parameters)
                     break
                 except Exception as exp:  # pylint: disable=broad-except
                     if cursor:
