@@ -2,8 +2,10 @@
 # pylint: disable=import-outside-toplevel, unidiomatic-typecheck
 
 import logging
+import pytest
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
+from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm.errors import SchemaError
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +38,31 @@ def test_model_create(db):
     assert db.simplify_model(check) == db.simplify_model(model)
 
 
+def test_model_intsize(db):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("int1", typ=DbType.INTEGER, size=1),
+                    DbCol("int2", typ=DbType.INTEGER, size=2),
+                    DbCol("int4", typ=DbType.INTEGER, size=4),
+                    DbCol("int8", typ=DbType.INTEGER, size=8),
+                ),
+                indexes=set(),
+            )
+        }
+    )
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+    if db.uri_name != "sqlite":
+        # other db's support varying size integers
+        assert check["foo"].columns[0].size == 1
+        assert check["foo"].columns[1].size == 2
+        assert check["foo"].columns[2].size == 4
+        assert check["foo"].columns[3].size == 8
+
+
 def test_model_create_composite_pk(db):
     model = DbModel(
         {
@@ -62,7 +89,7 @@ def test_model_create_composite_pk(db):
 
 
 def test_model_ddl_cross(db):
-    # creating a model using sqlite results in a model that generally works across other db's
+    # create db mased on model, extract the model, recreate.  same db.
     model = DbModel(
         {
             "foo": DbTable(
@@ -130,18 +157,20 @@ def test_model_primary_key(db):
     assert db.simplify_model(check) == db.simplify_model(model)
 
 
-def test_model_create_nopk(db):
+def test_model_create_nopk(db: "DbBase"):
+    # no primary key
     model = DbModel(
         {
             "foo": DbTable(
-                columns=(DbCol("inty", typ=DbType.INTEGER),),
+                columns=(DbCol("inty", typ=DbType.INTEGER, size=4),),
                 indexes={DbIndex(fields=("inty",), primary=False)},
             )
         }
     )
     db.create_model(model)
     check = db.model()
-    assert check == model
+    assert db.simplify_model(check) == db.simplify_model(model)
+    assert not check["foo"].indexes.pop().primary
 
 
 def test_model_cap(db):
@@ -167,6 +196,23 @@ create index "ix_foo_inty" on foo ("inty");
         assert "create table" in ddl.lower()
         assert "foo" in ddl
         assert "inty" in ddl
+
+
+def test_model_any(db):
+    mod = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("any", typ=DbType.ANY),
+                ),
+            )
+        }
+    )
+    if db.uri_name != "sqlite":
+        with pytest.raises(SchemaError):
+            db.create_model(mod)
+    else:
+        db.create_model(mod)
 
 
 def test_model_cmp(db):

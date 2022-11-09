@@ -75,7 +75,7 @@ def test_primary_key():
 
 def test_autoinc():
     mod = model_from_ddl("create table foo (bar integer auto_increment)", "mysql")
-    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True),)
+    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True, size=4),)
 
 
 def test_default_none():
@@ -90,7 +90,8 @@ def test_sqlite_only():
 
 def test_primary_key_auto():
     mod = model_from_ddl("create table cars(id integer auto_increment primary key, gas_level double default 1.0);", "mysql")
-    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=False), DbCol("gas_level", DbType.DOUBLE, default='1.0'))
+    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=False, size=4),
+                                   DbCol("gas_level", DbType.DOUBLE, default='1.0'))
     assert mod["cars"].indexes == {DbIndex(("id",), primary=True), }
 
 
@@ -102,14 +103,14 @@ def test_default_bool():
 def test_not_null_pk():
     create = "CREATE TABLE a (id INTEGER, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
-    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=False), DbCol("dd", DbType.TEXT))
+    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=False, size=4), DbCol("dd", DbType.TEXT))
     assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
 
 
 def test_explicit_not_null_pk():
     create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
-    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True), DbCol("dd", DbType.TEXT))
+    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
     assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
 
 
@@ -128,11 +129,12 @@ def test_err_autoinc(db):
 def test_detect_dialect():
     # mysql
     mod = model_from_ddl("create table foo (`bar` integer auto_increment, baz varchar(32))")
-    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True), DbCol("baz", DbType.TEXT, size=32))
+    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True, size=4),
+                                  DbCol("baz", DbType.TEXT, size=32))
 
     # sqlite
     mod = model_from_ddl("create table foo (\"bar\" integer, baz blob)")
-    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER), DbCol("baz", DbType.BLOB))
+    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, size=4), DbCol("baz", DbType.BLOB))
 
 
 def test_parser_error():
