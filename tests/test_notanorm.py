@@ -305,7 +305,7 @@ def test_db_insert_lrid(db):
 
 
 def test_db_upsert_lrid(db):
-    create_and_fill_test_db(db, 0)
+    db.query("create table foo (bar integer auto_increment primary key)")
     ret = db.upsert("foo", bar=1, baz=2)
     assert ret.lastrowid
 
