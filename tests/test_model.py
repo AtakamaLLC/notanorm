@@ -179,7 +179,7 @@ def test_model_create_indexes(db: "DbBase"):
         {
             "foo": DbTable(
                 columns=(
-                    DbCol("inty", typ=DbType.INTEGER, size=4, autoinc=False),
+                    DbCol("inty", typ=DbType.INTEGER, size=4, autoinc=True),
                     DbCol("vary", typ=DbType.BLOB, size=16),
                 ),
                 indexes={
