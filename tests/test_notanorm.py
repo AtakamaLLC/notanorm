@@ -796,6 +796,30 @@ def test_sqlite_unsafe_gen(db_notmem):
 
 
 @pytest.mark.db("sqlite")
+def test_sqlite_guard_thread(db_notmem):
+    db = db_notmem
+    create_and_fill_test_db(db, 5)
+    db.generator_guard = True
+    cool = False
+    event = threading.Event()
+
+    def updatey():
+        nonlocal cool
+        try:
+            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+            cool = True
+        finally:
+            event.set()
+
+    for row in db.select_gen("foo"):
+        threading.Thread(target=updatey, daemon=True).start()
+        assert event.wait(3)
+        break
+
+    assert cool
+
+
+@pytest.mark.db("sqlite")
 def test_sqlite_ok_gen(db):
     create_and_fill_test_db(db, 5)
     db.generator_guard = True

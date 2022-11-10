@@ -1,5 +1,6 @@
 import sqlite3
 import re
+import threading
 
 from .base import DbBase, DbRow
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel
@@ -15,7 +16,6 @@ class SqliteDb(DbBase):
     uri_name = "sqlite"
     placeholder = "?"
     use_pooled_locks = True
-    in_generator = False
     generator_guard = False
 
     @classmethod
@@ -48,13 +48,14 @@ class SqliteDb(DbBase):
     def query_gen(self, sql: str, *args, factory=None):
         try:
             for row in super().query_gen(sql, *args, factory=factory):
-                self.in_generator = True
+                if self.generator_guard:
+                    self.__in_gen.add(threading.get_ident())
                 yield row
         finally:
-            self.in_generator = False
+            self.__in_gen.discard(threading.get_ident())
 
     def execute(self, sql, parameters=(), _script=False):
-        if self.in_generator and self.generator_guard and not self.__is_mem:
+        if self.generator_guard and threading.get_ident() in self.__in_gen and not self.__is_mem:
             raise err.UnsafeGeneratorError("change your generator to a list when updating within a loop using sqlite")
         return super().execute(sql, parameters, _script=_script)
 
@@ -90,6 +91,8 @@ class SqliteDb(DbBase):
         if self.__is_mem:
             # never try to reconnect to memory dbs!
             self.max_reconnect_attempts = 1
+
+        self.__in_gen = set()
 
         super().__init__(*args, **kws)
 
