@@ -91,7 +91,7 @@ class DDLHelper:
         self.__model = tmp_db.model()
         self.dialect = "sqlite"
 
-    def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], DbIndex]:
+    def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], List[DbIndex]]:
         """Get a tuple of DbCols from a parsed statement
 
         Argument is a sqlglot parsed grammar of a CREATE TABLE statement.
@@ -99,17 +99,20 @@ class DDLHelper:
         If a primary key is specified, return it too.
         """
         cols: List[DbCol] = []
-        primary = None
+        idxs = []
         for col in ent.find_all(exp.Anonymous):
             if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
-                primary = DbIndex(fields=tuple(primary_list), primary=True, unique=False)
+                idxs.append(DbIndex(fields=tuple(primary_list), primary=True, unique=False))
+
         for col in ent.find_all(exp.ColumnDef):
-            dbcol, is_prim = self.__info_to_model(col)
+            dbcol, is_prim, is_uniq = self.__info_to_model(col)
             if is_prim:
-                primary = DbIndex(fields=(col.name,), primary=True, unique=False)
+                idxs.append(DbIndex(fields=(col.name,), primary=True, unique=False))
+            elif is_uniq:
+                idxs.append(DbIndex(fields=(col.name,), primary=False, unique=True))
             cols.append(dbcol)
-        return tuple(cols), primary
+        return tuple(cols), idxs
 
     @staticmethod
     def __info_to_index(index) -> Tuple[DbIndex, str]:
@@ -127,7 +130,7 @@ class DDLHelper:
         )
 
     @classmethod
-    def __info_to_model(cls, info) -> Tuple[DbCol, bool]:
+    def __info_to_model(cls, info) -> Tuple[DbCol, bool, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         fixed = typ.this in cls.FIXED_MAP
@@ -137,6 +140,7 @@ class DDLHelper:
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
         default = info.find(exp.DefaultColumnConstraint)
+        is_unique = info.find(exp.UniqueColumnConstraint)
 
         # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
@@ -170,6 +174,7 @@ class DDLHelper:
                 fixed=fixed,
             ),
             is_primary,
+            is_unique,
         )
 
     def model(self):
@@ -185,9 +190,8 @@ class DDLHelper:
             assert tab, f"unknonwn ddl entry {ent}"
             idx = ent.find(exp.Index)
             if not idx:
-                tabs[tab.name], primary = self.__columns(ent)
-                if primary:
-                    indxs[tab.name].append(primary)
+                tabs[tab.name], idxs = self.__columns(ent)
+                indxs[tab.name] += idxs
             else:
                 idx, tab_name = self.__info_to_index(ent)
                 indxs[tab_name].append(idx)
