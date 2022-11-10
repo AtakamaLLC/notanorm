@@ -359,7 +359,7 @@ class DbBase(
     def _executeone(cursor, sql, parameters):
         return cursor.execute(sql, parameters)
 
-    def execute(self, sql, parameters=(), _script=False):
+    def execute(self, sql, parameters=(), _script=False, write=True):
         if self.__capture:
             self.__capture_stmts.append((sql, parameters))
             if not self.__capture_exec:
@@ -443,7 +443,7 @@ class DbBase(
         fetch = None
 
         try:
-            fetch = self.execute(sql, tuple(args))
+            fetch = self.execute(sql, tuple(args), write=False)
         except Exception as ex:
             log.debug("sql query %s, error %s", sql, repr(ex))
             raise
@@ -479,7 +479,7 @@ class DbBase(
         with self.r_lock:
             try:
                 done = False
-                fetch = self.execute(sql, tuple(args))
+                fetch = self.execute(sql, tuple(args), write=False)
                 rows = fetch.fetchall() if fetch else []
                 done = True
             except Exception as ex:
