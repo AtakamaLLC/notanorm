@@ -707,7 +707,7 @@ def test_no_extra_close(db):
 
     mok = MagicMock()
 
-    def newx(*a):
+    def newx(*_, **__):
         # mock cursor
         ret = MagicMock()
         ret.fetchall = lambda: []
