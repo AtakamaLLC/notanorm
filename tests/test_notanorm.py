@@ -779,10 +779,10 @@ def test_exec_script(db):
     db.insert("bar", y=2)
 
 
-def create_and_fill_test_db(db, num):
-    db.query("CREATE table foo (bar integer primary key, baz integer not null, cnt integer default 0)")
+def create_and_fill_test_db(db, num, tab="foo"):
+    db.query(f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)")
     for ins in range(num):
-        db.insert("foo", bar=ins, baz=0)
+        db.insert(tab, bar=ins, baz=0)
 
 
 @pytest.mark.db("sqlite")
@@ -846,6 +846,12 @@ def upserty(uri, i):
     except err.UnsafeGeneratorError:
         # this is ok: we created a consistent error
         return -1
+
+
+def test_subq(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]))) == 2
 
 
 def test_generator_proc(db_notmem):
