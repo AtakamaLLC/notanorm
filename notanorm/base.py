@@ -57,7 +57,7 @@ class Op:
 
 
 class SubQ:
-    def __init__(self, sql: str, vals: Tuple[Any]=()):
+    def __init__(self, sql: str, vals: Tuple[Any] = ()):
         self.sql = sql
         self.vals = vals
 
