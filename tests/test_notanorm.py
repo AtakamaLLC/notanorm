@@ -851,7 +851,7 @@ def upserty(uri, i):
 def test_subq(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
-    assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]))) == 2
+    assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
 def test_generator_proc(db_notmem):
