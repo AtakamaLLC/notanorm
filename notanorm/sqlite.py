@@ -68,6 +68,8 @@ class SqliteDb(DbBase):
         if isinstance(exp, sqlite3.OperationalError):
             if "no such table" in str(exp):
                 return err.TableNotFoundError(msg)
+            if "already exists" in str(exp) and "table " in str(exp):
+                return err.TableExistsError(msg)
             if "readonly" in str(exp):
                 return err.DbReadOnlyError(msg)
             if "no column" in str(exp):

@@ -62,6 +62,8 @@ class MySqlDb(DbBase):
         if isinstance(exp, MySQLdb.OperationalError):
             if err_code in (1054, ):
                 return err.NoColumnError(msg)
+            if err_code in (1050, ):
+                return err.TableExistsError(msg)
             if err_code in (1075, 1212, 1239, 1293):   # pragma: no cover
                 # this error is very hard to support and we should probably drop it
                 # it's used as a base class for TableError and other stuff

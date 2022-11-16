@@ -310,6 +310,12 @@ def test_db_upsert_lrid(db):
     assert ret.lastrowid
 
 
+def test_tab_exists(db):
+    db.query("create table foo (bar integer)")
+    with pytest.raises(err.TableExistsError):
+        db.query("create table foo (bar integer)")
+
+
 def test_db_upsert_non_null(db):
     db.query(
         "create table foo (bar varchar(32) not null primary key, baz text, bop text)"
