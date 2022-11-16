@@ -352,14 +352,25 @@ class DbBase(
         self.execute(sql, _script=True)
 
     @staticmethod
-    def _executemany(cursor, sql):
+    def _executemany(cursor, sql: str):
         return cursor.execute(sql)
 
     @staticmethod
-    def _executeone(cursor, sql, parameters):
+    def _executeone(cursor, sql: str, parameters: Tuple[Any, ...]):
         return cursor.execute(sql, parameters)
 
-    def execute(self, sql, parameters=(), _script=False):
+    def execute_ddl(self, sql: str, *dialect: str, ignore_existing=True):
+        # import here cuz not always avail
+        dialect = dialect or ("mysql", )
+        from notanorm.ddl_helper import model_from_ddl
+        model = model_from_ddl(sql, *dialect)
+        try:
+            self.create_model(model)
+        except err.TableExistsError:
+            if not ignore_existing:
+                raise
+
+    def execute(self, sql: str, parameters=(), _script=False):
         if self.__capture:
             self.__capture_stmts.append((sql, parameters))
             if not self.__capture_exec:

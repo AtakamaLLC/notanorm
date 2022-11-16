@@ -229,7 +229,7 @@ class MySqlDb(DbBase):
                 if col.name in primary_fields:
                     d = col._asdict()
                     d["notnull"] = True
-                    col = DbCol(*d)
+                    col = DbCol(**d)
                 cols.append(col)
             model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
 
