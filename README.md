@@ -87,6 +87,9 @@ db.select("foo", iv=notnaorm.Op(">", 3))
 # wipe the table
 db.delete_all("foo")
 
+# select using a subquery
+db.select("foo", bar=db.subq("other", ["foo_id"], 3))
+
 ### cross database ddl management
 
 # this requires: pip install sqlglot

@@ -124,6 +124,13 @@ def test_explicit_not_null_pk():
     assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
 
 
+def test_unique_col():
+    create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT unique);"
+    mod = model_from_ddl(create, dialect="mysql")
+    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
+    assert mod["a"].indexes == {DbIndex(("dd",), unique=True)}
+
+
 def test_default_str():
     mod = model_from_ddl("create table foo (bar text default 'txt')")
     assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default='txt'),)

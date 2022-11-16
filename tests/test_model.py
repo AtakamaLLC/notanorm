@@ -173,6 +173,27 @@ def test_model_create_nopk(db: "DbBase"):
     assert not check["foo"].indexes.pop().primary
 
 
+def test_model_create_indexes(db: "DbBase"):
+    # no primary key
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("inty", typ=DbType.INTEGER, size=4, autoinc=True),
+                    DbCol("vary", typ=DbType.BLOB, size=16),
+                ),
+                indexes={
+                    DbIndex(fields=("inty",), primary=True),
+                    DbIndex(fields=("vary",), unique=True)
+                },
+            )
+        }
+    )
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+
 def test_model_cap(db):
     model = DbModel(
         {

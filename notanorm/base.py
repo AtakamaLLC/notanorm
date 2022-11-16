@@ -51,9 +51,15 @@ class CIKey(str):
 
 
 class Op:
-    def __init__(self, op, val):
+    def __init__(self, op: str, val: Any):
         self.op = op
         self.val = val
+
+
+class SubQ:
+    def __init__(self, sql: str, vals: Tuple[Any] = ()):
+        self.sql = sql
+        self.vals = vals
 
 
 class DbRow(dict):
@@ -370,7 +376,7 @@ class DbBase(
             if not ignore_existing:
                 raise
 
-    def execute(self, sql: str, parameters=(), _script=False):
+    def execute(self, sql: str, parameters=(), _script=False, write=True):
         if self.__capture:
             self.__capture_stmts.append((sql, parameters))
             if not self.__capture_exec:
@@ -454,7 +460,7 @@ class DbBase(
         fetch = None
 
         try:
-            fetch = self.execute(sql, tuple(args))
+            fetch = self.execute(sql, tuple(args), write=False)
         except Exception as ex:
             log.debug("sql query %s, error %s", sql, repr(ex))
             raise
@@ -490,7 +496,7 @@ class DbBase(
         with self.r_lock:
             try:
                 done = False
-                fetch = self.execute(sql, tuple(args))
+                fetch = self.execute(sql, tuple(args), write=False)
                 rows = fetch.fetchall() if fetch else []
                 done = True
             except Exception as ex:
@@ -555,9 +561,11 @@ class DbBase(
 
         none_keys = [key for key, val in where.items() if val is None]
         list_keys = [(key, val) for key, val in where.items() if is_list(val)]
+        subq_keys = [(key, val) for key, val in where.items() if type(val) == SubQ]
 
         del_all(where, none_keys)
         del_all(where, (k[0] for k in list_keys))
+        del_all(where, (k[0] for k in subq_keys))
 
         sql = " and ".join(
             [
@@ -583,6 +591,14 @@ class DbBase(
                 sql += self.quote_keys(key) + " in (" + placeholders + ")"
                 for val in lst:
                     vals.append(val)
+        if subq_keys:
+            for key, subq in subq_keys:
+                if sql:
+                    sql += " and "
+                sql += self.quote_keys(key) + " in (" + subq.sql + ")"
+                for val in subq.vals:
+                    vals.append(val)
+
         return " where " + sql, vals
 
     def __select_to_query(self, table, *, fields, dict_where, order_by, **where):
@@ -641,6 +657,13 @@ class DbBase(
             table, fields=fields, dict_where=dict_where, order_by=order_by, **where
         )
         return self.query(sql, *vals, factory=factory)
+
+    def subq(self, table, fields=None, dict_where=None, order_by=None, **where):
+        """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
+        sql, vals, factory = self.__select_to_query(
+            table, fields=fields, dict_where=dict_where, order_by=order_by, **where
+        )
+        return SubQ(sql, vals)
 
     def select_gen(self, table, fields=None, dict_where=None, order_by=None, **where):
         """Same as select, but returns a generator."""
