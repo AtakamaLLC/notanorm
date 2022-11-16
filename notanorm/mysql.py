@@ -228,10 +228,13 @@ class MySqlDb(DbBase):
                     primary_fields = index.fields
             cols = []
             for col in tab.columns:
+                d = col._asdict()
+                if col.typ == DbType.INTEGER and not col.size:
+                    # defaults to 8 if unspecified
+                    d["size"] = 8
                 if col.name in primary_fields:
-                    d = col._asdict()
                     d["notnull"] = True
-                    col = DbCol(**d)
+                col = DbCol(**d)
                 cols.append(col)
             model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
 
