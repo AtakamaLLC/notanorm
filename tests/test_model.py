@@ -10,12 +10,12 @@ from notanorm.errors import SchemaError
 log = logging.getLogger(__name__)
 
 
-def test_model_create(db):
+def test_model_create_many(db):
     model = DbModel(
         {
             "foo": DbTable(
                 columns=(
-                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True, size=4),
                     DbCol("blob", typ=DbType.BLOB),
                     DbCol("bool", typ=DbType.BOOLEAN),
                     DbCol("blob3", typ=DbType.BLOB, size=3, fixed=True),
