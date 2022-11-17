@@ -10,7 +10,7 @@ from notanorm.errors import SchemaError
 log = logging.getLogger(__name__)
 
 
-def test_model_create(db):
+def test_model_create_many(db):
     model = DbModel(
         {
             "foo": DbTable(

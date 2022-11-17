@@ -62,6 +62,8 @@ class MySqlDb(DbBase):
         if isinstance(exp, MySQLdb.OperationalError):
             if err_code in (1054, ):
                 return err.NoColumnError(msg)
+            if err_code in (1050, ):
+                return err.TableExistsError(msg)
             if err_code in (1075, 1212, 1239, 1293):   # pragma: no cover
                 # this error is very hard to support and we should probably drop it
                 # it's used as a base class for TableError and other stuff
@@ -226,10 +228,13 @@ class MySqlDb(DbBase):
                     primary_fields = index.fields
             cols = []
             for col in tab.columns:
+                d = col._asdict()
+                if col.typ == DbType.INTEGER and not col.size:
+                    # defaults to 8 if unspecified
+                    d["size"] = 8
                 if col.name in primary_fields:
-                    d = col._asdict()
                     d["notnull"] = True
-                    col = DbCol(*d)
+                col = DbCol(**d)
                 cols.append(col)
             model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
 

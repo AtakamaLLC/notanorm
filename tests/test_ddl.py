@@ -2,7 +2,7 @@ import sys
 import logging
 import pytest
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex
+from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
 import notanorm.errors as err
 from notanorm.model import ExplicitNone
 
@@ -61,6 +61,28 @@ def test_model_ddl_cap(db):
     extracted = model_from_ddl(ddl, db.uri_name)
 
     assert extracted == captured_model1
+
+
+def test_execute_ddl(db: DbBase):
+    db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+
+
+def test_execute_ddl_skip_exists(db: DbBase):
+    db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+
+
+def test_execute_ddl_exists(db: DbBase):
+    db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    with pytest.raises(err.TableExistsError):
+        db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql", ignore_existing=False)
+
+
+def test_execute_sqlite(db: DbBase):
+    db.execute_ddl("create table foo (bar integer)", "sqlite")
+    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
 
 
 def test_multi_key():
