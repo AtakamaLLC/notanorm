@@ -10,7 +10,7 @@ from collections import defaultdict
 from abc import ABC, abstractmethod
 from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Generic
 
-from .errors import OperationalError, MoreThanOneError, DbClosedError
+from .errors import OperationalError, MoreThanOneError, DbClosedError, UnknownPrimaryError
 from .model import DbModel, DbTable
 from . import errors as err
 
@@ -720,7 +720,7 @@ class DbBase(
 
             if not where:
                 log.debug("PRIMARY CACHE: %s", self.__primary_cache)
-                raise Exception("Unable to determine update key for table %s" % table)
+                raise UnknownPrimaryError("Unable to determine update key for table %s" % table)
 
         return where
 
