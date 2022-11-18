@@ -376,6 +376,8 @@ class DbBase(
             if not ignore_existing:
                 raise
 
+        return model
+
     def execute(self, sql: str, parameters=(), _script=False, write=True):
         if self.__capture:
             self.__capture_stmts.append((sql, parameters))
