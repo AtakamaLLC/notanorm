@@ -10,6 +10,10 @@ class TableExistsError(SchemaError):
     pass
 
 
+class UnknownPrimaryError(SchemaError):
+    pass
+
+
 class TableNotFoundError(SchemaError):
     pass
 
