@@ -1,7 +1,7 @@
 """Model definition support."""
 
 from enum import Enum
-from typing import NamedTuple, Tuple, Any, Set, Dict
+from typing import NamedTuple, Tuple, Any, Set, Dict, Optional
 
 __all__ = ["DbType", "DbCol", "DbIndex", "DbIndexField", "DbTable", "DbModel"]
 
@@ -47,9 +47,10 @@ class DbCol(NamedTuple):
 
 class DbIndexField(NamedTuple):
     name: str
+    prefix_len: Optional[int] = None
 
-    def _as_tup(self) -> tuple[str]:
-        return self.name.lower(),
+    def _as_tup(self) -> Tuple[str]:
+        return self.name.lower(), self.prefix_len
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DbIndexField):  # pragma: no cover

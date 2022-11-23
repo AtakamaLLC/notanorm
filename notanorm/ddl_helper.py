@@ -1,7 +1,7 @@
 from collections import defaultdict
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Any
 
-from sqlglot import parse, exp
+from sqlglot import Expression, parse, exp
 
 from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone, DbIndexField
 from .sqlite import SqliteDb
@@ -103,28 +103,38 @@ class DDLHelper:
         for col in ent.find_all(exp.Anonymous):
             if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
-                idxs.append(DbIndex(fields=tuple(DbIndexField(n) for n in primary_list), primary=True, unique=False))
+                idxs.append(DbIndex(fields=tuple(DbIndexField(n, prefix_len=None) for n in primary_list), primary=True, unique=False))
 
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim, is_uniq = self.__info_to_model(col)
             if is_prim:
-                idxs.append(DbIndex(fields=(DbIndexField(col.name),), primary=True, unique=False))
+                idxs.append(DbIndex(fields=(DbIndexField(col.name, prefix_len=None),), primary=True, unique=False))
             elif is_uniq:
-                idxs.append(DbIndex(fields=(DbIndexField(col.name),), primary=False, unique=True))
+                idxs.append(DbIndex(fields=(DbIndexField(col.name, prefix_len=None),), primary=False, unique=True))
             cols.append(dbcol)
         return tuple(cols), idxs
 
     @staticmethod
-    def __info_to_index(index) -> Tuple[DbIndex, str]:
+    def __info_to_index(index: Expression, dialect: str) -> Tuple[DbIndex, str]:
         """Get a DbIndex and a table name, given a sqlglot parsed index"""
-        primary = index.find(exp.PrimaryKeyColumnConstraint)
+        primary: exp.PrimaryKeyColumnConstraint = index.find(exp.PrimaryKeyColumnConstraint)
         unique = index.args.get("unique")
         tab = index.args["this"].args["table"]
         cols = index.args["this"].args["columns"]
-        field_names = [ent.name for ent in cols.find_all(exp.Column)]
+        field_info: List[Dict[str, Any]] = []
+        if dialect != "mysql":
+            field_info = [{"name": ent.name, "prefix_len": None} for ent in cols.find_all(exp.Column)]
+        else:
+            for ent in cols.find_all(exp.Column, exp.Anonymous):
+                if isinstance(ent, exp.Anonymous):
+                    exps = ent.args["expressions"]
+                    assert len(exps) == 1
+                    field_info.append({"name": ent.name, "prefix_len": int(exps[0].name)})
+                else:
+                    field_info.append({"name": ent.name, "prefix_len": None})
         return (
             DbIndex(
-                fields=tuple(DbIndexField(n) for n in field_names), primary=bool(primary), unique=bool(unique)
+                fields=tuple(DbIndexField(**f) for f in field_info), primary=bool(primary), unique=bool(unique)
             ),
             tab.name,
         )
@@ -193,7 +203,7 @@ class DDLHelper:
                 tabs[tab.name], idxs = self.__columns(ent)
                 indxs[tab.name] += idxs
             else:
-                idx, tab_name = self.__info_to_index(ent)
+                idx, tab_name = self.__info_to_index(ent, self.dialect)
                 indxs[tab_name].append(idx)
 
         for tab in tabs:
@@ -205,6 +215,6 @@ class DDLHelper:
         return model
 
 
-def model_from_ddl(ddl, *dialects, dialect=None):
+def model_from_ddl(ddl: str, *dialects: str) -> DbModel:
     """Convert indexes and create statements to internal model, without needing a database connection."""
     return DDLHelper(ddl, *dialects).model()

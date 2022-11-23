@@ -241,7 +241,10 @@ class SqliteDb(DbBase):
                 newcol = DbCol(name=coldef.name, typ=coldef.typ, autoinc=coldef.autoinc,
                                notnull=coldef.notnull, default=coldef.default)
                 new_cols.append(newcol)
-            new_tab = DbTable(columns=tuple(new_cols), indexes=tdef.indexes)
+            new_idxes = set()
+            for idx in tdef.indexes:
+                new_idxes.add(DbIndex(fields=tuple(f._replace(prefix_len=None) for f in idx.fields), unique=idx.unique, primary=idx.primary))
+            new_tab = DbTable(columns=tuple(new_cols), indexes=new_idxes)
             new_mod[tab] = new_tab
         return new_mod
 

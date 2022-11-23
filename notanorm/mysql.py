@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Any
 
 try:
     import MySQLdb
@@ -182,7 +182,7 @@ class MySqlDb(DbBase):
                 index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
                 unique = "unique " if idx.unique else ""
                 icreate = "create " + unique + "index " + index_name + " on " + name + " ("
-                icreate += ",".join(f.name for f in idx.fields)
+                icreate += ",".join(f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})" for f in idx.fields)
                 icreate += ")"
                 self.query(icreate)
 
@@ -197,17 +197,17 @@ class MySqlDb(DbBase):
         res = self.query("show index from  `" + tab + "`")
 
         idxunique = {}
-        idxmap: Dict[str, List[str]] = defaultdict(lambda: [])
+        idxmap: Dict[str, List[Dict[str, Any]]] = defaultdict(lambda: [])
         for idxinfo in res:
             unique = not idxinfo["non_unique"]
             idxunique[idxinfo["key_name"]] = unique
-            idxmap[idxinfo["key_name"]].append(idxinfo["column_name"])
+            idxmap[idxinfo["key_name"]].append({"name": idxinfo["column_name"], "prefix_len": idxinfo.get("sub_part")})
 
         indexes = []
         for name, fds in idxmap.items():
             primary = (name == "PRIMARY")
             unique = idxunique[name] and not primary
-            indexes.append(DbIndex(tuple(DbIndexField(f) for f in fds), primary=primary, unique=unique))
+            indexes.append(DbIndex(tuple(DbIndexField(**f) for f in fds), primary=primary, unique=unique))
 
         res = self.query("describe `" + tab + "`")
         cols = []
@@ -221,7 +221,6 @@ class MySqlDb(DbBase):
 
     @staticmethod
     def simplify_model(model: DbModel):
-        print("MODELLS", model)
         model2 = DbModel()
         primary_fields: Tuple[str, ...] = ()
         for nam, tab in model.items():

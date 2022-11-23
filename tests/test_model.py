@@ -127,6 +127,64 @@ def test_model_ddl_cross(db):
     assert check == extracted_model
 
 
+def test_model_prefix_index(db: DbBase) -> None:
+    model = DbModel(
+        foo=DbTable(
+            columns=(DbCol("intk", typ=DbType.INTEGER, size=4), DbCol("tex", typ=DbType.TEXT),),
+            indexes={
+                DbIndex(fields=(DbIndexField("tex", prefix_len=4),)),
+            },
+        ),
+    )
+
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+    _check_index_prefix_lens(db, model["foo"], check["foo"])
+
+
+def test_model_prefix_index_multi(db: DbBase) -> None:
+    model = DbModel(
+        foo=DbTable(
+            columns=(
+                DbCol("intk", typ=DbType.INTEGER, size=4),
+                DbCol("tex1", typ=DbType.TEXT),
+                DbCol("tex2", typ=DbType.TEXT),
+            ),
+            indexes={
+                DbIndex(fields=(
+                    DbIndexField("tex1", prefix_len=4),
+                    DbIndexField("intk"),
+                    DbIndexField("tex2", prefix_len=7),
+                )),
+            },
+        ),
+    )
+
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+    _check_index_prefix_lens(db, model["foo"], check["foo"])
+
+
+def _check_index_prefix_lens(db: DbBase, tbl_expected: DbTable, tbl_actual: DbTable) -> None:
+    if db.uri_name == "sqlite":
+        # SQLite doesn't support prefix indices, so we expect that metadata to be dropped
+        assert len(tbl_expected.indexes) == 1
+        new_fields = tuple(
+            ind._replace(prefix_len=None)
+            for ind in next(iter(tbl_expected.indexes)).fields
+        )
+        expected = {DbIndex(fields=new_fields)}
+    else:
+        # Other DBs do though
+        expected = tbl_expected.indexes
+
+    assert tbl_actual.indexes == expected
+
+
 def test_model_preserve_types(db):
     model = DbModel(
         {

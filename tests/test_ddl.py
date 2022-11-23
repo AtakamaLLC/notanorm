@@ -90,6 +90,48 @@ def test_multi_key():
     assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), DbIndexField("baz")), primary=True), }
 
 
+def test_prefix_idx() -> None:
+    prefix_idx_sql = """
+        CREATE TABLE foo (bar INTEGER, txt TEXT, PRIMARY KEY (bar));
+        CREATE INDEX prefix_idx ON foo(txt(10));
+    """
+
+    non_prefix_idx_sql = """
+        CREATE TABLE foo (bar INTEGER, txt TEXT, PRIMARY KEY (bar));
+        CREATE INDEX prefix_idx ON foo(txt);
+    """
+
+    mod1 = model_from_ddl(prefix_idx_sql, "mysql")
+    with pytest.raises(err.OperationalError):
+        model_from_ddl(prefix_idx_sql, "sqlite")
+
+    mod2 = model_from_ddl(non_prefix_idx_sql, "mysql")
+
+    assert mod1["foo"].indexes == {
+        DbIndex((DbIndexField("txt", prefix_len=10),), unique=False, primary=False),
+        DbIndex((DbIndexField("bar", prefix_len=None),), unique=False, primary=True),
+    }
+
+    assert mod2["foo"].indexes == {
+        DbIndex((DbIndexField("txt", prefix_len=None),), unique=False, primary=False),
+        DbIndex((DbIndexField("bar", prefix_len=None),), unique=False, primary=True),
+    }
+
+
+def test_prefix_idx_multi() -> None:
+    prefix_idx_sql = """
+        CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));
+        CREATE INDEX prefix_idx ON foo(txt1(10), bar, txt2(20));
+    """
+
+    mod = model_from_ddl(prefix_idx_sql, "mysql")
+
+    assert mod["foo"].indexes == {
+        DbIndex((DbIndexField("txt1", prefix_len=10), DbIndexField("bar"), DbIndexField("txt2", prefix_len=20)), unique=False, primary=False),
+        DbIndex((DbIndexField("bar", prefix_len=None),), unique=False, primary=True),
+    }
+
+
 def test_primary_key():
     mod = model_from_ddl("create table foo (bar integer primary key, baz integer)")
     assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), ), primary=True), }
@@ -138,7 +180,7 @@ def test_explicit_not_null_pk():
 
 def test_unique_col():
     create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT unique);"
-    mod = model_from_ddl(create, dialect="mysql")
+    mod = model_from_ddl(create, "mysql")
     assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
     assert mod["a"].indexes == {DbIndex((DbIndexField("dd"),), unique=True)}
 
