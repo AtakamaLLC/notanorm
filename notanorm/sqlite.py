@@ -3,7 +3,7 @@ import re
 import threading
 
 from .base import DbBase, DbRow
-from .model import DbType, DbCol, DbTable, DbIndex, DbModel
+from .model import DbType, DbCol, DbTable, DbIndex, DbModel, DbIndexField
 from . import errors as err
 
 import logging
@@ -145,7 +145,7 @@ class SqliteDb(DbBase):
 
         if pks:
             if not any(c.primary for c in clist):
-                clist.append(DbIndex(fields=tuple(pks), primary=True))
+                clist.append(DbIndex(fields=tuple(DbIndexField(p) for p in pks), primary=True))
         return set(clist)
 
     @staticmethod
@@ -153,7 +153,8 @@ class SqliteDb(DbBase):
         primary = index.origin == "pk"
         unique = bool(index.unique) and not primary
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
-        return DbIndex(fields=tuple(field_names), primary=primary, unique=unique)
+        fields = tuple(DbIndexField(n) for n in field_names)
+        return DbIndex(fields=fields, primary=primary, unique=unique)
 
     @classmethod
     def __info_to_model(cls, info):
@@ -249,13 +250,13 @@ class SqliteDb(DbBase):
         single_primary = None
         for idx in schema.indexes:
             if idx.primary:
-                single_primary = idx.fields[0] if len(idx.fields) == 1 else None
+                single_primary = idx.fields[0].name if len(idx.fields) == 1 else None
 
         for col in schema.columns:
             coldefs.append(self._column_def(col, single_primary))
         for idx in schema.indexes:
             if idx.primary and not single_primary:
-                coldef = "primary key (" + ",".join(idx.fields) + ")"
+                coldef = "primary key (" + ",".join(f.name for f in idx.fields) + ")"
                 coldefs.append(coldef)
         create = "create table " + name + "("
         create += ",".join(coldefs)
@@ -264,10 +265,10 @@ class SqliteDb(DbBase):
         self.execute(create)
         for idx in schema.indexes:
             if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(idx.fields)
+                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
                 unique = "unique " if idx.unique else ""
                 icreate = "create " + unique + "index " + self.quote_key(index_name) + " on " + name + " ("
-                icreate += ",".join(self.quote_key(f) for f in idx.fields)
+                icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
                 icreate += ")"
                 self.execute(icreate)
 

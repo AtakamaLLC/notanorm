@@ -3,7 +3,7 @@ from typing import Tuple, Dict, List
 
 from sqlglot import parse, exp
 
-from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone
+from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone, DbIndexField
 from .sqlite import SqliteDb
 
 import logging
@@ -103,14 +103,14 @@ class DDLHelper:
         for col in ent.find_all(exp.Anonymous):
             if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
-                idxs.append(DbIndex(fields=tuple(primary_list), primary=True, unique=False))
+                idxs.append(DbIndex(fields=tuple(DbIndexField(n) for n in primary_list), primary=True, unique=False))
 
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim, is_uniq = self.__info_to_model(col)
             if is_prim:
-                idxs.append(DbIndex(fields=(col.name,), primary=True, unique=False))
+                idxs.append(DbIndex(fields=(DbIndexField(col.name),), primary=True, unique=False))
             elif is_uniq:
-                idxs.append(DbIndex(fields=(col.name,), primary=False, unique=True))
+                idxs.append(DbIndex(fields=(DbIndexField(col.name),), primary=False, unique=True))
             cols.append(dbcol)
         return tuple(cols), idxs
 
@@ -124,7 +124,7 @@ class DDLHelper:
         field_names = [ent.name for ent in cols.find_all(exp.Column)]
         return (
             DbIndex(
-                fields=tuple(field_names), primary=bool(primary), unique=bool(unique)
+                fields=tuple(DbIndexField(n) for n in field_names), primary=bool(primary), unique=bool(unique)
             ),
             tab.name,
         )

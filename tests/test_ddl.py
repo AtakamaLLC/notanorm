@@ -2,7 +2,7 @@ import sys
 import logging
 import pytest
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, DbIndexField
 import notanorm.errors as err
 from notanorm.model import ExplicitNone
 
@@ -40,8 +40,8 @@ def test_model_ddl_cap(db):
                     DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
                 ),
                 indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("flt"),), unique=True),
                 },
             )
         }
@@ -87,12 +87,12 @@ def test_execute_sqlite(db: DbBase):
 
 def test_multi_key():
     mod = model_from_ddl("create table foo (bar integer, baz integer, primary key (bar, baz))")
-    assert mod["foo"].indexes == {DbIndex(("bar", "baz"), primary=True), }
+    assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), DbIndexField("baz")), primary=True), }
 
 
 def test_primary_key():
     mod = model_from_ddl("create table foo (bar integer primary key, baz integer)")
-    assert mod["foo"].indexes == {DbIndex(("bar", ), primary=True), }
+    assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), ), primary=True), }
 
 
 def test_autoinc():
@@ -114,7 +114,7 @@ def test_primary_key_auto():
     mod = model_from_ddl("create table cars(id integer auto_increment primary key, gas_level double default 1.0);", "mysql")
     assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=False, size=4),
                                    DbCol("gas_level", DbType.DOUBLE, default='1.0'))
-    assert mod["cars"].indexes == {DbIndex(("id",), primary=True), }
+    assert mod["cars"].indexes == {DbIndex((DbIndexField("id"),), primary=True), }
 
 
 def test_default_bool():
@@ -126,21 +126,21 @@ def test_not_null_pk():
     create = "CREATE TABLE a (id INTEGER, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
     assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=False, size=4), DbCol("dd", DbType.TEXT))
-    assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
+    assert mod["a"].indexes == {DbIndex((DbIndexField("id"),), primary=True)}
 
 
 def test_explicit_not_null_pk():
     create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
     assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
-    assert mod["a"].indexes == {DbIndex(("id",), primary=True)}
+    assert mod["a"].indexes == {DbIndex((DbIndexField("id"),), primary=True)}
 
 
 def test_unique_col():
     create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT unique);"
     mod = model_from_ddl(create, dialect="mysql")
     assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
-    assert mod["a"].indexes == {DbIndex(("dd",), unique=True)}
+    assert mod["a"].indexes == {DbIndex((DbIndexField("dd"),), unique=True)}
 
 
 def test_default_str():
