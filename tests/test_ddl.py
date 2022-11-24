@@ -132,6 +132,35 @@ def test_prefix_index_multi() -> None:
     }
 
 
+def test_prefix_index_bad() -> None:
+    # We don't validate that the column name makes sense.
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));
+        CREATE INDEX prefix_idx ON foo(abc(10));
+    """
+
+    mod = model_from_ddl(ddl, "mysql")
+    assert DbIndex((DbIndexField("abc", prefix_len=10),)) in mod["foo"].indexes
+
+    # Looks like a prefix index, but has too many args.
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));
+        CREATE INDEX prefix_idx ON foo(txt1(10, 20));
+    """
+
+    with pytest.raises(err.SchemaError):
+        mod = model_from_ddl(ddl, "mysql")
+
+    # Looks like a prefix index, but has the wrong type of arg.
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));
+        CREATE INDEX prefix_idx ON foo(txt1(abc));
+    """
+
+    with pytest.raises(err.SchemaError):
+        mod = model_from_ddl(ddl, "mysql")
+
+
 def test_expression_indices() -> None:
     tbl_def = "CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));"
 
@@ -165,6 +194,7 @@ def test_simple_parse_unsupported_dialect() -> None:
     """
 
     # Check that basic parsing is supported for other sqlglot-supported dialects
+    # Presto chosen because it seems an unlikely candidate for support in the near future
     mod = model_from_ddl(ddl, "presto")
     assert mod["foo"] == DbTable(
         columns=(
@@ -176,6 +206,40 @@ def test_simple_parse_unsupported_dialect() -> None:
             DbIndex((DbIndexField("txt"),),),
         },
     )
+
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt TEXT NOT NULL, PRIMARY KEY (bar));
+        CREATE INDEX idx ON foo(lower(txt));
+    """
+
+    with pytest.raises(err.SchemaError, match="Unsupported type"):
+        model_from_ddl(ddl, "presto")
+
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt TEXT NOT NULL, PRIMARY KEY (bar));
+        CREATE INDEX idx ON foo((txt));
+    """
+
+    mod = model_from_ddl(ddl, "presto")
+
+    assert mod["foo"] == DbTable(
+        columns=(
+            DbCol("bar", DbType.INTEGER, size=4),
+            DbCol("txt", DbType.TEXT, notnull=True),
+        ),
+        indexes={
+            DbIndex((DbIndexField("bar"),), primary=True),
+            DbIndex((DbIndexField("txt"),),),
+        },
+    )
+
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt TEXT NOT NULL, PRIMARY KEY (bar));
+        CREATE INDEX idx ON foo(flembo(txt));
+    """
+
+    with pytest.raises(err.SchemaError, match="Unsupported type"):
+        model_from_ddl(ddl, "presto")
 
 
 def test_primary_key():

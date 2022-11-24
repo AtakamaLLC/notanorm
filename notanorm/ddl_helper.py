@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Tuple, Dict, List, Any
+from typing import Tuple, Dict, List, Any, Type
 
 from sqlglot import Expression, parse, exp
 
@@ -124,25 +124,41 @@ class DDLHelper:
         cols = index.args["this"].args["columns"]
         field_info: List[Dict[str, Any]] = []
 
-        # MySQL has some odd dialect-specificities (e.g. the col(123) syntax
-        # for prefix indices, and the requirement that expression indices be
-        # wrapped in parens). So treat it as a bit of a special case.
-        if dialect != "mysql":
-            field_info = [{"name": ent.name, "prefix_len": None} for ent in cols.find_all(exp.Column)]
-        else:
-            args: List[Expression] = cols.args["expressions"] if isinstance(cols, exp.Tuple) else [cols]
-            args = [a.this if isinstance(a, exp.Paren) else a for a in args]
+        args: List[Expression] = cols.args["expressions"] if isinstance(cols, exp.Tuple) else [cols]
+        args = [a.this if isinstance(a, exp.Paren) else a for a in args]
 
-            for ent in args:
-                if not isinstance(ent, (exp.Column, exp.Anonymous)):
-                    raise err.SchemaError(f"Unsupported type in index definition: {type(ent)}({ent})")
+        for ent in args:
+            allowed_types: Tuple[Type[Expression], ...]
+            if dialect != "mysql":
+                # For MySQL, a parenthesized arg here indicates an expression
+                # index. For other dialects, it's just a normal way to specify
+                # a column name.
+                while isinstance(ent, exp.Paren):
+                    ent = ent.this
 
-                if isinstance(ent, exp.Anonymous):
-                    exps = ent.args["expressions"]
-                    assert len(exps) == 1
-                    field_info.append({"name": ent.name, "prefix_len": int(exps[0].name)})
-                else:
-                    field_info.append({"name": ent.name, "prefix_len": None})
+                allowed_types = (exp.Column,)
+            else:
+                # MySQL prefix indices (e.g. CREATE INDEX ... ON tbl(col(10)))
+                # show up as anonymous functions.
+                allowed_types = (exp.Column, exp.Anonymous)
+
+            if not isinstance(ent, allowed_types):
+                raise err.SchemaError(f"Unsupported type in index definition: {type(ent)}({ent})")
+
+            if dialect == "mysql" and isinstance(ent, exp.Anonymous):
+                exps = ent.args["expressions"]
+
+                if len(exps) != 1:
+                    raise err.SchemaError(f"Invalid prefix index definition: {ent}")
+
+                try:
+                    prefix_len = int(exps[0].name)
+                except ValueError as e:
+                    raise err.SchemaError(f"Invalid prefix index length: {exps[0].name}") from e
+
+                field_info.append({"name": ent.name, "prefix_len": prefix_len})
+            else:
+                field_info.append({"name": ent.name, "prefix_len": None})
 
         return (
             DbIndex(
