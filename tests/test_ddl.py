@@ -90,7 +90,7 @@ def test_multi_key():
     assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), DbIndexField("baz")), primary=True), }
 
 
-def test_prefix_idx() -> None:
+def test_prefix_index() -> None:
     prefix_idx_sql = """
         CREATE TABLE foo (bar INTEGER, txt TEXT, PRIMARY KEY (bar));
         CREATE INDEX prefix_idx ON foo(txt(10));
@@ -118,7 +118,7 @@ def test_prefix_idx() -> None:
     }
 
 
-def test_prefix_idx_multi() -> None:
+def test_prefix_index_multi() -> None:
     prefix_idx_sql = """
         CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));
         CREATE INDEX prefix_idx ON foo(txt1(10), bar, txt2(20));
@@ -130,6 +130,52 @@ def test_prefix_idx_multi() -> None:
         DbIndex((DbIndexField("txt1", prefix_len=10), DbIndexField("bar"), DbIndexField("txt2", prefix_len=20)), unique=False, primary=False),
         DbIndex((DbIndexField("bar", prefix_len=None),), unique=False, primary=True),
     }
+
+
+def test_expression_indices() -> None:
+    tbl_def = "CREATE TABLE foo (bar INTEGER, txt1 TEXT, txt2 TEXT, PRIMARY KEY (bar));"
+
+    sqlite_stmts = (
+        "CREATE INDEX exp_idx ON foo(lower(txt1));",
+        "CREATE INDEX prefix_idx ON foo(bar * 2);",
+        "CREATE INDEX exp_idx ON foo(bar, lower(txt1));",
+        "CREATE INDEX prefix_idx ON foo(bar, bar * 2);",
+    )
+
+    for stmt in sqlite_stmts:
+        with pytest.raises(err.SchemaError, match="Indices on expressions"):
+            model_from_ddl(tbl_def + " " + stmt, "sqlite")
+
+    mysql_stmts = (
+        "CREATE INDEX exp_idx ON foo((lower(txt1)));",
+        "CREATE INDEX prefix_idx ON foo((bar * 2));",
+        "CREATE INDEX exp_idx ON foo(bar, (lower(txt1)));",
+        "CREATE INDEX exp_idx ON foo(bar, (bar * 2));",
+        "CREATE INDEX exp_idx ON foo(txt1(10), (bar * 2));",
+    )
+    for stmt in mysql_stmts:
+        with pytest.raises(err.SchemaError, match="Unsupported type"):
+            model_from_ddl(tbl_def + stmt, "mysql")
+
+
+def test_simple_parse_unsupported_dialect() -> None:
+    ddl = """
+        CREATE TABLE foo (bar INTEGER, txt TEXT NOT NULL, PRIMARY KEY (bar));
+        CREATE INDEX idx ON foo(txt);
+    """
+
+    # Check that basic parsing is supported for other sqlglot-supported dialects
+    mod = model_from_ddl(ddl, "presto")
+    assert mod["foo"] == DbTable(
+        columns=(
+            DbCol("bar", DbType.INTEGER, size=4),
+            DbCol("txt", DbType.TEXT, notnull=True),
+        ),
+        indexes={
+            DbIndex((DbIndexField("bar"),), primary=True),
+            DbIndex((DbIndexField("txt"),),),
+        },
+    )
 
 
 def test_primary_key():

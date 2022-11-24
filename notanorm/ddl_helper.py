@@ -5,6 +5,7 @@ from sqlglot import Expression, parse, exp
 
 from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone, DbIndexField
 from .sqlite import SqliteDb
+from . import errors as err
 
 import logging
 
@@ -122,16 +123,27 @@ class DDLHelper:
         tab = index.args["this"].args["table"]
         cols = index.args["this"].args["columns"]
         field_info: List[Dict[str, Any]] = []
+
+        # MySQL has some odd dialect-specificities (e.g. the col(123) syntax
+        # for prefix indices, and the requirement that expression indices be
+        # wrapped in parens). So treat it as a bit of a special case.
         if dialect != "mysql":
             field_info = [{"name": ent.name, "prefix_len": None} for ent in cols.find_all(exp.Column)]
         else:
-            for ent in cols.find_all(exp.Column, exp.Anonymous):
+            args: List[Expression] = cols.args["expressions"] if isinstance(cols, exp.Tuple) else [cols]
+            args = [a.this if isinstance(a, exp.Paren) else a for a in args]
+
+            for ent in args:
+                if not isinstance(ent, (exp.Column, exp.Anonymous)):
+                    raise err.SchemaError(f"Unsupported type in index definition: {type(ent)}({ent})")
+
                 if isinstance(ent, exp.Anonymous):
                     exps = ent.args["expressions"]
                     assert len(exps) == 1
                     field_info.append({"name": ent.name, "prefix_len": int(exps[0].name)})
                 else:
                     field_info.append({"name": ent.name, "prefix_len": None})
+
         return (
             DbIndex(
                 fields=tuple(DbIndexField(**f) for f in field_info), primary=bool(primary), unique=bool(unique)

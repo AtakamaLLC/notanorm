@@ -150,6 +150,11 @@ class SqliteDb(DbBase):
 
     @staticmethod
     def __info_to_index(index, cols):
+        if any(col_info.cid == -2 for col_info in cols):
+            # -2 means it's an expression index. -1 means it's an index on rowid. and 0 means it's a normal index.
+            # https://www.sqlite.org/pragma.html#pragma_index_info
+            raise err.SchemaError(f"Indices on expressions are currently unsupported [index={index.name}]")
+
         primary = index.origin == "pk"
         unique = bool(index.unique) and not primary
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
