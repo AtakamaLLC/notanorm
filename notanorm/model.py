@@ -1,9 +1,9 @@
 """Model definition support."""
 
 from enum import Enum
-from typing import NamedTuple, Tuple, Any, Set, Dict
+from typing import NamedTuple, Tuple, Any, Set, Dict, Optional
 
-__all__ = ["DbType", "DbCol", "DbIndex", "DbTable", "DbModel"]
+__all__ = ["DbType", "DbCol", "DbIndex", "DbIndexField", "DbTable", "DbModel"]
 
 
 class DbType(Enum):
@@ -45,14 +45,31 @@ class DbCol(NamedTuple):
         return self._as_tup() == other._as_tup()
 
 
+class DbIndexField(NamedTuple):
+    name: str
+    prefix_len: Optional[int] = None
+
+    def _as_tup(self) -> Tuple[str]:
+        return self.name.lower(), self.prefix_len
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, DbIndexField):  # pragma: no cover
+            return False
+
+        return self._as_tup() == other._as_tup()
+
+    def __hash__(self) -> int:
+        return hash(self._as_tup())
+
+
 class DbIndex(NamedTuple):
     """Index definition."""
-    fields: Tuple[str, ...]         # list of fields in the index
+    fields: Tuple[DbIndexField, ...]
     unique: bool = False            # has a unique index?
     primary: bool = False           # is the primary key?
 
-    def _as_tup(self):
-        return (tuple(f.lower() for f in self.fields), self.unique, self.primary)
+    def _as_tup(self) -> Tuple[Tuple[DbIndexField, ...], bool, bool]:
+        return (self.fields, self.unique, self.primary)
 
     def __eq__(self, other):
         return self._as_tup() == other._as_tup()
