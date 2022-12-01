@@ -4,13 +4,13 @@
 import logging
 import pytest
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase
+from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, DbIndexField
 from notanorm.errors import SchemaError
 
 log = logging.getLogger(__name__)
 
 
-def test_model_create_many(db):
+def test_model_create_many(db: "DbBase"):
     model = DbModel(
         {
             "foo": DbTable(
@@ -27,8 +27,8 @@ def test_model_create_many(db):
                     DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
                 ),
                 indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("flt"),), unique=True),
                 },
             )
         }
@@ -78,7 +78,7 @@ def test_model_create_composite_pk(db):
                     DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
                 ),
                 indexes={
-                    DbIndex(fields=("part1", "part2"), primary=True),
+                    DbIndex(fields=(DbIndexField("part1"), DbIndexField("part2")), primary=True),
                 },
             )
         }
@@ -111,8 +111,8 @@ def test_model_ddl_cross(db):
                     DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
                 ),
                 indexes={
-                    DbIndex(fields=("auto",), primary=True),
-                    DbIndex(fields=("flt",), unique=True),
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("flt"),), unique=True),
                 },
             )
         }
@@ -125,6 +125,64 @@ def test_model_ddl_cross(db):
     db.create_model(extracted_model)
     check = db.model()
     assert check == extracted_model
+
+
+def test_model_prefix_index(db: DbBase) -> None:
+    model = DbModel(
+        foo=DbTable(
+            columns=(DbCol("intk", typ=DbType.INTEGER, size=4), DbCol("tex", typ=DbType.TEXT),),
+            indexes={
+                DbIndex(fields=(DbIndexField("tex", prefix_len=4),)),
+            },
+        ),
+    )
+
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+    _check_index_prefix_lens(db, model["foo"], check["foo"])
+
+
+def test_model_prefix_index_multi(db: DbBase) -> None:
+    model = DbModel(
+        foo=DbTable(
+            columns=(
+                DbCol("intk", typ=DbType.INTEGER, size=4),
+                DbCol("tex1", typ=DbType.TEXT),
+                DbCol("tex2", typ=DbType.TEXT),
+            ),
+            indexes={
+                DbIndex(fields=(
+                    DbIndexField("tex1", prefix_len=4),
+                    DbIndexField("intk"),
+                    DbIndexField("tex2", prefix_len=7),
+                )),
+            },
+        ),
+    )
+
+    db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+
+    _check_index_prefix_lens(db, model["foo"], check["foo"])
+
+
+def _check_index_prefix_lens(db: DbBase, tbl_expected: DbTable, tbl_actual: DbTable) -> None:
+    if db.uri_name == "sqlite":
+        # SQLite doesn't support prefix indices, so we expect that metadata to be dropped
+        assert len(tbl_expected.indexes) == 1
+        new_fields = tuple(
+            ind._replace(prefix_len=None)
+            for ind in next(iter(tbl_expected.indexes)).fields
+        )
+        expected = {DbIndex(fields=new_fields)}
+    else:
+        # Other DBs do though
+        expected = tbl_expected.indexes
+
+    assert tbl_actual.indexes == expected
 
 
 def test_model_preserve_types(db):
@@ -145,7 +203,7 @@ def test_model_primary_key(db):
         {
             "foo": DbTable(
                 columns=(DbCol("vtex", typ=DbType.TEXT, size=8),),
-                indexes={DbIndex(("vtex",), primary=True)}
+                indexes={DbIndex((DbIndexField("vtex"),), primary=True)}
             )
         }
     )
@@ -163,7 +221,7 @@ def test_model_create_nopk(db: "DbBase"):
         {
             "foo": DbTable(
                 columns=(DbCol("inty", typ=DbType.INTEGER, size=4),),
-                indexes={DbIndex(fields=("inty",), primary=False)},
+                indexes={DbIndex(fields=(DbIndexField("inty"),), primary=False)},
             )
         }
     )
@@ -183,8 +241,8 @@ def test_model_create_indexes(db: "DbBase"):
                     DbCol("vary", typ=DbType.BLOB, size=16),
                 ),
                 indexes={
-                    DbIndex(fields=("inty",), primary=True),
-                    DbIndex(fields=("vary",), unique=True)
+                    DbIndex(fields=(DbIndexField("inty"),), primary=True),
+                    DbIndex(fields=(DbIndexField("vary"),), unique=True)
                 },
             )
         }
@@ -199,7 +257,7 @@ def test_model_cap(db):
         {
             "foo": DbTable(
                 columns=(DbCol("inty", typ=DbType.INTEGER),),
-                indexes={DbIndex(fields=("inty",), primary=False)},
+                indexes={DbIndex(fields=(DbIndexField("inty"),), primary=False)},
             )
         }
     )
@@ -243,7 +301,7 @@ def test_model_cmp(db):
                 columns=(
                     DbCol("Auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
                 ),
-                indexes={DbIndex(fields=("Auto",), primary=True)},
+                indexes={DbIndex(fields=(DbIndexField("Auto"),), primary=True)},
             )
         }
     )
@@ -253,7 +311,7 @@ def test_model_cmp(db):
                 columns=(
                     DbCol("autO", typ=DbType.INTEGER, autoinc=True, notnull=True),
                 ),
-                indexes={DbIndex(fields=("autO",), primary=True)},
+                indexes={DbIndex(fields=(DbIndexField("autO"),), primary=True)},
             )
         }
     )

@@ -3,7 +3,7 @@ import re
 import threading
 
 from .base import DbBase, DbRow
-from .model import DbType, DbCol, DbTable, DbIndex, DbModel
+from .model import DbType, DbCol, DbTable, DbIndex, DbModel, DbIndexField
 from . import errors as err
 
 import logging
@@ -145,15 +145,21 @@ class SqliteDb(DbBase):
 
         if pks:
             if not any(c.primary for c in clist):
-                clist.append(DbIndex(fields=tuple(pks), primary=True))
+                clist.append(DbIndex(fields=tuple(DbIndexField(p) for p in pks), primary=True))
         return set(clist)
 
     @staticmethod
     def __info_to_index(index, cols):
+        if any(col_info.cid == -2 for col_info in cols):
+            # -2 means it's an expression index. -1 means it's an index on rowid. and 0 means it's a normal index.
+            # https://www.sqlite.org/pragma.html#pragma_index_info
+            raise err.SchemaError(f"Indices on expressions are currently unsupported [index={index.name}]")
+
         primary = index.origin == "pk"
         unique = bool(index.unique) and not primary
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
-        return DbIndex(fields=tuple(field_names), primary=primary, unique=unique)
+        fields = tuple(DbIndexField(n) for n in field_names)
+        return DbIndex(fields=fields, primary=primary, unique=unique)
 
     @classmethod
     def __info_to_model(cls, info):
@@ -240,7 +246,10 @@ class SqliteDb(DbBase):
                 newcol = DbCol(name=coldef.name, typ=coldef.typ, autoinc=coldef.autoinc,
                                notnull=coldef.notnull, default=coldef.default)
                 new_cols.append(newcol)
-            new_tab = DbTable(columns=tuple(new_cols), indexes=tdef.indexes)
+            new_idxes = set()
+            for idx in tdef.indexes:
+                new_idxes.add(DbIndex(fields=tuple(f._replace(prefix_len=None) for f in idx.fields), unique=idx.unique, primary=idx.primary))
+            new_tab = DbTable(columns=tuple(new_cols), indexes=new_idxes)
             new_mod[tab] = new_tab
         return new_mod
 
@@ -249,13 +258,13 @@ class SqliteDb(DbBase):
         single_primary = None
         for idx in schema.indexes:
             if idx.primary:
-                single_primary = idx.fields[0] if len(idx.fields) == 1 else None
+                single_primary = idx.fields[0].name if len(idx.fields) == 1 else None
 
         for col in schema.columns:
             coldefs.append(self._column_def(col, single_primary))
         for idx in schema.indexes:
             if idx.primary and not single_primary:
-                coldef = "primary key (" + ",".join(idx.fields) + ")"
+                coldef = "primary key (" + ",".join(f.name for f in idx.fields) + ")"
                 coldefs.append(coldef)
         create = "create table " + name + "("
         create += ",".join(coldefs)
@@ -264,10 +273,10 @@ class SqliteDb(DbBase):
         self.execute(create)
         for idx in schema.indexes:
             if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(idx.fields)
+                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
                 unique = "unique " if idx.unique else ""
                 icreate = "create " + unique + "index " + self.quote_key(index_name) + " on " + name + " ("
-                icreate += ",".join(self.quote_key(f) for f in idx.fields)
+                icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
                 icreate += ")"
                 self.execute(icreate)
 
