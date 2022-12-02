@@ -346,9 +346,13 @@ class DbBase(
         finally:
             self.__capture = False
 
-    def create_model(self, model: DbModel):
+    def create_model(self, model: DbModel, ignore_existing=False):
         for name, schema in model.items():
-            self.create_table(name, schema)
+            try:
+                self.create_table(name, schema)
+            except err.TableExistsError:
+                if not ignore_existing:
+                    raise
 
     def create_table(self, name, schema: DbTable):
         raise RuntimeError("Generic models not supported")
@@ -369,11 +373,9 @@ class DbBase(
         dialect = dialect or ("mysql", )
         from notanorm.ddl_helper import model_from_ddl
         model = model_from_ddl(sql, *dialect)
-        try:
-            self.create_model(model)
-        except err.TableExistsError:
-            if not ignore_existing:
-                raise
+        self.create_model(model, ignore_existing=ignore_existing)
+
+        return model
 
     def execute(self, sql: str, parameters=(), _script=False, write=True):
         if self.__capture:

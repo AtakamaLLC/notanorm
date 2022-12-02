@@ -64,14 +64,20 @@ def test_model_ddl_cap(db):
 
 
 def test_execute_ddl(db: DbBase):
-    db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    mod = db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    assert db.simplify_model(db.model()) == db.simplify_model(mod)
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
 
 
 def test_execute_ddl_skip_exists(db: DbBase):
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    db.execute_ddl("""
+        create table foo (bar integer auto_increment primary key);
+        create table baz (bar integer auto_increment primary key);
+    """, "mysql")
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+    assert db.simplify_model(db.model())["baz"].columns[0].typ == DbType.INTEGER
 
 
 def test_execute_ddl_exists(db: DbBase):
