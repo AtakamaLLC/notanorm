@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Tuple, List, Dict, Any
 
 try:
     import MySQLdb
@@ -16,7 +17,7 @@ except (ImportError, NameError):
     pymysql_force_flags = pymysql.constants.CLIENT.MULTI_STATEMENTS
 
 from .base import DbBase
-from .model import DbType, DbModel, DbTable, DbCol, DbIndex
+from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField
 from . import errors as err
 import re
 
@@ -131,12 +132,12 @@ class MySqlDb(DbBase):
         8: "bigint"
     }
 
-    def create_table(self, name, schema):
+    def create_table(self, name, schema: DbTable):
         coldefs = []
-        primary_fields = []
+        primary_fields: Tuple[str, ...] = ()
         for idx in schema.indexes:
             if idx.primary:
-                primary_fields = idx.fields
+                primary_fields = tuple(f.name for f in idx.fields)
 
         for col in schema.columns:
             coldef = "`" + col.name + "`"
@@ -179,10 +180,10 @@ class MySqlDb(DbBase):
 
         for idx in schema.indexes:
             if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(idx.fields)
+                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
                 unique = "unique " if idx.unique else ""
                 icreate = "create " + unique + "index " + index_name + " on " + name + " ("
-                icreate += ",".join(idx.fields)
+                icreate += ",".join(f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})" for f in idx.fields)
                 icreate += ")"
                 self.query(icreate)
 
@@ -197,22 +198,22 @@ class MySqlDb(DbBase):
         res = self.query("show index from  `" + tab + "`")
 
         idxunique = {}
-        idxmap = defaultdict(lambda: [])
+        idxmap: Dict[str, List[Dict[str, Any]]] = defaultdict(lambda: [])
         for idxinfo in res:
             unique = not idxinfo["non_unique"]
             idxunique[idxinfo["key_name"]] = unique
-            idxmap[idxinfo["key_name"]].append(idxinfo["column_name"])
+            idxmap[idxinfo["key_name"]].append({"name": idxinfo["column_name"], "prefix_len": idxinfo.get("sub_part")})
 
         indexes = []
         for name, fds in idxmap.items():
             primary = (name == "PRIMARY")
             unique = idxunique[name] and not primary
-            indexes.append(DbIndex(tuple(fds), primary=primary, unique=unique))
+            indexes.append(DbIndex(tuple(DbIndexField(**f) for f in fds), primary=primary, unique=unique))
 
         res = self.query("describe `" + tab + "`")
         cols = []
         for col in res:
-            primary = [idx.fields for idx in indexes if idx.primary]
+            primary = [tuple(f.name for f in idx.fields) for idx in indexes if idx.primary]
             in_primary = primary and col.field in primary[0]
             dbcol = self.column_model(col, in_primary)
             cols.append(dbcol)
@@ -222,11 +223,11 @@ class MySqlDb(DbBase):
     @staticmethod
     def simplify_model(model: DbModel):
         model2 = DbModel()
-        primary_fields = []
+        primary_fields: Tuple[str, ...] = ()
         for nam, tab in model.items():
             for index in tab.indexes:
                 if index.primary:
-                    primary_fields = index.fields
+                    primary_fields = tuple(f.name for f in index.fields)
             cols = []
             for col in tab.columns:
                 d = col._asdict()

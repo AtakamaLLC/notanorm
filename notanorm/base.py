@@ -8,7 +8,7 @@ import threading
 import logging
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Generic
+from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar
 
 from .errors import OperationalError, MoreThanOneError, DbClosedError, UnknownPrimaryError
 from .model import DbModel, DbTable
@@ -172,7 +172,6 @@ T = TypeVar('T', bound="DbBase")
 
 # noinspection PyMethodMayBeStatic
 class DbBase(
-    Generic[T],
     ABC
 ):  # pylint: disable=too-many-public-methods, too-many-instance-attributes
     """Abstract base class for database connections."""
@@ -309,7 +308,7 @@ class DbBase(
         """Uri that represents a copy of my connection"""
         return self.uri_name + ":" + ",".join(str(v) for v in self._conn_args) + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
 
-    def clone(self) -> T:
+    def clone(self: T) -> T:
         """Make a copy of my connection"""
         return type(self)(*self._conn_args, **self._conn_kws)
 

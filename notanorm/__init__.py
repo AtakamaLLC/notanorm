@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover
 
 from .sqlite import SqliteDb
 from .base import DbBase, Op
-from .model import DbType, DbCol, DbTable, DbModel, DbIndex
+from .model import DbType, DbCol, DbTable, DbModel, DbIndex, DbIndexField
 from . import errors
 from .connparse import open_db
 
@@ -37,6 +37,7 @@ __all__ = [
     "DbTable",
     "DbModel",
     "DbIndex",
+    "DbIndexField",
     "errors",
     "Op",
     "open_db",
