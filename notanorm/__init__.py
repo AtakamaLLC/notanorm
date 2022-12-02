@@ -8,6 +8,11 @@ try:
     from .mysql import MySqlDb
 except ImportError:
     pass
+except Exception:  # pragma: no cover
+    # apparently this can fail for weird reasons, not just import errors
+    import logging
+    logging.exception("failed mysql import for unknown reason")
+    pass
 
 from .sqlite import SqliteDb
 from .base import DbBase, Op

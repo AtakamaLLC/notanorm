@@ -5,7 +5,8 @@ try:
     import MySQLdb.cursors
     InterfaceError = type(None)
     pymysql_force_flags = 0
-except ImportError:
+except (ImportError, NameError):
+    # known issue with mysql c++ client is a "nameerror" can be thrown if a dll import fails
     import pymysql
     pymysql.install_as_MySQLdb()
     import MySQLdb
