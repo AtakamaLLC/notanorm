@@ -34,9 +34,11 @@ class DDLHelper:
     }
 
     if has_varb:
-        TYPE_MAP.update({
-            exp.DataType.Type.VARBINARY: DbType.BLOB,
-        })
+        TYPE_MAP.update(
+            {
+                exp.DataType.Type.VARBINARY: DbType.BLOB,
+            }
+        )
 
     SIZE_MAP = {
         exp.DataType.Type.TINYINT: 1,
@@ -92,7 +94,7 @@ class DDLHelper:
         self.__model = tmp_db.model()
         self.dialect = "sqlite"
 
-    def __columns(self, ent) -> Tuple[Tuple[DbCol, ...], List[DbIndex]]:
+    def __columns(self, ent, dialect) -> Tuple[Tuple[DbCol, ...], List[DbIndex]]:
         """Get a tuple of DbCols from a parsed statement
 
         Argument is a sqlglot parsed grammar of a CREATE TABLE statement.
@@ -104,27 +106,51 @@ class DDLHelper:
         for col in ent.find_all(exp.Anonymous):
             if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
-                idxs.append(DbIndex(fields=tuple(DbIndexField(n, prefix_len=None) for n in primary_list), primary=True, unique=False))
+                idxs.append(
+                    DbIndex(
+                        fields=tuple(
+                            DbIndexField(n, prefix_len=None) for n in primary_list
+                        ),
+                        primary=True,
+                        unique=False,
+                    )
+                )
 
         for col in ent.find_all(exp.ColumnDef):
-            dbcol, is_prim, is_uniq = self.__info_to_model(col)
+            dbcol, is_prim, is_uniq = self.__info_to_model(col, dialect)
             if is_prim:
-                idxs.append(DbIndex(fields=(DbIndexField(col.name, prefix_len=None),), primary=True, unique=False))
+                idxs.append(
+                    DbIndex(
+                        fields=(DbIndexField(col.name, prefix_len=None),),
+                        primary=True,
+                        unique=False,
+                    )
+                )
             elif is_uniq:
-                idxs.append(DbIndex(fields=(DbIndexField(col.name, prefix_len=None),), primary=False, unique=True))
+                idxs.append(
+                    DbIndex(
+                        fields=(DbIndexField(col.name, prefix_len=None),),
+                        primary=False,
+                        unique=True,
+                    )
+                )
             cols.append(dbcol)
         return tuple(cols), idxs
 
     @staticmethod
     def __info_to_index(index: Expression, dialect: str) -> Tuple[DbIndex, str]:
         """Get a DbIndex and a table name, given a sqlglot parsed index"""
-        primary: exp.PrimaryKeyColumnConstraint = index.find(exp.PrimaryKeyColumnConstraint)
+        primary: exp.PrimaryKeyColumnConstraint = index.find(
+            exp.PrimaryKeyColumnConstraint
+        )
         unique = index.args.get("unique")
         tab = index.args["this"].args["table"]
         cols = index.args["this"].args["columns"]
         field_info: List[Dict[str, Any]] = []
 
-        args: List[Expression] = cols.args["expressions"] if isinstance(cols, exp.Tuple) else [cols]
+        args: List[Expression] = (
+            cols.args["expressions"] if isinstance(cols, exp.Tuple) else [cols]
+        )
         args = [a.this if isinstance(a, exp.Paren) else a for a in args]
 
         for ent in args:
@@ -143,7 +169,9 @@ class DDLHelper:
                 allowed_types = (exp.Column, exp.Anonymous)
 
             if not isinstance(ent, allowed_types):
-                raise err.SchemaError(f"Unsupported type in index definition: {type(ent)}({ent})")
+                raise err.SchemaError(
+                    f"Unsupported type in index definition: {type(ent)}({ent})"
+                )
 
             if dialect == "mysql" and isinstance(ent, exp.Anonymous):
                 exps = ent.args["expressions"]
@@ -154,7 +182,9 @@ class DDLHelper:
                 try:
                     prefix_len = int(exps[0].name)
                 except ValueError as e:
-                    raise err.SchemaError(f"Invalid prefix index length: {exps[0].name}") from e
+                    raise err.SchemaError(
+                        f"Invalid prefix index length: {exps[0].name}"
+                    ) from e
 
                 field_info.append({"name": ent.name, "prefix_len": prefix_len})
             else:
@@ -162,13 +192,15 @@ class DDLHelper:
 
         return (
             DbIndex(
-                fields=tuple(DbIndexField(**f) for f in field_info), primary=bool(primary), unique=bool(unique)
+                fields=tuple(DbIndexField(**f) for f in field_info),
+                primary=bool(primary),
+                unique=bool(unique),
             ),
             tab.name,
         )
 
     @classmethod
-    def __info_to_model(cls, info) -> Tuple[DbCol, bool, bool]:
+    def __info_to_model(cls, info, dialect) -> Tuple[DbCol, bool, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         fixed = typ.this in cls.FIXED_MAP
@@ -179,6 +211,12 @@ class DDLHelper:
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
         default = info.find(exp.DefaultColumnConstraint)
         is_unique = info.find(exp.UniqueColumnConstraint)
+
+        if dialect == "sqlite" and typ == DbType.INTEGER and is_primary:
+            # todo: shift driver-specific ddl logic to drivers!
+            # sqlite dialect autoincrement is always true on integer primary keys
+            # see: https://www.sqlite.org/autoinc.html
+            autoinc = True
 
         # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
@@ -228,7 +266,7 @@ class DDLHelper:
             assert tab, f"unknonwn ddl entry {ent}"
             idx = ent.find(exp.Index)
             if not idx:
-                tabs[tab.name], idxs = self.__columns(ent)
+                tabs[tab.name], idxs = self.__columns(ent, self.dialect)
                 indxs[tab.name] += idxs
             else:
                 idx, tab_name = self.__info_to_index(ent, self.dialect)

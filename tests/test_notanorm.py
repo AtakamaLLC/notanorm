@@ -359,8 +359,6 @@ def test_multi_close(db):
     db.close()
 
     class VeryClose(SqliteDb):
-        uri_name = None
-
         def __init__(self):
             self.close()
 

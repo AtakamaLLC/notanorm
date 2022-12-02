@@ -69,6 +69,13 @@ def test_execute_ddl(db: DbBase):
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
 
 
+def test_ddl_sqlite_primary_key_autoinc(db: DbBase):
+    mod = db.execute_ddl("create table foo (bar integer primary key)", "sqlite")
+    assert db.simplify_model(db.model()) == db.simplify_model(mod)
+    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+    assert db.simplify_model(db.model())["foo"].columns[0].autoinc
+
+
 def test_execute_ddl_skip_exists(db: DbBase):
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")

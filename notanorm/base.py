@@ -223,9 +223,10 @@ class DbBase(
         self._conn()
 
     def __init_subclass__(cls: "DbBase", **kwargs):
-        if cls.uri_name:
+        if cls.uri_name and cls.uri_name not in cls.__known_drivers:
             cls.__known_drivers[cls.uri_name] = cls
-        cls.__known_drivers[cls.__name__] = cls
+        if cls.__name__ not in cls.__known_drivers:
+            cls.__known_drivers[cls.__name__] = cls
 
     @classmethod
     def get_driver_by_name(cls, name) -> Type["DbBase"]:
