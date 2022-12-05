@@ -54,8 +54,8 @@ class SqliteDb(DbBase):
                     *setvals,
                 )
 
-    elif sqlite_version >= (3, 24, 0):
-
+    elif sqlite_version >= (3, 24, 0):  # pragma: no cover
+        # python 3.6 support, can remove it some day
         def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
             fds = ",".join(self.primary_fields(table))
             if not setvals:
