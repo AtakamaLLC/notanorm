@@ -11,6 +11,7 @@ except ImportError:
 except Exception:  # pragma: no cover
     # apparently this can fail for weird reasons, not just import errors
     import logging
+
     logging.exception("failed mysql import for unknown reason")
     pass
 

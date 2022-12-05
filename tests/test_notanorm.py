@@ -144,6 +144,14 @@ def test_db_select_gen_ex(db):
             pass
 
 
+def test_db_tab_not_found(db):
+    db.query("create table foo (bar integer)")
+    with pytest.raises(notanorm.errors.TableNotFoundError):
+        db.select("foox")
+    with pytest.raises(notanorm.errors.TableNotFoundError):
+        db.execute("drop table foox")
+
+
 def test_db_row_obj_iter(db):
     db.query("create table foo (Bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -781,16 +789,20 @@ def test_cap_exec(db):
 
 
 def test_exec_script(db):
-    db.executescript("""
+    db.executescript(
+        """
         create table foo (x integer);
         create table bar (y integer);
-    """)
+    """
+    )
     db.insert("foo", x=1)
     db.insert("bar", y=2)
 
 
 def create_and_fill_test_db(db, num, tab="foo"):
-    db.query(f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)")
+    db.query(
+        f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)"
+    )
     for ins in range(num):
         db.insert(tab, bar=ins, baz=0)
 
@@ -878,6 +890,7 @@ def test_generator_proc(db_notmem):
     pool = ProcessPool(processes=proc_num)
 
     import functools
+
     func = functools.partial(upserty, uri)
 
     expected = list(range(proc_num * 2))

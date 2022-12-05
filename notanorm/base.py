@@ -397,6 +397,8 @@ class DbBase(
         return model
 
     def execute(self, sql: str, parameters=(), _script=False, write=True):
+        self.__debug_sql(sql, parameters)
+
         if self.__capture:
             self.__capture_stmts.append((sql, parameters))
             if not self.__capture_exec:
@@ -507,8 +509,6 @@ class DbBase(
 
     def query(self, sql: str, *args, factory=None):
         """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
-        self.__debug_sql(sql, args)
-
         fetch = None
 
         ret = self.RetList()

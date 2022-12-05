@@ -9,7 +9,7 @@ from . import errors as err
 import logging
 
 log = logging.getLogger(__name__)
-sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split('.'))
+sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split("."))
 
 
 class SqliteDb(DbBase):
@@ -20,7 +20,12 @@ class SqliteDb(DbBase):
 
     @classmethod
     def uri_adjust(cls, args, kws):
-        for nam, typ in [("timeout", float), ("check_same_thread", bool), ("cached_statements", int), ("detect_types", int)]:
+        for nam, typ in [
+            ("timeout", float),
+            ("check_same_thread", bool),
+            ("cached_statements", int),
+            ("detect_types", int),
+        ]:
             if nam in kws:
                 kws[nam] = typ(kws[nam])
 
@@ -28,8 +33,14 @@ class SqliteDb(DbBase):
         return args[0]
 
     def _begin(self, conn):
-        if self.generator_guard and threading.get_ident() in self.__in_gen and not self.__is_mem:
-            raise err.UnsafeGeneratorError("change your generator to a list when transacting within a loop using sqlite")
+        if (
+            self.generator_guard
+            and threading.get_ident() in self.__in_gen
+            and not self.__is_mem
+        ):
+            raise err.UnsafeGeneratorError(
+                "change your generator to a list when transacting within a loop using sqlite"
+            )
         conn.execute("BEGIN IMMEDIATE")
 
     if sqlite_version >= (3, 35, 0):  # pragma: no cover
@@ -38,14 +49,22 @@ class SqliteDb(DbBase):
             if not setvals:
                 return inssql + " ON CONFLICT DO NOTHING", insvals
             else:
-                return inssql + " ON CONFLICT DO UPDATE SET " + setsql, (*insvals, *setvals)
+                return inssql + " ON CONFLICT DO UPDATE SET " + setsql, (
+                    *insvals,
+                    *setvals,
+                )
+
     elif sqlite_version >= (3, 24, 0):
+
         def _upsert_sql(self, table, inssql, insvals, setsql, setvals):
             fds = ",".join(self.primary_fields(table))
             if not setvals:
                 return inssql + f" ON CONFLICT({fds}) DO NOTHING", insvals
             else:
-                return inssql + f" ON CONFLICT({fds}) DO UPDATE SET " + setsql, (*insvals, *setvals)
+                return inssql + f" ON CONFLICT({fds}) DO UPDATE SET " + setsql, (
+                    *insvals,
+                    *setvals,
+                )
 
     def query_gen(self, sql: str, *args, factory=None):
         try:
@@ -57,8 +76,15 @@ class SqliteDb(DbBase):
             self.__in_gen.discard(threading.get_ident())
 
     def execute(self, sql, parameters=(), _script=False, write=True):
-        if self.generator_guard and write and threading.get_ident() in self.__in_gen and not self.__is_mem:
-            raise err.UnsafeGeneratorError("change your generator to a list when updating within a loop using sqlite")
+        if (
+            self.generator_guard
+            and write
+            and threading.get_ident() in self.__in_gen
+            and not self.__is_mem
+        ):
+            raise err.UnsafeGeneratorError(
+                "change your generator to a list when updating within a loop using sqlite"
+            )
         return super().execute(sql, parameters, _script=_script)
 
     def clone(self):
@@ -145,7 +171,9 @@ class SqliteDb(DbBase):
 
         if pks:
             if not any(c.primary for c in clist):
-                clist.append(DbIndex(fields=tuple(DbIndexField(p) for p in pks), primary=True))
+                clist.append(
+                    DbIndex(fields=tuple(DbIndexField(p) for p in pks), primary=True)
+                )
         return set(clist)
 
     @staticmethod
@@ -153,7 +181,9 @@ class SqliteDb(DbBase):
         if any(col_info.cid == -2 for col_info in cols):
             # -2 means it's an expression index. -1 means it's an index on rowid. and 0 means it's a normal index.
             # https://www.sqlite.org/pragma.html#pragma_index_info
-            raise err.SchemaError(f"Indices on expressions are currently unsupported [index={index.name}]")
+            raise err.SchemaError(
+                f"Indices on expressions are currently unsupported [index={index.name}]"
+            )
 
         primary = index.origin == "pk"
         unique = bool(index.unique) and not primary
@@ -177,9 +207,15 @@ class SqliteDb(DbBase):
             except KeyError:
                 typ = DbType.ANY
 
-        return DbCol(name=info.name, typ=typ, notnull=bool(info.notnull),
-                     default=info.dflt_value, autoinc=info.autoinc,
-                     size=size, fixed=fixed)
+        return DbCol(
+            name=info.name,
+            typ=typ,
+            notnull=bool(info.notnull),
+            default=info.dflt_value,
+            autoinc=info.autoinc,
+            size=size,
+            fixed=fixed,
+        )
 
     def model(self):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
@@ -206,15 +242,17 @@ class SqliteDb(DbBase):
     _type_map_inverse = {v: k for k, v in _type_map.items()}
 
     # allow "double/float" reverse map
-    _type_map_inverse.update({
-        "real": DbType.DOUBLE,
-        "int": DbType.INTEGER,
-        "smallint": DbType.INTEGER,
-        "tinyint": DbType.INTEGER,
-        "bigint": DbType.INTEGER,
-        "clob": DbType.TEXT,
-        "bool": DbType.BOOLEAN,
-    })
+    _type_map_inverse.update(
+        {
+            "real": DbType.DOUBLE,
+            "int": DbType.INTEGER,
+            "smallint": DbType.INTEGER,
+            "tinyint": DbType.INTEGER,
+            "bigint": DbType.INTEGER,
+            "clob": DbType.TEXT,
+            "bool": DbType.BOOLEAN,
+        }
+    )
 
     @classmethod
     def _column_def(cls, col: DbCol, single_primary: str):
@@ -232,7 +270,9 @@ class SqliteDb(DbBase):
             if single_primary and single_primary.lower() == col.name.lower():
                 coldef += " autoincrement"
             else:
-                raise err.SchemaError("sqlite only supports autoincrement on integer primary keys")
+                raise err.SchemaError(
+                    "sqlite only supports autoincrement on integer primary keys"
+                )
         return coldef
 
     @staticmethod
@@ -243,12 +283,23 @@ class SqliteDb(DbBase):
             new_cols = []
             for coldef in tdef.columns:
                 # sizes & fixed-width specifiers are ignored in sqlite
-                newcol = DbCol(name=coldef.name, typ=coldef.typ, autoinc=coldef.autoinc,
-                               notnull=coldef.notnull, default=coldef.default)
+                newcol = DbCol(
+                    name=coldef.name,
+                    typ=coldef.typ,
+                    autoinc=coldef.autoinc,
+                    notnull=coldef.notnull,
+                    default=coldef.default,
+                )
                 new_cols.append(newcol)
             new_idxes = set()
             for idx in tdef.indexes:
-                new_idxes.add(DbIndex(fields=tuple(f._replace(prefix_len=None) for f in idx.fields), unique=idx.unique, primary=idx.primary))
+                new_idxes.add(
+                    DbIndex(
+                        fields=tuple(f._replace(prefix_len=None) for f in idx.fields),
+                        unique=idx.unique,
+                        primary=idx.primary,
+                    )
+                )
             new_tab = DbTable(columns=tuple(new_cols), indexes=new_idxes)
             new_mod[tab] = new_tab
         return new_mod
@@ -275,7 +326,15 @@ class SqliteDb(DbBase):
             if not idx.primary:
                 index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
                 unique = "unique " if idx.unique else ""
-                icreate = "create " + unique + "index " + self.quote_key(index_name) + " on " + name + " ("
+                icreate = (
+                    "create "
+                    + unique
+                    + "index "
+                    + self.quote_key(index_name)
+                    + " on "
+                    + name
+                    + " ("
+                )
                 icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
                 icreate += ")"
                 self.execute(icreate)
@@ -301,7 +360,7 @@ class SqliteDb(DbBase):
         return conn
 
     def _get_primary(self, table):
-        info = self.query("pragma table_info(\"" + table + "\");")
+        info = self.query('pragma table_info("' + table + '");')
         prim = set()
         for x in info:
             if x.pk:
