@@ -15,7 +15,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase
+from notanorm import SqliteDb, DbRow, DbBase, DbType
 from notanorm.connparse import open_db, parse_db_uri
 
 from tests.conftest import cleanup_mysql_db
@@ -737,6 +737,13 @@ def test_no_extra_close(db):
     db.select("foo")
     list(db.select_gen("foo"))
     mok.close.assert_not_called()
+
+
+@pytest.mark.db("sqlite")
+def test_any_col(db):
+    db.query("create table foo (bar whatever primary key);")
+    db.insert("foo", bar=1)
+    assert db.model()["foo"].columns[0].typ == DbType.ANY
 
 
 def test_uri_parse():
