@@ -200,7 +200,7 @@ class DbBase(
     def timeout(self):
         # total timeout for connections == geometric sum
         return self.reconnect_backoff_start * (
-            (1 - self.reconnect_backoff_factor**self.max_reconnect_attempts)
+            (1 - self.reconnect_backoff_factor ** self.max_reconnect_attempts)
             / (1 - self.reconnect_backoff_factor)
         )
 

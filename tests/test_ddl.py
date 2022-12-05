@@ -8,7 +8,7 @@ from notanorm.model import ExplicitNone
 
 log = logging.getLogger(__name__)
 
-if tuple(sys.version_info[0: 2]) <= (3, 6):
+if tuple(sys.version_info[0:2]) <= (3, 6):
     pytest.skip("sqlglot requires python 3.7 or greateer", allow_module_level=True)
 
 
@@ -64,7 +64,9 @@ def test_model_ddl_cap(db):
 
 
 def test_execute_ddl(db: DbBase):
-    mod = db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
+    mod = db.execute_ddl(
+        "create table foo (bar integer auto_increment primary key)", "mysql"
+    )
     assert db.simplify_model(db.model()) == db.simplify_model(mod)
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
 
@@ -79,10 +81,13 @@ def test_ddl_sqlite_primary_key_autoinc(db: DbBase):
 def test_execute_ddl_skip_exists(db: DbBase):
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
-    db.execute_ddl("""
+    db.execute_ddl(
+        """
         create table foo (bar integer auto_increment primary key);
         create table baz (bar integer auto_increment primary key);
-    """, "mysql")
+    """,
+        "mysql",
+    )
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
     assert db.simplify_model(db.model())["baz"].columns[0].typ == DbType.INTEGER
 
@@ -90,7 +95,11 @@ def test_execute_ddl_skip_exists(db: DbBase):
 def test_execute_ddl_exists(db: DbBase):
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     with pytest.raises(err.TableExistsError):
-        db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql", ignore_existing=False)
+        db.execute_ddl(
+            "create table foo (bar integer auto_increment primary key)",
+            "mysql",
+            ignore_existing=False,
+        )
 
 
 def test_execute_sqlite(db: DbBase):
@@ -99,8 +108,12 @@ def test_execute_sqlite(db: DbBase):
 
 
 def test_multi_key():
-    mod = model_from_ddl("create table foo (bar integer, baz integer, primary key (bar, baz))")
-    assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), DbIndexField("baz")), primary=True), }
+    mod = model_from_ddl(
+        "create table foo (bar integer, baz integer, primary key (bar, baz))"
+    )
+    assert mod["foo"].indexes == {
+        DbIndex((DbIndexField("bar"), DbIndexField("baz")), primary=True),
+    }
 
 
 def test_prefix_index() -> None:
@@ -140,7 +153,15 @@ def test_prefix_index_multi() -> None:
     mod = model_from_ddl(prefix_idx_sql, "mysql")
 
     assert mod["foo"].indexes == {
-        DbIndex((DbIndexField("txt1", prefix_len=10), DbIndexField("bar"), DbIndexField("txt2", prefix_len=20)), unique=False, primary=False),
+        DbIndex(
+            (
+                DbIndexField("txt1", prefix_len=10),
+                DbIndexField("bar"),
+                DbIndexField("txt2", prefix_len=20),
+            ),
+            unique=False,
+            primary=False,
+        ),
         DbIndex((DbIndexField("bar", prefix_len=None),), unique=False, primary=True),
     }
 
@@ -216,7 +237,9 @@ def test_simple_parse_unsupported_dialect() -> None:
         ),
         indexes={
             DbIndex((DbIndexField("bar"),), primary=True),
-            DbIndex((DbIndexField("txt"),),),
+            DbIndex(
+                (DbIndexField("txt"),),
+            ),
         },
     )
 
@@ -242,7 +265,9 @@ def test_simple_parse_unsupported_dialect() -> None:
         ),
         indexes={
             DbIndex((DbIndexField("bar"),), primary=True),
-            DbIndex((DbIndexField("txt"),),),
+            DbIndex(
+                (DbIndexField("txt"),),
+            ),
         },
     )
 
@@ -257,7 +282,9 @@ def test_simple_parse_unsupported_dialect() -> None:
 
 def test_primary_key():
     mod = model_from_ddl("create table foo (bar integer primary key, baz integer)")
-    assert mod["foo"].indexes == {DbIndex((DbIndexField("bar"), ), primary=True), }
+    assert mod["foo"].indexes == {
+        DbIndex((DbIndexField("bar"),), primary=True),
+    }
 
 
 def test_autoinc():
@@ -276,10 +303,17 @@ def test_sqlite_only():
 
 
 def test_primary_key_auto():
-    mod = model_from_ddl("create table cars(id integer auto_increment primary key, gas_level double default 1.0);", "mysql")
-    assert mod["cars"].columns == (DbCol("id", DbType.INTEGER, autoinc=True, notnull=False, size=4),
-                                   DbCol("gas_level", DbType.DOUBLE, default='1.0'))
-    assert mod["cars"].indexes == {DbIndex((DbIndexField("id"),), primary=True), }
+    mod = model_from_ddl(
+        "create table cars(id integer auto_increment primary key, gas_level double default 1.0);",
+        "mysql",
+    )
+    assert mod["cars"].columns == (
+        DbCol("id", DbType.INTEGER, autoinc=True, notnull=False, size=4),
+        DbCol("gas_level", DbType.DOUBLE, default="1.0"),
+    )
+    assert mod["cars"].indexes == {
+        DbIndex((DbIndexField("id"),), primary=True),
+    }
 
 
 def test_default_bool():
@@ -290,45 +324,63 @@ def test_default_bool():
 def test_not_null_pk():
     create = "CREATE TABLE a (id INTEGER, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
-    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=False, size=4), DbCol("dd", DbType.TEXT))
+    assert mod["a"].columns == (
+        DbCol("id", DbType.INTEGER, notnull=False, size=4),
+        DbCol("dd", DbType.TEXT),
+    )
     assert mod["a"].indexes == {DbIndex((DbIndexField("id"),), primary=True)}
 
 
 def test_explicit_not_null_pk():
     create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
-    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
+    assert mod["a"].columns == (
+        DbCol("id", DbType.INTEGER, notnull=True, size=4),
+        DbCol("dd", DbType.TEXT),
+    )
     assert mod["a"].indexes == {DbIndex((DbIndexField("id"),), primary=True)}
 
 
 def test_unique_col():
     create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT unique);"
     mod = model_from_ddl(create, "mysql")
-    assert mod["a"].columns == (DbCol("id", DbType.INTEGER, notnull=True, size=4), DbCol("dd", DbType.TEXT))
+    assert mod["a"].columns == (
+        DbCol("id", DbType.INTEGER, notnull=True, size=4),
+        DbCol("dd", DbType.TEXT),
+    )
     assert mod["a"].indexes == {DbIndex((DbIndexField("dd"),), unique=True)}
 
 
 def test_default_str():
     mod = model_from_ddl("create table foo (bar text default 'txt')")
-    assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default='txt'),)
+    assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default="txt"),)
 
 
 def test_err_autoinc(db):
     # for now, this restriction applies to all db's.   could move it to sqlite only, but needs testing
-    model = model_from_ddl("create table foo (bar integer auto_increment, baz integer auto_increment)")
+    model = model_from_ddl(
+        "create table foo (bar integer auto_increment, baz integer auto_increment)"
+    )
     with pytest.raises(err.SchemaError):
         db.create_model(model)
 
 
 def test_detect_dialect():
     # mysql
-    mod = model_from_ddl("create table foo (`bar` integer auto_increment, baz varchar(32))")
-    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, autoinc=True, size=4),
-                                  DbCol("baz", DbType.TEXT, size=32))
+    mod = model_from_ddl(
+        "create table foo (`bar` integer auto_increment, baz varchar(32))"
+    )
+    assert mod["foo"].columns == (
+        DbCol("bar", DbType.INTEGER, autoinc=True, size=4),
+        DbCol("baz", DbType.TEXT, size=32),
+    )
 
     # sqlite
-    mod = model_from_ddl("create table foo (\"bar\" integer, baz blob)")
-    assert mod["foo"].columns == (DbCol("bar", DbType.INTEGER, size=4), DbCol("baz", DbType.BLOB))
+    mod = model_from_ddl('create table foo ("bar" integer, baz blob)')
+    assert mod["foo"].columns == (
+        DbCol("bar", DbType.INTEGER, size=4),
+        DbCol("baz", DbType.BLOB),
+    )
 
 
 def test_parser_error():
