@@ -21,3 +21,6 @@ publish:
 	rm -rf dist
 	python3 setup.py bdist_wheel
 	twine upload dist/*
+
+install-hooks:
+	pre-commit install
