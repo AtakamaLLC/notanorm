@@ -212,12 +212,6 @@ class DDLHelper:
         default = info.find(exp.DefaultColumnConstraint)
         is_unique = info.find(exp.UniqueColumnConstraint)
 
-        if dialect == "sqlite" and typ == DbType.INTEGER and is_primary:
-            # todo: shift driver-specific ddl logic to drivers!
-            # sqlite dialect autoincrement is always true on integer primary keys
-            # see: https://www.sqlite.org/autoinc.html
-            autoinc = True
-
         # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
         expr = info.args["kind"].args.get("expressions")
