@@ -17,8 +17,6 @@ def db_sqlite():
 @pytest.fixture
 def db_sqlite_noup():
     class SqliteDbNoUp(SqliteDb):
-        uri_name = None
-
         @property
         def _upsert_sql(self, **_):
             raise AttributeError
@@ -37,8 +35,6 @@ def db_mysql_noup():
     from notanorm import MySqlDb
 
     class MySqlDbNoUp(MySqlDb):
-        uri_name = None
-
         @property
         def _upsert_sql(self):
             raise AttributeError

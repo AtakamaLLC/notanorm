@@ -6,6 +6,7 @@ requirements-pymysql:
 
 lint:
 	python -m flake8
+	python -m black --check .
 
 test:
 	pytest -n 2 --cov notanorm -v tests
@@ -20,3 +21,6 @@ publish:
 	rm -rf dist
 	python3 setup.py bdist_wheel
 	twine upload dist/*
+
+install-hooks:
+	pre-commit install

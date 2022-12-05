@@ -15,7 +15,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase
+from notanorm import SqliteDb, DbRow, DbBase, DbType
 from notanorm.connparse import open_db, parse_db_uri
 
 from tests.conftest import cleanup_mysql_db
@@ -142,6 +142,14 @@ def test_db_select_gen_ex(db):
     with pytest.raises(AssertionError):
         for _ in generator:
             pass
+
+
+def test_db_tab_not_found(db):
+    db.query("create table foo (bar integer)")
+    with pytest.raises(notanorm.errors.TableNotFoundError):
+        db.select("foox")
+    with pytest.raises(notanorm.errors.TableNotFoundError):
+        db.execute("drop table foox")
 
 
 def test_db_row_obj_iter(db):
@@ -359,8 +367,6 @@ def test_multi_close(db):
     db.close()
 
     class VeryClose(SqliteDb):
-        uri_name = None
-
         def __init__(self):
             self.close()
 
@@ -733,6 +739,13 @@ def test_no_extra_close(db):
     mok.close.assert_not_called()
 
 
+@pytest.mark.db("sqlite")
+def test_any_col(db):
+    db.query("create table foo (bar whatever primary key);")
+    db.insert("foo", bar=1)
+    assert db.model()["foo"].columns[0].typ == DbType.ANY
+
+
 def test_uri_parse():
     from notanorm import MySqlDb
 
@@ -783,16 +796,20 @@ def test_cap_exec(db):
 
 
 def test_exec_script(db):
-    db.executescript("""
+    db.executescript(
+        """
         create table foo (x integer);
         create table bar (y integer);
-    """)
+    """
+    )
     db.insert("foo", x=1)
     db.insert("bar", y=2)
 
 
 def create_and_fill_test_db(db, num, tab="foo"):
-    db.query(f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)")
+    db.query(
+        f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)"
+    )
     for ins in range(num):
         db.insert(tab, bar=ins, baz=0)
 
@@ -880,6 +897,7 @@ def test_generator_proc(db_notmem):
     pool = ProcessPool(processes=proc_num)
 
     import functools
+
     func = functools.partial(upserty, uri)
 
     expected = list(range(proc_num * 2))

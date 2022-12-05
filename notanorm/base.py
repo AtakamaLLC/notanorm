@@ -10,7 +10,12 @@ from collections import defaultdict
 from abc import ABC, abstractmethod
 from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar
 
-from .errors import OperationalError, MoreThanOneError, DbClosedError, UnknownPrimaryError
+from .errors import (
+    OperationalError,
+    MoreThanOneError,
+    DbClosedError,
+    UnknownPrimaryError,
+)
 from .model import DbModel, DbTable
 from . import errors as err
 
@@ -167,7 +172,7 @@ class DbTxGuard:
         self.lock.release()
 
 
-T = TypeVar('T', bound="DbBase")
+T = TypeVar("T", bound="DbBase")
 
 
 # noinspection PyMethodMayBeStatic
@@ -223,13 +228,19 @@ class DbBase(
         self._conn()
 
     def __init_subclass__(cls: "DbBase", **kwargs):
-        if cls.uri_name:
-            cls.__known_drivers[cls.uri_name] = cls
-        cls.__known_drivers[cls.__name__] = cls
+        if cls.uri_name and cls.uri_name not in cls.__known_drivers:
+            cls.register_driver(cls, cls.uri_name)
+
+        if cls.__name__ not in cls.__known_drivers:
+            cls.register_driver(cls, cls.__name__)
 
     @classmethod
     def get_driver_by_name(cls, name) -> Type["DbBase"]:
         return cls.__known_drivers.get(name)
+
+    @classmethod
+    def register_driver(cls, sub, name) -> Type["DbBase"]:
+        cls.__known_drivers[name] = sub
 
     @classmethod
     def uri_adjust(cls, args: List, kws: Dict):
@@ -306,7 +317,12 @@ class DbBase(
     @property
     def uri(self) -> str:
         """Uri that represents a copy of my connection"""
-        return self.uri_name + ":" + ",".join(str(v) for v in self._conn_args) + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
+        return (
+            self.uri_name
+            + ":"
+            + ",".join(str(v) for v in self._conn_args)
+            + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
+        )
 
     def clone(self: T) -> T:
         """Make a copy of my connection"""
@@ -337,7 +353,9 @@ class DbBase(
         return model
 
     @contextlib.contextmanager
-    def capture_sql(self, execute=False) -> Generator[List[Tuple[str, Tuple[Any, ...]]], None, None]:
+    def capture_sql(
+        self, execute=False
+    ) -> Generator[List[Tuple[str, Tuple[Any, ...]]], None, None]:
         self.__capture = True
         self.__capture_exec = execute
         self.__capture_stmts = []
@@ -370,14 +388,17 @@ class DbBase(
 
     def execute_ddl(self, sql: str, *dialect: str, ignore_existing=True):
         # import here cuz not always avail
-        dialect = dialect or ("mysql", )
+        dialect = dialect or ("mysql",)
         from notanorm.ddl_helper import model_from_ddl
+
         model = model_from_ddl(sql, *dialect)
         self.create_model(model, ignore_existing=ignore_existing)
 
         return model
 
     def execute(self, sql: str, parameters=(), _script=False, write=True):
+        self.__debug_sql(sql, parameters)
+
         if self.__capture:
             self.__capture_stmts.append((sql, parameters))
             if not self.__capture_exec:
@@ -488,8 +509,6 @@ class DbBase(
 
     def query(self, sql: str, *args, factory=None):
         """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
-        self.__debug_sql(sql, args)
-
         fetch = None
 
         ret = self.RetList()
@@ -721,7 +740,9 @@ class DbBase(
 
             if not where:
                 log.debug("PRIMARY CACHE: %s", self.__primary_cache)
-                raise UnknownPrimaryError("Unable to determine update key for table %s" % table)
+                raise UnknownPrimaryError(
+                    "Unable to determine update key for table %s" % table
+                )
 
         return where
 

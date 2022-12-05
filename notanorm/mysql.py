@@ -4,16 +4,19 @@ from typing import Tuple, List, Dict, Any
 try:
     import MySQLdb
     import MySQLdb.cursors
+
     InterfaceError = type(None)
     pymysql_force_flags = 0
 except (ImportError, NameError):
     # known issue with mysql c++ client is a "nameerror" can be thrown if a dll import fails
     import pymysql
+
     pymysql.install_as_MySQLdb()
     import MySQLdb
     import MySQLdb.cursors
     from pymysql.err import InterfaceError
     import pymysql.constants.CLIENT
+
     pymysql_force_flags = pymysql.constants.CLIENT.MULTI_STATEMENTS
 
 from .base import DbBase
@@ -26,7 +29,7 @@ class MySqlDb(DbBase):
     uri_name = "mysql"
 
     placeholder = "%s"
-    default_values = ' () values ()'
+    default_values = " () values ()"
 
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
@@ -34,10 +37,18 @@ class MySqlDb(DbBase):
     @classmethod
     def uri_adjust(cls, args, kws):
         # adjust to appropriate types
-        for nam, typ in [("port", int), ("use_unicode", bool), ("autocommit", bool),
-                         ("buffered", bool), ("ssl_verify_cert", bool),
-                         ("ssl_verify_identity", bool), ("compress", bool), ("pool_size", int),
-                         ("client_flag", int), ("raise_on_warnings", bool)]:
+        for nam, typ in [
+            ("port", int),
+            ("use_unicode", bool),
+            ("autocommit", bool),
+            ("buffered", bool),
+            ("ssl_verify_cert", bool),
+            ("ssl_verify_identity", bool),
+            ("compress", bool),
+            ("pool_size", int),
+            ("client_flag", int),
+            ("raise_on_warnings", bool),
+        ]:
             if nam in kws:
                 kws[nam] = typ(kws[nam])
 
@@ -62,20 +73,22 @@ class MySqlDb(DbBase):
         msg = str(exp)
 
         if isinstance(exp, MySQLdb.OperationalError):
-            if err_code in (1054, ):
+            if err_code in (1054,):
                 return err.NoColumnError(msg)
-            if err_code in (1050, ):
+            if err_code in (1050,):
                 return err.TableExistsError(msg)
-            if err_code in (1075, 1212, 1239, 1293):   # pragma: no cover
+            if err_code in (1075, 1212, 1239, 1293):  # pragma: no cover
                 # this error is very hard to support and we should probably drop it
                 # it's used as a base class for TableError and other stuff
                 # using the base here is odd
                 return err.SchemaError(msg)
-            if err_code in (1792, ):
+            if err_code in (1792,):
                 return err.DbReadOnlyError(msg)
             if err_code >= 2000:
                 # client connection issues
                 return err.DbConnectionError(msg)
+            if err_code == 1051:
+                return err.TableNotFoundError(msg)
             return err.OperationalError(msg)
         if isinstance(exp, InterfaceError):
             return err.DbConnectionError(msg)
@@ -100,10 +113,12 @@ class MySqlDb(DbBase):
         return conn.cursor(MySQLdb.cursors.DictCursor)
 
     def quote_key(self, key):
-        return '`' + key + '`'
+        return "`" + key + "`"
 
     def _get_primary(self, table):
-        info = self.query("SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'")
+        info = self.query(
+            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'"
+        )
         prim = set()
         for x in info:
             prim.add(x.column_name)
@@ -119,18 +134,15 @@ class MySqlDb(DbBase):
         DbType.ANY: "",
     }
     _type_map_inverse = {v: k for k, v in _type_map.items()}
-    _type_map_inverse.update({
-        "integer": DbType.INTEGER,
-        "smallint": DbType.INTEGER,
-        "bigint": DbType.INTEGER,
-        "tinyblob": DbType.BLOB,
-    })
-    _int_map = {
-        1: "tinyint",
-        2: "smallint",
-        4: "integer",
-        8: "bigint"
-    }
+    _type_map_inverse.update(
+        {
+            "integer": DbType.INTEGER,
+            "smallint": DbType.INTEGER,
+            "bigint": DbType.INTEGER,
+            "tinyblob": DbType.BLOB,
+        }
+    )
+    _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
 
     def create_table(self, name, schema: DbTable):
         coldefs = []
@@ -146,13 +158,13 @@ class MySqlDb(DbBase):
                     typ = "char"
                 else:
                     typ = "varchar"
-                typ += '(%s)' % col.size
+                typ += "(%s)" % col.size
             elif col.size and col.typ == DbType.BLOB:
                 if col.fixed:
                     typ = "binary"
                 else:
                     typ = "varbinary"
-                typ += '(%s)' % col.size
+                typ += "(%s)" % col.size
             elif col.size and col.typ == DbType.INTEGER and col.size in self._int_map:
                 typ = self._int_map[col.size]
             else:
@@ -166,8 +178,10 @@ class MySqlDb(DbBase):
             if col.default:
                 coldef += " default " + col.default
             if col.autoinc:
-                if (col.name, ) != primary_fields:
-                    raise err.SchemaError(f"auto increment only works on primary key: {col.name}")
+                if (col.name,) != primary_fields:
+                    raise err.SchemaError(
+                        f"auto increment only works on primary key: {col.name}"
+                    )
                 coldef += " auto_increment"
             coldefs.append(coldef)
         keys = ["`" + k + "`" for k in primary_fields]
@@ -182,8 +196,13 @@ class MySqlDb(DbBase):
             if not idx.primary:
                 index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
                 unique = "unique " if idx.unique else ""
-                icreate = "create " + unique + "index " + index_name + " on " + name + " ("
-                icreate += ",".join(f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})" for f in idx.fields)
+                icreate = (
+                    "create " + unique + "index " + index_name + " on " + name + " ("
+                )
+                icreate += ",".join(
+                    f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
+                    for f in idx.fields
+                )
                 icreate += ")"
                 self.query(icreate)
 
@@ -202,18 +221,28 @@ class MySqlDb(DbBase):
         for idxinfo in res:
             unique = not idxinfo["non_unique"]
             idxunique[idxinfo["key_name"]] = unique
-            idxmap[idxinfo["key_name"]].append({"name": idxinfo["column_name"], "prefix_len": idxinfo.get("sub_part")})
+            idxmap[idxinfo["key_name"]].append(
+                {"name": idxinfo["column_name"], "prefix_len": idxinfo.get("sub_part")}
+            )
 
         indexes = []
         for name, fds in idxmap.items():
-            primary = (name == "PRIMARY")
+            primary = name == "PRIMARY"
             unique = idxunique[name] and not primary
-            indexes.append(DbIndex(tuple(DbIndexField(**f) for f in fds), primary=primary, unique=unique))
+            indexes.append(
+                DbIndex(
+                    tuple(DbIndexField(**f) for f in fds),
+                    primary=primary,
+                    unique=unique,
+                )
+            )
 
         res = self.query("describe `" + tab + "`")
         cols = []
         for col in res:
-            primary = [tuple(f.name for f in idx.fields) for idx in indexes if idx.primary]
+            primary = [
+                tuple(f.name for f in idx.fields) for idx in indexes if idx.primary
+            ]
             in_primary = primary and col.field in primary[0]
             dbcol = self.column_model(col, in_primary)
             cols.append(dbcol)
@@ -266,21 +295,25 @@ class MySqlDb(DbBase):
 
         if match_t:
             typ = DbType.TEXT
-            fixed = match_t[1] == 'char'
+            fixed = match_t[1] == "char"
             size = int(match_t[2])
         elif match_b:
             typ = DbType.BLOB
-            fixed = match_b[1] == 'binary'
+            fixed = match_b[1] == "binary"
             size = int(match_b[2])
         else:
             typ = self._type_map_inverse[info.type]
 
         autoinc_primary = in_primary and info.extra == "auto_increment"
 
-        ret = DbCol(info.field, typ,
-                    fixed=fixed,
-                    size=size,
-                    notnull=not autoinc_primary and info.null == "NO", default=info.default,
-                    autoinc=info.extra == "auto_increment")
+        ret = DbCol(
+            info.field,
+            typ,
+            fixed=fixed,
+            size=size,
+            notnull=not autoinc_primary and info.null == "NO",
+            default=info.default,
+            autoinc=info.extra == "auto_increment",
+        )
 
         return ret
