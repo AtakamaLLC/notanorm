@@ -891,6 +891,16 @@ def test_where_or(db):
     assert len(db.select("foo")) == 3
 
 
+def test_del_raises(db):
+    create_and_fill_test_db(db, 5)
+    db.delete("foo", bar=2)
+    assert len(db.select("foo")) == 4
+    with pytest.raises(ValueError):
+        db.delete("foo")
+    with pytest.raises(ValueError):
+        db.delete("foo", {"bar": 3}, baz=0)
+
+
 def test_generator_proc(db_notmem):
     db = db_notmem
 
