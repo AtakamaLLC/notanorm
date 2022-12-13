@@ -563,7 +563,7 @@ class DbBase(
         return self.execute(sql, tuple(vals))
 
     @classmethod
-    def quote_key(cls, key):
+    def quote_key(cls, key: str) -> str:
         return '"' + key + '"'
 
     def quote_keys(self, key):

@@ -918,3 +918,12 @@ def test_db_uri_clone(db_notmem):
     db = open_db(db_notmem.uri)
     db.query("CREATE table foo (bar integer primary key)")
     db_notmem.insert("foo", bar=1)
+
+
+def test_quote_key(db: DbBase) -> None:
+    from_inst = db.quote_key("key")
+    assert from_inst
+    assert from_inst != "key"
+
+    # Check that quote_key is available as a classmethod on all impls
+    assert type(db).quote_key("key") == from_inst
