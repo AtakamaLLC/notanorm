@@ -883,6 +883,12 @@ def test_subq(db):
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
+def test_where_or(db):
+    create_and_fill_test_db(db, 5)
+    db.update("foo", bar=3, baz=2)
+    assert len(db.select("foo", _where=[{"bar": 1}, {"baz": 2}])) == 2
+
+
 def test_generator_proc(db_notmem):
     db = db_notmem
 
