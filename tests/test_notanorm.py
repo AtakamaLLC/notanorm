@@ -883,6 +883,24 @@ def test_subq(db):
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
+def test_where_or(db):
+    create_and_fill_test_db(db, 5)
+    db.update("foo", bar=3, baz=2)
+    assert len(db.select("foo", _where=[{"bar": 1}, {"baz": 2}])) == 2
+    db.delete("foo", [{"bar": 1}, {"baz": 2}])
+    assert len(db.select("foo")) == 3
+
+
+def test_del_raises(db):
+    create_and_fill_test_db(db, 5)
+    db.delete("foo", bar=2)
+    assert len(db.select("foo")) == 4
+    with pytest.raises(ValueError):
+        db.delete("foo")
+    with pytest.raises(ValueError):
+        db.delete("foo", {"bar": 3}, baz=0)
+
+
 def test_generator_proc(db_notmem):
     db = db_notmem
 

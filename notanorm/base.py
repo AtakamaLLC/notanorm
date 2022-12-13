@@ -579,6 +579,22 @@ class DbBase(
         if not where:
             return "", ()
 
+        if is_list(where):
+            sql = ""
+            vals = []
+            for ent in where:
+                sub_sql, sub_vals = self._where_base(ent)
+                if sql:
+                    sql = sql + " or " + sub_sql
+                else:
+                    sql = sub_sql
+                vals = vals + sub_vals
+        else:
+            sql, vals = self._where_base(where)
+
+        return " where " + sql, vals
+
+    def _where_base(self, where):
         none_keys = [key for key, val in where.items() if val is None]
         list_keys = [(key, val) for key, val in where.items() if is_list(val)]
         subq_keys = [(key, val) for key, val in where.items() if type(val) == SubQ]
@@ -618,8 +634,7 @@ class DbBase(
                 sql += self.quote_keys(key) + " in (" + subq.sql + ")"
                 for val in subq.vals:
                     vals.append(val)
-
-        return " where " + sql, vals
+        return sql, vals
 
     def __select_to_query(self, table, *, fields, dict_where, order_by, **where):
         sql = "select "
@@ -644,7 +659,8 @@ class DbBase(
 
         factory = None
         if not no_from:
-            factory = where.pop("__class", self.__classes.get(table))
+            fac = self.__classes.get(table)
+            factory = where.pop("__class", fac) if not is_list(where) else fac
 
             if not fields:
                 sql += "*"
@@ -669,26 +685,26 @@ class DbBase(
 
         return sql, vals, factory
 
-    def select(self, table, fields=None, dict_where=None, order_by=None, **where):
+    def select(self, table, fields=None, _where=None, order_by=None, **where):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
         """
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=dict_where, order_by=order_by, **where
+            table, fields=fields, dict_where=_where, order_by=order_by, **where
         )
         return self.query(sql, *vals, factory=factory)
 
-    def subq(self, table, fields=None, dict_where=None, order_by=None, **where):
+    def subq(self, table, fields=None, _where=None, order_by=None, **where):
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=dict_where, order_by=order_by, **where
+            table, fields=fields, dict_where=_where, order_by=order_by, **where
         )
         return SubQ(sql, vals)
 
-    def select_gen(self, table, fields=None, dict_where=None, order_by=None, **where):
+    def select_gen(self, table, fields=None, _where=None, order_by=None, **where):
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=dict_where, order_by=order_by, **where
+            table, fields=fields, dict_where=_where, order_by=order_by, **where
         )
         return self.query_gen(sql, *vals, factory=factory)
 
@@ -704,7 +720,7 @@ class DbBase(
         sql += where
         return self.query(sql, *vals)[0]["k"]
 
-    def delete(self, table, **where):
+    def delete(self, table, where=None, **kws):
         """Delete all rows in a table that match the supplied value(s).
 
 
@@ -712,6 +728,12 @@ class DbBase(
         """
         sql = "delete "
         sql += " from " + self.quote_key(table)
+
+        if where and kws:
+            raise ValueError("Dict where cannot be mixed with kwargs")
+
+        if not where:
+            where = kws
 
         where, vals = self._where(where)
         if not where:
