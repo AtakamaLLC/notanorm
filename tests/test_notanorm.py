@@ -887,6 +887,8 @@ def test_where_or(db):
     create_and_fill_test_db(db, 5)
     db.update("foo", bar=3, baz=2)
     assert len(db.select("foo", _where=[{"bar": 1}, {"baz": 2}])) == 2
+    db.delete("foo", [{"bar": 1}, {"baz": 2}])
+    assert len(db.select("foo")) == 3
 
 
 def test_generator_proc(db_notmem):
