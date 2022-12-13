@@ -112,7 +112,8 @@ class MySqlDb(DbBase):
     def _cursor(self, conn):
         return conn.cursor(MySQLdb.cursors.DictCursor)
 
-    def quote_key(self, key):
+    @classmethod
+    def quote_key(cls, key):
         return "`" + key + "`"
 
     def _get_primary(self, table):
