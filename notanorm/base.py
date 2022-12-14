@@ -60,6 +60,15 @@ class Op:
         self.op = op
         self.val = val
 
+    def __repr__(self) -> str:
+        return f"Op({self.op!r}, {self.val!r})"
+
+    def __eq__(self, o: Any) -> bool:
+        if not isinstance(o, Op):
+            return False
+
+        return self.op == o.op and self.val == o.val
+
 
 class SubQ:
     def __init__(self, sql: str, vals: Tuple[Any] = ()):
@@ -477,8 +486,6 @@ class DbBase(
 
     def query_gen(self, sql: str, *args, factory=None):
         """Same as query, but returns a generator."""
-        self.__debug_sql(sql, args)
-
         fetch = None
 
         try:

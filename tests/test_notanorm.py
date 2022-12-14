@@ -107,6 +107,15 @@ def test_db_op_gt(db):
     assert {r.bar for r in db.select("foo", bar=notanorm.Op("<=", 4))} == {3, 4}
 
 
+def test_op_internals() -> None:
+    assert notanorm.Op(">", 4) == notanorm.Op(">", 4)
+    assert notanorm.Op(">", 4) != notanorm.Op("=", 4)
+    assert notanorm.Op(">", 4) != notanorm.Op(">", 5)
+    assert notanorm.Op(">", 4) != object()
+
+    assert repr(notanorm.Op(">", 4)) == "Op('>', 4)"
+
+
 def test_db_select_gen_ex(db):
     db.query("create table foo (bar integer)")
     db.insert("foo", bar=1)
