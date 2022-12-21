@@ -954,3 +954,12 @@ def test_quote_key(db: DbBase) -> None:
 
     # Check that quote_key is available as a classmethod on all impls
     assert type(db).quote_key("key") == from_inst
+
+
+def test_db_larger_types(db):
+    db.query("create table foo (bar mediumblob)")
+    # If mediumblob is accidentally translated to blob, the max size in mysql is
+    # 2**16. If mysql is running in strict mode, the insert will fail.
+    # Otherwise, the comparison will fail.
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
+    assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
