@@ -6,9 +6,10 @@ import contextlib
 import time
 import threading
 import logging
+from dataclasses import dataclass
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar
+from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Optional, Callable
 
 from .errors import (
     OperationalError,
@@ -32,6 +33,14 @@ def del_all(mapping, to_remove):
     """Remove list of elements from mapping."""
     for key in to_remove:
         del mapping[key]
+
+
+@dataclass
+class ReconnectionArgs:
+    failure_callback: Optional[Callable[[], None]] = None
+    max_reconnect_attempts: int = 5
+    reconnect_backoff_start: float = 0.1  # seconds
+    reconnect_backoff_factor: float = 2
 
 
 class FakeCursor:
@@ -195,9 +204,6 @@ class DbBase(
     uri_conn_func = None
     placeholder = "?"
     default_values = "default values"
-    max_reconnect_attempts = 5
-    reconnect_backoff_start = 0.1  # seconds
-    reconnect_backoff_factor = 2
     debug_sql = None
     debug_args = None
     r_lock = None
@@ -218,7 +224,13 @@ class DbBase(
             "define _lock_key in your subclass if use_pooled_locks is enabled"
         )
 
-    def __init__(self, *args, **kws):
+    def __init__(self, *args, reconnection_args: Optional[ReconnectionArgs] = None, **kws):
+        recon_args = reconnection_args or ReconnectionArgs()
+        self.max_reconnect_attempts = recon_args.max_reconnect_attempts
+        self.reconnect_backoff_start = recon_args.reconnect_backoff_start
+        self.reconnect_backoff_factor = recon_args.reconnect_backoff_factor
+        self.recon_failure_cb = recon_args.failure_callback
+
         self.__capture = None
         self.__capture_exec = None
         self.__capture_stmts = []
@@ -442,6 +454,11 @@ class DbBase(
                 if isinstance(exp, err.DbConnectionError):
                     self._conn_p = None
                     if tries == self.max_reconnect_attempts - 1:
+                        if self.recon_failure_cb is not None:
+                            try:
+                                self.recon_failure_cb()
+                            except Exception:
+                                log.exception("Exception in recon_failure_cb")
                         raise
                     time.sleep(backoff)
                     backoff *= self.reconnect_backoff_factor
