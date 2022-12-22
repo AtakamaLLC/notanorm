@@ -141,6 +141,11 @@ class MySqlDb(DbBase):
             "smallint": DbType.INTEGER,
             "bigint": DbType.INTEGER,
             "tinyblob": DbType.BLOB,
+            "mediumblob": DbType.BLOB,
+            "longblob": DbType.BLOB,
+            "tinytext": DbType.TEXT,
+            "mediumtext": DbType.TEXT,
+            "longtext": DbType.TEXT,
         }
     )
     _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
@@ -172,7 +177,7 @@ class MySqlDb(DbBase):
                 typ = self._type_map[col.typ]
 
             if not typ:
-                raise err.SchemaError(f"mysql doesn't supprt ANY type: {col.name}")
+                raise err.SchemaError(f"mysql doesn't support ANY type: {col.name}")
             coldef += " " + typ
             if col.notnull:
                 coldef += " not null"
