@@ -356,6 +356,7 @@ def test_conn_retry(tmp_path):
     def cb():
         nonlocal cb_called
         cb_called = True
+        raise Exception("ensure that the cb exception is caught")
 
     cb_called = False
     recon_args = ReconnectionArgs(max_reconnect_attempts=1, failure_callback=cb)
