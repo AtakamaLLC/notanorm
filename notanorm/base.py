@@ -38,7 +38,7 @@ def del_all(mapping, to_remove):
 @dataclass
 class ReconnectionArgs:
     failure_callback: Optional[Callable[[], None]] = None
-    max_reconnect_attempts: int = 5
+    max_reconnect_attempts: int = 8
     reconnect_backoff_start: float = 0.1  # seconds
     reconnect_backoff_factor: float = 2
 

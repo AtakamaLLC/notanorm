@@ -15,7 +15,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType
+from notanorm import SqliteDb, DbRow, DbBase, DbType, ReconnectionArgs
 from notanorm.connparse import open_db, parse_db_uri
 
 from tests.conftest import cleanup_mysql_db
@@ -352,15 +352,26 @@ def test_db_upsert_non_null(db):
     assert db.select_one("foo").bop == "keep"
 
 
-def test_conn_retry(db):
-    db.query("create table foo (x integer)")
-    db._conn_p.close()  # pylint: disable=no-member
-    db.max_reconnect_attempts = 1
-    with pytest.raises(Exception):
+def test_conn_retry(tmp_path):
+    def cb():
+        nonlocal cb_called
+        cb_called = True
+
+    cb_called = False
+    recon_args = ReconnectionArgs(max_reconnect_attempts=1, failure_callback=cb)
+    db = SqliteDb(str(tmp_path / "db"), reconnection_args=recon_args)
+    try:
         db.query("create table foo (x integer)")
-    db.max_reconnect_attempts = 2
-    db.query("create table bar (x integer)")
-    db.max_reconnect_attempts = 99
+        assert not cb_called
+        db._conn_p.close()  # pylint: disable=no-member
+        with pytest.raises(Exception):
+            db.query("create table foo (x integer)")
+        assert cb_called
+        db.max_reconnect_attempts = 2
+        db.query("create table bar (x integer)")
+        db.max_reconnect_attempts = 99
+    finally:
+        db.close()
 
 
 def test_conn_reopen(db):
