@@ -224,7 +224,9 @@ class DbBase(
             "define _lock_key in your subclass if use_pooled_locks is enabled"
         )
 
-    def __init__(self, *args, reconnection_args: Optional[ReconnectionArgs] = None, **kws):
+    def __init__(
+        self, *args, reconnection_args: Optional[ReconnectionArgs] = None, **kws
+    ):
         recon_args = reconnection_args or ReconnectionArgs()
         self.max_reconnect_attempts = recon_args.max_reconnect_attempts
         self.reconnect_backoff_start = recon_args.reconnect_backoff_start
