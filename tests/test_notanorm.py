@@ -9,13 +9,13 @@ import threading
 import time
 from multiprocessing.pool import ThreadPool, Pool as ProcessPool
 from typing import Generator
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType
+from notanorm import SqliteDb, DbRow, DbBase, DbType, ReconnectionArgs
 from notanorm.connparse import open_db, parse_db_uri
 
 from tests.conftest import cleanup_mysql_db
@@ -361,6 +361,25 @@ def test_conn_retry(db):
     db.max_reconnect_attempts = 2
     db.query("create table bar (x integer)")
     db.max_reconnect_attempts = 99
+
+
+def test_reconnect_cb(tmp_path):
+    def cb():
+        nonlocal cb_called
+        cb_called = True
+        raise Exception("ensure that the cb exception is caught")
+
+    cb_called = False
+    recon_args = ReconnectionArgs(max_reconnect_attempts=2, failure_callback=cb)
+    db = SqliteDb(str(tmp_path / "db"), reconnection_args=recon_args, timeout=0)
+    try:
+        db.query("create table foo (x integer)")
+        assert not cb_called
+        with patch.object(db, "_executeone", side_effect=err.DbConnectionError):
+            with pytest.raises(err.DbConnectionError):
+                db.query("create table bar (x integer)")
+    finally:
+        db.close()
 
 
 def test_conn_reopen(db):

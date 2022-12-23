@@ -112,11 +112,6 @@ class SqliteDb(DbBase):
         return exp
 
     def __init__(self, *args, **kws):
-        if "timeout" in kws:
-            self.__timeout = kws["timeout"]
-        else:
-            self.__timeout = super().timeout
-
         self.__is_mem = args[0] == ":memory:"
         if self.__is_mem:
             # never try to reconnect to memory dbs!
@@ -125,6 +120,11 @@ class SqliteDb(DbBase):
         self.__in_gen = set()
 
         super().__init__(*args, **kws)
+
+        if "timeout" in kws:
+            self.__timeout = kws["timeout"]
+        else:
+            self.__timeout = super().timeout
 
     @property
     def timeout(self):
