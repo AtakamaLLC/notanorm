@@ -4,6 +4,7 @@ NOTE: Make sure to close the db handle when you are done.
 """
 import contextlib
 import time
+import random
 import threading
 import logging
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ class ReconnectionArgs:
     max_reconnect_attempts: int = 8
     reconnect_backoff_start: float = 0.1  # seconds
     reconnect_backoff_factor: float = 2
+    jitter: bool = True
 
 
 class FakeCursor:
@@ -232,6 +234,7 @@ class DbBase(
         self.reconnect_backoff_start = recon_args.reconnect_backoff_start
         self.reconnect_backoff_factor = recon_args.reconnect_backoff_factor
         self.recon_failure_cb = recon_args.failure_callback
+        self.recon_jitter = recon_args.jitter
 
         self.__capture = None
         self.__capture_exec = None
@@ -462,7 +465,10 @@ class DbBase(
                             except Exception:
                                 log.exception("Exception in recon_failure_cb")
                         raise
-                    time.sleep(backoff)
+                    sleep_time = backoff
+                    if self.recon_jitter:
+                        sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
+                    time.sleep(sleep_time)
                     backoff *= self.reconnect_backoff_factor
                 else:
                     raise exp
