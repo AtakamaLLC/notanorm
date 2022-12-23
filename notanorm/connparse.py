@@ -121,7 +121,7 @@ def parse_db_uri(dbstr: str) -> Tuple[Type["DbBase"], List[str], Dict[str, Any]]
     return driver, args, kws
 
 
-def open_db(dbstr: str) -> "DbBase":
+def open_db(dbstr: str, reconnection_args=None) -> "DbBase":
     """Create db instance using a URI-style connection string.
 
     The first form is easier to type for humans that don't know url syntax.
@@ -153,4 +153,4 @@ def open_db(dbstr: str) -> "DbBase":
     """
 
     driver, args, kws = parse_db_uri(dbstr)
-    return driver(*args, **kws)
+    return driver(*args, reconnection_args=reconnection_args, **kws)

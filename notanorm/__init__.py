@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover
     pass
 
 from .sqlite import SqliteDb
-from .base import DbBase, Op
+from .base import DbBase, Op, ReconnectionArgs
 from .model import DbType, DbCol, DbTable, DbModel, DbIndex, DbIndexField
 from . import errors
 from .connparse import open_db
@@ -43,4 +43,5 @@ __all__ = [
     "Op",
     "open_db",
     "model_from_ddl",
+    "ReconnectionArgs",
 ]
