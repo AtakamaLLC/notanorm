@@ -1,8 +1,16 @@
+from .base import DbBase
+from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField
+from . import errors as err
+
+import re
 from collections import defaultdict
 from typing import Tuple, List, Dict, Any
 
+MySQLLib = None
 try:
     import MySQLdb
+
+    MySQLLib = MySQLdb
     import MySQLdb.cursors
 
     InterfaceError = type(None)
@@ -11,18 +19,13 @@ except (ImportError, NameError):
     # known issue with mysql c++ client is a "nameerror" can be thrown if a dll import fails
     import pymysql
 
-    pymysql.install_as_MySQLdb()
-    import MySQLdb
-    import MySQLdb.cursors
+    MySQLLib = pymysql
+
+    import pymysql.cursors
     from pymysql.err import InterfaceError
     import pymysql.constants.CLIENT
 
     pymysql_force_flags = pymysql.constants.CLIENT.MULTI_STATEMENTS
-
-from .base import DbBase
-from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField
-from . import errors as err
-import re
 
 
 class MySqlDb(DbBase):
@@ -72,7 +75,7 @@ class MySqlDb(DbBase):
 
         msg = str(exp)
 
-        if isinstance(exp, MySQLdb.OperationalError):
+        if isinstance(exp, MySQLLib.OperationalError):
             if err_code in (1054,):
                 return err.NoColumnError(msg)
             if err_code in (1050,):
@@ -92,9 +95,9 @@ class MySqlDb(DbBase):
             return err.OperationalError(msg)
         if isinstance(exp, InterfaceError):
             return err.DbConnectionError(msg)
-        if isinstance(exp, MySQLdb.IntegrityError):
+        if isinstance(exp, MySQLLib.IntegrityError):
             return err.IntegrityError(msg)
-        if isinstance(exp, MySQLdb.ProgrammingError):
+        if isinstance(exp, MySQLLib.ProgrammingError):
             if err_code == 1146:
                 return err.TableNotFoundError(exp.args[1])
             return err.OperationalError(msg)
@@ -104,13 +107,13 @@ class MySqlDb(DbBase):
     def _connect(self, *args, **kws):
         if pymysql_force_flags:
             kws["client_flag"] = kws.get("client_flag", 0) | pymysql_force_flags
-        conn = MySQLdb.connect(*args, **kws)
+        conn = MySQLLib.connect(*args, **kws)
         conn.autocommit(True)
         conn.cursor().execute("SET SESSION sql_mode = 'ANSI';")
         return conn
 
     def _cursor(self, conn):
-        return conn.cursor(MySQLdb.cursors.DictCursor)
+        return conn.cursor(MySQLLib.cursors.DictCursor)
 
     @classmethod
     def quote_key(cls, key):
