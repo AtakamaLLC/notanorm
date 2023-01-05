@@ -144,7 +144,7 @@ class MySqlDb(DbBase):
     )
     _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
 
-    def create_table(self, name, schema: DbTable):
+    def create_table(self, name, schema: DbTable, ignore_existing=False):
         coldefs = []
         primary_fields: Tuple[str, ...] = ()
         for idx in schema.indexes:
@@ -187,11 +187,16 @@ class MySqlDb(DbBase):
         keys = ["`" + k + "`" for k in primary_fields]
         if keys:
             coldefs.append("primary key(" + ",".join(keys) + ")")
-        create = "create table " + name + "("
+
+        ignore = "if not exists " if ignore_existing else ""
+        create = "create table " + ignore + name + "("
         create += ",".join(coldefs)
         create += ")"
         self.query(create)
 
+        self.create_indexes(name, schema, ignore_existing)
+
+    def create_indexes(self, name, schema: DbTable, ignore_existing=False):
         for idx in schema.indexes:
             if not idx.primary:
                 index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
@@ -204,7 +209,11 @@ class MySqlDb(DbBase):
                     for f in idx.fields
                 )
                 icreate += ")"
-                self.query(icreate)
+                try:
+                    self.execute(icreate)
+                except err.OperationalError:
+                    if not ignore_existing:
+                        raise
 
     def model(self):
         tabs = self.query("show tables")
