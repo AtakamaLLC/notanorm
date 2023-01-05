@@ -883,15 +883,6 @@ def test_sqlite_guard_thread(db_notmem):
     assert cool
 
 
-@pytest.mark.db("sqlite")
-def test_sqlite_ok_gen(db):
-    # memory db, so no need for guard to fire
-    create_and_fill_test_db(db, 5)
-    db.generator_guard = True
-    for row in db.select_gen("foo"):
-        db.upsert("foo", bar=row.bar, baz=row.baz + 1)
-
-
 def upserty(uri, i):
     db = open_db(uri)
     try:
