@@ -392,13 +392,12 @@ class DbBase(
 
     def create_model(self, model: DbModel, ignore_existing=False):
         for name, schema in model.items():
-            try:
-                self.create_table(name, schema)
-            except err.TableExistsError:
-                if not ignore_existing:
-                    raise
+            self.create_table(name, schema, ignore_existing)
 
-    def create_table(self, name, schema: DbTable):
+    def create_table(self, name, schema: DbTable, ignore_existing=False):
+        raise RuntimeError("Generic models not supported")
+
+    def create_indexes(self, name, schema: DbTable, ignore_existing=False):
         raise RuntimeError("Generic models not supported")
 
     def executescript(self, sql):

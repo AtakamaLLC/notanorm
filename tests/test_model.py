@@ -329,3 +329,53 @@ def test_model_cmp(db):
 
     assert model1["foo"].columns[0] == model2["FOO"].columns[0]
     assert model1 == model2
+
+
+def test_model_create_ignore_existing(db: "DbBase"):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+                ),
+                indexes={
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("siz3"),)),
+                },
+            )
+        }
+    )
+
+    # adds a new index, adds a new table
+    model2 = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("flt", typ=DbType.FLOAT, default="1.1"),
+                    DbCol("siz3", typ=DbType.TEXT, size=3, fixed=True),
+                ),
+                indexes={
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("siz3"),)),
+                    DbIndex(fields=(DbIndexField("flt"),), unique=True),
+                },
+            ),
+            "bar": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                ),
+                indexes={
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                },
+            ),
+        }
+    )
+
+    db.create_model(model)
+    db.create_model(model2, ignore_existing=True)
+
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model2)

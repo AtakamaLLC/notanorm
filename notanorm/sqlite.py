@@ -304,7 +304,7 @@ class SqliteDb(DbBase):
             new_mod[tab] = new_tab
         return new_mod
 
-    def create_table(self, name, schema):
+    def create_table(self, name, schema, ignore_existing=False):
         coldefs = []
         single_primary = None
         for idx in schema.indexes:
@@ -317,11 +317,18 @@ class SqliteDb(DbBase):
             if idx.primary and not single_primary:
                 coldef = "primary key (" + ",".join(f.name for f in idx.fields) + ")"
                 coldefs.append(coldef)
-        create = "create table " + name + "("
+
+        ignore = "if not exists " if ignore_existing else ""
+        create = "create table " + ignore + name + "("
         create += ",".join(coldefs)
         create += ")"
         log.info(create)
         self.execute(create)
+
+        self.create_indexes(name, schema, ignore_existing)
+
+    def create_indexes(self, name, schema, ignore_existing=False):
+        ignore = "if not exists " if ignore_existing else ""
         for idx in schema.indexes:
             if not idx.primary:
                 index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
@@ -330,6 +337,7 @@ class SqliteDb(DbBase):
                     "create "
                     + unique
                     + "index "
+                    + ignore
                     + self.quote_key(index_name)
                     + " on "
                     + name
