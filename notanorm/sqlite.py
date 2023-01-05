@@ -33,11 +33,7 @@ class SqliteDb(DbBase):
         return args[0]
 
     def _begin(self, conn):
-        if (
-            self.generator_guard
-            and threading.get_ident() in self.__in_gen
-            and not self.__is_mem
-        ):
+        if self.generator_guard and threading.get_ident() in self.__in_gen:
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when transacting within a loop using sqlite"
             )
@@ -76,12 +72,7 @@ class SqliteDb(DbBase):
             self.__in_gen.discard(threading.get_ident())
 
     def execute(self, sql, parameters=(), _script=False, write=True):
-        if (
-            self.generator_guard
-            and write
-            and threading.get_ident() in self.__in_gen
-            and not self.__is_mem
-        ):
+        if self.generator_guard and write and threading.get_ident() in self.__in_gen:
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when updating within a loop using sqlite"
             )
