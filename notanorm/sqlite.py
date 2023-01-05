@@ -345,11 +345,7 @@ class SqliteDb(DbBase):
                 )
                 icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
                 icreate += ")"
-                try:
-                    self.execute(icreate)
-                except sqlite3.OperationalError:
-                    if not ignore_existing:
-                        raise
+                self.execute(icreate)
 
     @staticmethod
     def _executemany(cursor, sql):
