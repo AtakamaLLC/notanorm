@@ -325,7 +325,7 @@ class SqliteDb(DbBase):
         log.info(create)
         self.execute(create)
 
-        self.create_indexes(name, schema)
+        self.create_indexes(name, schema, ignore_existing)
 
     def create_indexes(self, name, schema, ignore_existing=False):
         ignore = "if not exists " if ignore_existing else ""
