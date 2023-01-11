@@ -807,6 +807,26 @@ def test_uri_parse():
     assert typ == MySqlDb
     assert kws == {"host": "localhost", "port": 45}
 
+    typ, args, kws = parse_db_uri(
+        "mysql://localhost?use_unicode=false&autocommit=true&buffered=FaLsE&compress=TrUe"
+    )
+    assert typ == MySqlDb
+    assert kws == {
+        "host": "localhost",
+        "use_unicode": False,
+        "autocommit": True,
+        "buffered": False,
+        "compress": True,
+    }
+
+    typ, args, kws = parse_db_uri("sqlite://file.db?check_same_thread=false")
+    assert typ == SqliteDb
+    assert args == ["file.db"]
+    assert kws == {"check_same_thread": False}
+
+    with pytest.raises(ValueError):
+        parse_db_uri("sqlite://file.db?check_same_thread=not_a_bool")
+
 
 def test_open_db():
     db = open_db("sqlite://:memory:")
