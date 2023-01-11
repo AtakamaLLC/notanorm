@@ -1,8 +1,10 @@
 import sqlite3
 import re
 import threading
+from functools import partial
+from typing import Any, Callable
 
-from .base import DbBase, DbRow
+from .base import DbBase, DbRow, parse_bool
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel, DbIndexField
 from . import errors as err
 
@@ -20,6 +22,7 @@ class SqliteDb(DbBase):
 
     @classmethod
     def uri_adjust(cls, args, kws):
+        typ: Callable[[Any], Any]
         for nam, typ in [
             ("timeout", float),
             ("check_same_thread", bool),
@@ -27,6 +30,9 @@ class SqliteDb(DbBase):
             ("detect_types", int),
         ]:
             if nam in kws:
+                if typ is bool:
+                    typ = partial(parse_bool, nam)
+
                 kws[nam] = typ(kws[nam])
 
     def _lock_key(self, *args, **kws):

@@ -1,10 +1,11 @@
-from .base import DbBase
+from .base import DbBase, parse_bool
 from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField
 from . import errors as err
 
 import re
 from collections import defaultdict
-from typing import Tuple, List, Dict, Any
+from functools import partial
+from typing import Callable, Tuple, List, Dict, Any
 
 MySQLLib = None
 try:
@@ -40,6 +41,7 @@ class MySqlDb(DbBase):
     @classmethod
     def uri_adjust(cls, args, kws):
         # adjust to appropriate types
+        typ: Callable[[Any], Any]
         for nam, typ in [
             ("port", int),
             ("use_unicode", bool),
@@ -53,6 +55,9 @@ class MySqlDb(DbBase):
             ("raise_on_warnings", bool),
         ]:
             if nam in kws:
+                if typ is bool:
+                    typ = partial(parse_bool, nam)
+
                 kws[nam] = typ(kws[nam])
 
         if args:

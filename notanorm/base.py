@@ -36,6 +36,18 @@ def del_all(mapping, to_remove):
         del mapping[key]
 
 
+def parse_bool(field_name: str, value: str) -> bool:
+    value_lower = value.lower()
+
+    truthy = value_lower == "true"
+    falsey = value_lower == "false"
+
+    if not (truthy or falsey):
+        raise ValueError(f"{field_name} must be a boolean, not {value}")
+
+    return truthy
+
+
 @dataclass
 class ReconnectionArgs:
     failure_callback: Optional[Callable[[], None]] = None
