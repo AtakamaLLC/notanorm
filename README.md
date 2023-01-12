@@ -104,6 +104,9 @@ with db.capture_sql(execute=False) as cap:
    ... do some stuff
 
 print(cap)
+
+# print out the model of a db
+print(db.model())
 ```
 
 ## Database support

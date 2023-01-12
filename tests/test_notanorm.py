@@ -922,6 +922,47 @@ def test_subq(db):
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
+def test_select_subq(db):
+    create_and_fill_test_db(db, 5)
+    assert len(db.select(db.subq("foo", bar=[1, 3]), bar=1)) == 1
+
+
+def test_join(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert len(db.select(db.join("foo", "oth", bar="bar"), {"foo.bar": 1})) == 1
+
+
+def test_join_subqs(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert (
+        len(
+            db.select(
+                db.join("foo", db.subq("oth", bar=[1, 3]), bar="bar"), {"foo.bar": 1}
+            )
+        )
+        == 1
+    )
+
+
+def test_multi_join(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    create_and_fill_test_db(db, 5, "thrd")
+    db.join("foo", "oth", bar="bar")
+    db.join("thrd", db.join("foo", "oth", bar="bar"), bar="bar")
+    assert (
+        len(
+            db.select(
+                db.join("thrd", db.join("foo", "oth", bar="bar"), bar="bar"),
+                {"foo.bar": 1},
+            )
+        )
+        == 1
+    )
+
+
 def test_where_or(db):
     create_and_fill_test_db(db, 5)
     db.update("foo", bar=3, baz=2)

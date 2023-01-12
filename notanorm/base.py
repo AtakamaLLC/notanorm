@@ -10,7 +10,18 @@ import logging
 from dataclasses import dataclass
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Optional, Callable
+from typing import (
+    Dict,
+    List,
+    Type,
+    Any,
+    Tuple,
+    Generator,
+    TypeVar,
+    Optional,
+    Callable,
+    Union,
+)
 
 from .errors import (
     OperationalError,
@@ -94,9 +105,36 @@ class Op:
 
 
 class SubQ:
-    def __init__(self, sql: str, vals: Tuple[Any] = ()):
+    _next = 0
+
+    def __init__(
+        self,
+        db: "DbBase",
+        table: Union[str, "SubQ"],
+        sql: str,
+        vals: Tuple[Any] = (),
+        alias=None,
+    ):
+        self.db = db
+        self.table = table.table if type(table) is SubQ else table
         self.sql = sql
         self.vals = vals
+        self.alias = alias or self.table + "_" + str(self.next_num())
+
+    @classmethod
+    def next_num(cls):
+        cls._next = cls._next + 1 % 100000
+        return cls._next
+
+
+class JoinQ(SubQ):
+    _next = 0
+
+    def __init__(self, db: "DbBase", sql: str, vals: Tuple[Any] = ()):
+        self.db = db
+        self.sql = sql
+        self.vals = vals
+        self.alias = "join_" + str(self.next_num())
 
 
 class DbRow(dict):
@@ -640,7 +678,7 @@ class DbBase(
     def _where_base(self, where):
         none_keys = [key for key, val in where.items() if val is None]
         list_keys = [(key, val) for key, val in where.items() if is_list(val)]
-        subq_keys = [(key, val) for key, val in where.items() if type(val) == SubQ]
+        subq_keys = [(key, val) for key, val in where.items() if type(val) is SubQ]
 
         del_all(where, none_keys)
         del_all(where, (k[0] for k in list_keys))
@@ -682,8 +720,14 @@ class DbBase(
     def __select_to_query(self, table, *, fields, dict_where, order_by, **where):
         sql = "select "
 
+        base_table = table.table if type(table) is SubQ else table
+
         no_from = False
-        if table[0 : len(sql)].lower() == sql and "from" in table.lower():
+        if (
+            type(table) is str
+            and table[0 : len(sql)].lower() == sql
+            and "from" in table.lower()
+        ):
             sql = ""
             no_from = True
 
@@ -700,9 +744,10 @@ class DbBase(
         if fields and no_from:
             raise ValueError("Specify field list or select statement, not both")
 
+        vals = []
         factory = None
         if not no_from:
-            fac = self.__classes.get(table)
+            fac = self.__classes.get(base_table)
             factory = where.pop("__class", fac) if not is_list(where) else fac
 
             if not fields:
@@ -710,13 +755,20 @@ class DbBase(
             else:
                 sql += ",".join(fields)
 
-            if " join " not in table.lower():
+            if type(table) is JoinQ:
+                sql += " from " + table.sql
+                vals += table.vals
+            elif type(table) is SubQ:
+                sql += " from (" + table.sql + ") as " + table.alias
+                vals += table.vals
+            elif " join " not in table.lower():
                 sql += " from " + self.quote_key(table)
             else:
                 sql += " from " + table
 
-        where, vals = self._where(where)
+        where, where_vals = self._where(where)
         sql += where
+        vals += where_vals
 
         if order_by:
             if isinstance(order_by, str):
@@ -728,7 +780,9 @@ class DbBase(
 
         return sql, vals, factory
 
-    def select(self, table, fields=None, _where=None, order_by=None, **where):
+    def select(
+        self, table: Union[str, SubQ], fields=None, _where=None, order_by=None, **where
+    ):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
         """
@@ -737,14 +791,77 @@ class DbBase(
         )
         return self.query(sql, *vals, factory=factory)
 
-    def subq(self, table, fields=None, _where=None, order_by=None, **where):
+    def subq(
+        self,
+        table: Union[str, SubQ],
+        fields=None,
+        _where=None,
+        order_by=None,
+        _alias=None,
+        **where,
+    ):
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
         sql, vals, factory = self.__select_to_query(
             table, fields=fields, dict_where=_where, order_by=order_by, **where
         )
-        return SubQ(sql, vals)
+        return SubQ(self, table, sql, vals, _alias)
 
-    def select_gen(self, table, fields=None, _where=None, order_by=None, **where):
+    def join(
+        self, tab1: Union[str, SubQ], tab2: Union[str, SubQ], _where=None, **where
+    ):
+        return self._join("inner", tab1, tab2, _where, **where)
+
+    def left_join(
+        self, tab1: Union[str, SubQ], tab2: Union[str, SubQ], _where=None, **where
+    ):
+        return self._join("left", tab1, tab2, _where, **where)
+
+    def right_join(
+        self, tab1: Union[str, SubQ], tab2: Union[str, SubQ], _where=None, **where
+    ):
+        return self._join("right", tab1, tab2, _where, **where)
+
+    def _join(
+        self,
+        join_type,
+        tab1: Union[str, SubQ],
+        tab2: Union[str, SubQ],
+        _where=None,
+        **where,
+    ):
+        """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
+        tab1_sel = (
+            "(" + tab1.sql + ") as " + tab1.alias
+            if type(tab1) in (SubQ, JoinQ)
+            else self.quote_key(tab1)
+        )
+        tab2_sel = (
+            "(" + tab2.sql + ") as " + tab2.alias
+            if type(tab2) in (SubQ, JoinQ)
+            else self.quote_key(tab2)
+        )
+        tab1_name = tab1.alias if type(tab1) in (SubQ, JoinQ) else tab1
+        tab2_name = tab2.alias if type(tab2) in (SubQ, JoinQ) else tab2
+        vals = []
+        vals = tab1.vals if type(tab1) is SubQ else []
+        vals = tab2.vals if type(tab2) is SubQ else []
+        where.update(_where if _where else {})
+        join = tab1_sel + " " + join_type + " join " + tab2_sel + " on "
+        for k, v in where.items():
+            join += (
+                self.quote_key(tab1_name)
+                + "."
+                + self.quote_key(k)
+                + "="
+                + self.quote_key(tab2_name)
+                + "."
+                + self.quote_key(v)
+            )
+        return JoinQ(self, join, vals)
+
+    def select_gen(
+        self, table: Union[str, SubQ], fields=None, _where=None, order_by=None, **where
+    ):
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
             table, fields=fields, dict_where=_where, order_by=order_by, **where
