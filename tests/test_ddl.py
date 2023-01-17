@@ -298,7 +298,7 @@ def test_default_none():
 
 
 def test_sqlite_only():
-    mod = model_from_ddl("create table foo (bar default 1)")
+    mod = model_from_ddl("create table foo (bar default 1)", "sqlite")
     assert mod["foo"].columns == (DbCol("bar", DbType.ANY, default="1"),)
 
 
