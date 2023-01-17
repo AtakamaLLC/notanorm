@@ -951,19 +951,19 @@ def test_multi_join_explicit_mappings(db):
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
     create_and_fill_test_db(db, 5, "mor")
-    j1 = db.join("foo", "oth", bar="bar", field_map={"bar": "foo.bar"})
+    j1 = db.join("foo", "oth", bar="bar")
     log.debug("j1: %s", j1.sql)
     assert len(db.select(j1, {"foo.bar": 1})) == 1
     j2a = db.join(j1, "thrd", _on={"foo.bar": "thrd.bar"})
     log.debug("j2a: %s", j2a.sql)
     assert len(db.select(j2a, {"foo.bar": 1})) == 1
-    j2b = db.join("thrd", j1, bar="bar")
+    j2b = db.join("thrd", j1, bar="foo.bar")
     log.debug("j2b: %s", j2b.sql)
     assert len(db.select(j2b, {"thrd.bar": 1})) == 1
-    j3a = db.join(j2a, "mor", bar="foo.bar")
+    j3a = db.join(j2a, "mor", _on={"foo.bar": "mor.bar"})
     log.debug("j3a: %s", j3a.sql)
     assert len(db.select(j3a, {"foo.bar": 1})) == 1
-    j3b = db.join(j2b, "mor", bar="thrd.bar")
+    j3b = db.join("mor", j2b, bar="thrd.bar")
     log.debug("j3b: %s", j3b.sql)
     assert len(db.select(j3b, {"thrd.bar": 1})) == 1
 
@@ -975,7 +975,7 @@ def test_multi_join_auto_left(db):
     create_and_fill_test_db(db, 5, "mor")
 
     j1 = db.join("foo", "oth", bar="bar")
-    j2a = db.join(j1, "thrd", bar="bar")
+    j2a = db.join("thrd", j1, bar="foo.bar")
 
     assert len(db.select(j2a, {"bar": 1})) == 1
 
@@ -987,7 +987,7 @@ def test_join_fd_names(db):
     j1 = db.join("foo", "oth", bar="bar")
     log.debug("j1: %s", j1.sql)
     # this uses the mapping
-    row = db.select_one(j1, bar=1)
+    row = db.select_one(j1, {"foo.bar": 1})
     log.debug("row: %s", row)
 
 

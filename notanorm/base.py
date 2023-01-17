@@ -107,13 +107,7 @@ class Op:
 class BaseQ:
     _next = 0
 
-    def __init__(
-        self,
-        db: "DbBase",
-        sql: str,
-        vals: List[Any],
-        alias: str
-    ):
+    def __init__(self, db: "DbBase", sql: str, vals: List[Any], alias: str):
         self.db = db
         self.sql = sql
         self.vals = vals
@@ -123,6 +117,10 @@ class BaseQ:
     def next_num(cls):
         cls._next = cls._next + 1 % 100000
         return cls._next
+
+    @classmethod
+    def reset_num(cls) -> None:
+        cls._next = 0
 
 
 BaseQType = TypeVar("BaseQType", bound=BaseQ)
@@ -150,7 +148,15 @@ class SubQ(BaseQ):
 class JoinQ(BaseQ):
     _next = 0
 
-    def __init__(self, db: "DbBase", tab1: str, tab2: str, sql: str, field_map: dict, vals: List[Any] = ()):
+    def __init__(
+        self,
+        db: "DbBase",
+        tab1: str,
+        tab2: str,
+        sql: str,
+        field_map: dict,
+        vals: List[Any] = (),
+    ):
         self.tab1 = tab1
         self.tab2 = tab2
         self.field_map = field_map
@@ -159,7 +165,9 @@ class JoinQ(BaseQ):
     def field_sql(self):
         sql = ""
         for name, qual_name in self.field_map.items():
-            sql += ", " + self.db.quote_keys(qual_name) + " as " + self.db.quote_key(name)
+            sql += (
+                ", " + self.db.auto_quote(qual_name) + " as " + self.db.quote_key(name)
+            )
         return sql.lstrip(",")
 
 
@@ -519,6 +527,7 @@ class DbBase(
 
             try:
                 with self.r_lock:
+                    SubQ.reset_num()
                     cursor = self._cursor(self._conn())
                     if _script:
                         assert not parameters, "Script isn't compatible with parameters"
@@ -526,6 +535,7 @@ class DbBase(
                     else:
                         self._executeone(cursor, sql, parameters)
                     break
+
             except Exception as exp:  # pylint: disable=broad-except
                 if cursor:
                     # cursor will be automatically closed on del, but better to do it explicitly
@@ -677,6 +687,11 @@ class DbBase(
         sql, vals = self._insql(table, ins, **vals)
         return self.execute(sql, tuple(vals))
 
+    def auto_quote(self, key: str):
+        return (
+            self.quote_key(key) if type(key) is AlreadyAliased else self.quote_keys(key)
+        )
+
     @classmethod
     def quote_key(cls, key: str) -> str:
         return '"' + key + '"'
@@ -720,7 +735,13 @@ class DbBase(
         field_map = field_map or {}
         sql = " and ".join(
             [
-                self.quote_keys(field_map[key] if key in field_map else key) + self._op_from_val(val).op + self.placeholder
+                (
+                    self.quote_key(field_map[key])
+                    if key in field_map and type(field_map[key]) is AlreadyAliased
+                    else self.quote_keys(key)
+                )
+                + self._op_from_val(val).op
+                + self.placeholder
                 for key, val in where.items()
             ]
         )
@@ -751,7 +772,9 @@ class DbBase(
                     vals.append(val)
         return sql, vals
 
-    def __select_to_query(self, table: Union[str, BaseQType], *, fields, dict_where, order_by, **where):
+    def __select_to_query(
+        self, table: Union[str, BaseQType], *, fields, dict_where, order_by, **where
+    ):
         sql = "select "
 
         base_table = table.table if type(table) is SubQ else table
@@ -759,7 +782,7 @@ class DbBase(
         no_from = False
         if (
             type(table) is str
-            and table[0: len(sql)].lower() == sql
+            and table[0 : len(sql)].lower() == sql
             and "from" in table.lower()
         ):
             sql = ""
@@ -789,7 +812,10 @@ class DbBase(
                 if type(table) is JoinQ and table.field_map:
                     field_map = table.field_map
 
-                    sql += ", ".join(self.quote_key(fd) if type(fd) is AlreadyAliased else self.quote_keys(fd) + " as " + self.quote_key(alias) for alias, fd in field_map.items())
+                    sql += ", ".join(
+                        self.auto_quote(fd) + " as " + self.quote_key(alias)
+                        for alias, fd in field_map.items()
+                    )
                 else:
                     sql += "*"
             else:
@@ -821,7 +847,12 @@ class DbBase(
         return sql, vals, factory
 
     def select(
-        self, table: Union[str, BaseQType], fields=None, _where=None, order_by=None, **where
+        self,
+        table: Union[str, BaseQType],
+        fields=None,
+        _where=None,
+        order_by=None,
+        **where,
     ):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
@@ -847,26 +878,48 @@ class DbBase(
         return SubQ(self, table, sql, vals, _alias, fields=fields)
 
     def join(
-        self, tab1: Union[str, BaseQType], tab2: Union[str, BaseQType], _on=None, *, field_map=None, **on
+        self,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on=None,
+        *,
+        field_map=None,
+        **on,
     ):
         return self._join("inner", tab1, tab2, _on, field_map=field_map, **on)
 
     def left_join(
-        self, tab1: Union[str, BaseQType], tab2: Union[str, BaseQType], _on=None, *, field_map=None, **on
+        self,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on=None,
+        *,
+        field_map=None,
+        **on,
     ):
         return self._join("left", tab1, tab2, _on, field_map=field_map, **on)
 
     def right_join(
-        self, tab1: Union[str, BaseQType], tab2: Union[str, BaseQType], _on=None, *, field_map=None, **on
+        self,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on=None,
+        *,
+        field_map=None,
+        **on,
     ):
         return self._join("right", tab1, tab2, _on, field_map=field_map, **on)
 
     def _join_to_sql(self, tab: Union[str, BaseQType], as_subq=False):
-        sel = (self.quote_key(tab) if type(tab) is str
-               else "(" + tab.sql + ") as " + tab.alias if type(tab) is SubQ
-               else f"(select {tab.field_sql()} from " + tab.sql + ") as " + tab.alias if type(tab) is JoinQ and as_subq
-               else tab.sql
-               )
+        sel = (
+            self.quote_key(tab)
+            if type(tab) is str
+            else "(" + tab.sql + ") as " + tab.alias
+            if type(tab) is SubQ
+            else f"(select {tab.field_sql()} from " + tab.sql + ") as " + tab.alias
+            if type(tab) is JoinQ and as_subq
+            else tab.sql
+        )
         name = tab.alias if type(tab) in (SubQ, JoinQ) else tab
         vals = tab.vals if type(tab) in (SubQ, JoinQ) else []
 
@@ -889,14 +942,14 @@ class DbBase(
         on.update(_on if _on else {})
         join = tab1_sel + " " + join_type + " join " + tab2_sel + " on "
         on_sql = ""
+        fm1 = tab1.field_map if type(tab1) is JoinQ else {}
+        fm2 = tab2.field_map if type(tab2) is JoinQ else {}
         for k, v in on.items():
-            qual_v = tab1_name + "." + v if "." not in v else v
-            qual_k = tab2_name + "." + k if "." not in k else k
-            on_sql += (
-                self.quote_keys(qual_k)
-                + "="
-                + self.quote_keys(qual_v)
-            )
+            qual_k = tab1_name + "." + k if "." not in k else k
+            qual_v = tab2_name + "." + v if "." not in v else v
+            qual_k = AlreadyAliased(qual_k) if qual_k in fm1 else qual_k
+            qual_v = AlreadyAliased(qual_v) if qual_v in fm2 else qual_v
+            on_sql += self.auto_quote(qual_k) + "=" + self.auto_quote(qual_v)
 
         if not field_map:
             # disambiguate all joined columns by default, if the caller doesn't do it for you
@@ -911,24 +964,37 @@ class DbBase(
             for fd in fd1:
                 if "." not in fd:
                     alias = tab1_name + "." + fd
+                    field_map[alias] = tab1_name + "." + fd
                 else:
                     alias = AlreadyAliased(fd)
-                field_map[alias] = alias
+                    field_map[alias] = alias
+                fd1_set.add(alias)
 
             for fd in fd2:
                 if fd in fd1_set:
-                    if "." not in fd:
-                        alias = tab2_name + "." + fd
+                    if "." in fd:
+                        field_map[fd] = AlreadyAliased(fd)
                     else:
-                        alias = AlreadyAliased(fd)
-                    field_map[alias] = alias
+                        alias = tab2_name + "." + fd
+                        field_map[alias] = alias
                 else:
-                    field_map[fd] = fd
+                    if "." in fd:
+                        field_map[fd] = AlreadyAliased(fd)
+                    else:
+                        alias = tab2_name + "." + fd
+                        field_map[alias] = alias
 
-        return JoinQ(self, tab1, tab2, sql=join + " " + on_sql, field_map=field_map, vals=vals)
+        return JoinQ(
+            self, tab1, tab2, sql=join + " " + on_sql, field_map=field_map, vals=vals
+        )
 
     def select_gen(
-        self, table: Union[str, BaseQType], fields=None, _where=None, order_by=None, **where
+        self,
+        table: Union[str, BaseQType],
+        fields=None,
+        _where=None,
+        order_by=None,
+        **where,
     ):
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
