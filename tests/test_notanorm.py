@@ -989,6 +989,9 @@ def test_join_fd_names(db):
     # this uses the mapping
     row = db.select_one(j1, {"foo.bar": 1})
     log.debug("row: %s", row)
+    assert row.oth__bar == 1
+    row.oth__bar = 4
+    assert row.oth__bar == 4
 
 
 def test_where_or(db):

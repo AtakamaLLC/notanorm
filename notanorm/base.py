@@ -208,9 +208,16 @@ class DbRow(dict):
         return self._asdict()
 
     def __getattr__(self, key):
-        return self[key]
+        try:
+            return self[key]
+        except KeyError:
+            # allow user to refer to table.field as table__field
+            return self[key.replace("__", ".")]
 
     def __setattr__(self, key, val):
+        alt_key = key.replace("__", ".")
+        if alt_key in self:
+            key = alt_key
         self[key] = val
 
     def __getitem__(self, key):
