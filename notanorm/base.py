@@ -335,12 +335,12 @@ class JoinQ(BaseQ):
                 else:
                     v = self.tab2.resolve_field(v)
 
-            if k in fd1:
+            if k in fd1 and type(self.tab1) is SubQ:
                 k = self.db.quote_key(k)
             else:
                 k = self.db.quote_keys(k)
 
-            if v in fd2:
+            if v in fd2 and type(self.tab2) is SubQ:
                 v = self.db.quote_key(v)
             else:
                 v = self.db.quote_keys(v)
@@ -1320,7 +1320,10 @@ class DbBase(
 
     def get_subq_col_names(self, tab: Union[str, BaseQType]):
         if getattr(tab, "fields", None):
-            return [AlreadyAliased(fd) for fd in tab.fields]
+            if type(tab) is SubQ:
+                return [AlreadyAliased(fd) for fd in tab.fields]
+            else:
+                return tab.fields
 
         if type(tab) is SubQ:
             tab = tab.table
