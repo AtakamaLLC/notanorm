@@ -14,6 +14,10 @@ class UnknownPrimaryError(SchemaError):
     pass
 
 
+class UnknownColumnError(SchemaError):
+    pass
+
+
 class TableNotFoundError(SchemaError):
     pass
 

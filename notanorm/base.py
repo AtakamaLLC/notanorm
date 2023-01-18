@@ -28,6 +28,7 @@ from .errors import (
     MoreThanOneError,
     DbClosedError,
     UnknownPrimaryError,
+    UnknownColumnError,
 )
 from .model import DbModel, DbTable
 from . import errors as err
@@ -104,14 +105,13 @@ class Op:
         return self.op == o.op and self.val == o.val
 
 
-class BaseQ:
+class BaseQ(ABC):
     _next = 0
+    fields = []
+    field_map = {}
 
-    def __init__(self, db: "DbBase", sql: str, vals: List[Any], alias: str):
+    def __init__(self, db):
         self.db = db
-        self.sql = sql
-        self.vals = vals
-        self.alias = alias
 
     @classmethod
     def next_num(cls):
@@ -121,6 +121,30 @@ class BaseQ:
     @classmethod
     def reset_num(cls) -> None:
         cls._next = 0
+
+    @abstractmethod
+    def resolve_field(self, field: str):
+        ...
+
+    def field_sql(self):
+        if not self.fields:
+            return "*"
+
+        if not self.field_map:
+            return ",".join(self.db.quote_key(fd) for fd in self.fields)
+
+        sql = ""
+        for name, qual_name in self.field_map.items():
+            if self.db.auto_quote(qual_name) != self.db.quote_key(name):
+                sql += (
+                    ", "
+                    + self.db.auto_quote(qual_name)
+                    + " as "
+                    + self.db.quote_key(name)
+                )
+            else:
+                sql += ", " + self.db.auto_quote(qual_name)
+        return sql.lstrip(",")
 
 
 BaseQType = TypeVar("BaseQType", bound=BaseQ)
@@ -136,13 +160,26 @@ class SubQ(BaseQ):
         alias=None,
         fields=None,
     ):
-        alias = alias or table + "_" + str(self.next_num())
-        super().__init__(db, sql, vals, alias=alias)
-        self.fields = fields
+        alias = alias or (table if table is str else "subq") + "_" + str(
+            self.next_num()
+        )
+
+        super().__init__(db)
+
+        self.sql = sql
+        self.vals = vals
+        self.alias = alias
+        self.fields = fields or []
+
         if type(table) is SubQ:
             self.table = table.table
         else:
             self.table = table
+
+    def resolve_field(self, field: str):
+        if self.fields and field not in self.fields:
+            raise UnknownColumnError(f"{field} not found in {self.fields}")
+        return self.alias + "." + field
 
 
 class JoinQ(BaseQ):
@@ -150,25 +187,166 @@ class JoinQ(BaseQ):
 
     def __init__(
         self,
-        db: "DbBase",
-        tab1: str,
-        tab2: str,
-        sql: str,
+        db: "T",
+        join_type: str,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        on: dict,
         field_map: dict,
-        vals: List[Any] = (),
     ):
+        super().__init__(db)
+
+        self.join_type = join_type
         self.tab1 = tab1
         self.tab2 = tab2
-        self.field_map = field_map
-        super().__init__(db, sql, vals, alias="join_" + str(self.next_num()))
+        self.on = on
+        self.vals = []
+        self.__sql = ""
+        self.__field_map = field_map
+        self.__fields = []
 
-    def field_sql(self):
+    @property
+    def sql(self) -> str:
+        if not self.__sql:
+            self.resolve()
+        return self.__sql
+
+    @property
+    def fields(self) -> list:
+        if not self.__sql:
+            self.resolve()
+        return self.__fields
+
+    @property
+    def field_map(self) -> dict:
+        if not self.__sql:
+            self.resolve()
+        return self.__field_map
+
+    def flat_tabs(self):
+        for tab in [self.tab1, self.tab2]:
+            if tab is self.tab1:
+                join = None
+            else:
+                join = self
+
+            if type(tab) is JoinQ:
+                for tab, subj in tab.flat_tabs():
+                    yield tab, subj or join
+            else:
+                yield tab, join
+
+    def resolve_field(self, field: str):
+        if field in self.db.get_subq_col_names(self.tab1):
+            return self.tab1 + "." + field
+        if field in self.db.get_subq_col_names(self.tab2):
+            return self.tab2 + "." + field
+        raise UnknownColumnError(f"{field} not found in {self.tab1} or {self.tab2}")
+
+    @staticmethod
+    def tab_to_sql(tab) -> [str, list]:
+        if type(tab) is JoinQ:
+            return tab.sql, []
+        if type(tab) is SubQ:
+            return "(" + tab.sql + ") as " + tab.alias, tab.vals
+        return tab, []
+
+    def resolve(self, ambig_cols=None):
+        flat_tabs = list(self.flat_tabs())
+
+        if ambig_cols is None:
+            all_cols = defaultdict(lambda: 0)
+
+            for tab, _ in flat_tabs:
+                for col in self.db.get_subq_col_names(tab):
+                    all_cols[col] += 1
+            ambig_cols = {k for k, v in all_cols.items() if v > 1}
+
         sql = ""
-        for name, qual_name in self.field_map.items():
-            sql += (
-                ", " + self.db.auto_quote(qual_name) + " as " + self.db.quote_key(name)
-            )
-        return sql.lstrip(",")
+        vals = []
+        for tab, join in flat_tabs:
+            if type(tab) is JoinQ:
+                tab.resolve(ambig_cols)
+            tab_sql, tab_vals = self.tab_to_sql(tab)
+            if not sql:
+                sql = tab_sql
+            else:
+                sql += " " + join.join_type + " join " + tab_sql
+                on_sql = join.get_on_sql()
+                sql += " on " + on_sql
+
+            vals += tab_vals
+
+        self.vals = vals
+
+        self.__sql = sql
+
+        if self.field_map:
+            self.__fields = list(self.field_map.keys())
+            return
+
+        fields = []
+        field_map = {}
+
+        wild = not ambig_cols
+        if not wild:
+            for tab, _ in flat_tabs:
+                cols = self.db.get_subq_col_names(tab)
+                for col in cols:
+                    if col in ambig_cols:
+                        alias = (tab if type(tab) is str else tab.alias) + "." + col
+                        if col in self.on and type(tab) is str:
+                            field_map[col] = alias
+                            field = col
+                        else:
+                            field_map[alias] = alias
+                            field = alias
+                    else:
+                        field_map[col] = col
+                        field = col
+                    fields.append(field)
+        self.__fields = fields
+        self.__field_map = field_map
+
+    def get_on_sql(self):
+        fd1 = (
+            self.db.get_subq_col_names(self.tab1)
+            if type(self.tab1) in (SubQ, JoinQ)
+            else []
+        )
+        fd2 = (
+            self.db.get_subq_col_names(self.tab2)
+            if type(self.tab2) in (SubQ, JoinQ)
+            else []
+        )
+
+        on_sql = ""
+        for k, v in self.on.items():
+            on_sql += " and " if on_sql else ""
+            if "." not in k:
+                if type(self.tab1) is str:
+                    k = self.tab1 + "." + k
+                else:
+                    k = self.tab1.resolve_field(k)
+
+            if "." not in v:
+                if type(self.tab2) is str:
+                    v = self.tab2 + "." + v
+                else:
+                    v = self.tab2.resolve_field(v)
+
+            if k in fd1:
+                k = self.db.quote_key(k)
+            else:
+                k = self.db.quote_keys(k)
+
+            if v in fd2:
+                v = self.db.quote_key(v)
+            else:
+                v = self.db.quote_keys(v)
+
+            on_sql += k + "=" + v
+        return on_sql
 
 
 class AlreadyAliased(str):
@@ -739,12 +917,17 @@ class DbBase(
         del_all(where, none_keys)
         del_all(where, (k[0] for k in list_keys))
         del_all(where, (k[0] for k in subq_keys))
+
+        where = {k.replace("__", "."): v for k, v in where.items()}
+
         field_map = field_map or {}
         sql = " and ".join(
             [
                 (
                     self.quote_key(field_map[key])
                     if key in field_map and type(field_map[key]) is AlreadyAliased
+                    else self.quote_keys(field_map[key])
+                    if key in field_map
                     else self.quote_keys(key)
                 )
                 + self._op_from_val(val).op
@@ -816,13 +999,8 @@ class DbBase(
             factory = where.pop("__class", fac) if not is_list(where) else fac
 
             if not fields:
-                if type(table) is JoinQ and table.field_map:
-                    field_map = table.field_map
-
-                    sql += ", ".join(
-                        self.auto_quote(fd) + " as " + self.quote_key(alias)
-                        for alias, fd in field_map.items()
-                    )
+                if type(table) in (JoinQ, SubQ) and table.field_map:
+                    sql += table.field_sql()
                 else:
                     sql += "*"
             else:
@@ -831,9 +1009,11 @@ class DbBase(
             if type(table) is JoinQ:
                 sql += " from " + table.sql
                 vals += table.vals
+                field_map = table.field_map
             elif type(table) is SubQ:
                 sql += " from (" + table.sql + ") as " + table.alias
                 vals += table.vals
+                field_map = table.field_map
             elif " join " not in table.lower():
                 sql += " from " + self.quote_key(table)
             else:
@@ -934,66 +1114,17 @@ class DbBase(
 
     def _join(
         self,
-        join_type,
+        join_type: str,
         tab1: Union[str, BaseQType],
         tab2: Union[str, BaseQType],
-        _on=None,
+        _on: Optional[Dict[str, str]] = None,
         *,
         field_map=None,
         **on,
     ):
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
-        tab1_sel, tab1_name, tab1_vals = self._join_to_sql(tab1, as_subq=True)
-        tab2_sel, tab2_name, tab2_vals = self._join_to_sql(tab2, as_subq=True)
-        vals = tab1_vals + tab2_vals
         on.update(_on if _on else {})
-        join = tab1_sel + " " + join_type + " join " + tab2_sel + " on "
-        on_sql = ""
-        fm1 = tab1.field_map if type(tab1) is JoinQ else {}
-        fm2 = tab2.field_map if type(tab2) is JoinQ else {}
-        for k, v in on.items():
-            qual_k = tab1_name + "." + k if "." not in k else k
-            qual_v = tab2_name + "." + v if "." not in v else v
-            qual_k = AlreadyAliased(qual_k) if qual_k in fm1 else qual_k
-            qual_v = AlreadyAliased(qual_v) if qual_v in fm2 else qual_v
-            on_sql += self.auto_quote(qual_k) + "=" + self.auto_quote(qual_v)
-
-        if not field_map:
-            # disambiguate all joined columns by default, if the caller doesn't do it for you
-            # note: mysql does something like this automatically, but other db engines do not
-
-            field_map = {}
-
-            fd1 = self._get_subq_col_names(tab1, True)
-            fd2 = self._get_subq_col_names(tab2, True)
-            fd1_set = set(fd1)
-
-            for fd in fd1:
-                if "." not in fd:
-                    alias = tab1_name + "." + fd
-                    field_map[alias] = tab1_name + "." + fd
-                else:
-                    alias = AlreadyAliased(fd)
-                    field_map[alias] = alias
-                fd1_set.add(alias)
-
-            for fd in fd2:
-                if fd in fd1_set:
-                    if "." in fd:
-                        field_map[fd] = AlreadyAliased(fd)
-                    else:
-                        alias = tab2_name + "." + fd
-                        field_map[alias] = alias
-                else:
-                    if "." in fd:
-                        field_map[fd] = AlreadyAliased(fd)
-                    else:
-                        alias = tab2_name + "." + fd
-                        field_map[alias] = alias
-
-        return JoinQ(
-            self, tab1, tab2, sql=join + " " + on_sql, field_map=field_map, vals=vals
-        )
+        return JoinQ(self, join_type, tab1, tab2, on=on, field_map=field_map)
 
     def select_gen(
         self,
@@ -1187,15 +1318,13 @@ class DbBase(
         tab_mod = self.__model_cache[tab]
         return tab_mod.columns
 
-    def _get_subq_col_names(self, tab: Union[str, BaseQType], as_aliases):
+    def get_subq_col_names(self, tab: Union[str, BaseQType]):
+        if getattr(tab, "fields", None):
+            return [AlreadyAliased(fd) for fd in tab.fields]
+
         if type(tab) is SubQ:
             tab = tab.table
+            return self.get_subq_col_names(tab)
 
         if type(tab) is str:
             return [col.name for col in self._get_table_cols(tab)]
-
-        if type(tab) is JoinQ:
-            if as_aliases:
-                return list(tab.field_map.keys())
-            else:
-                return list(tab.field_map.values())

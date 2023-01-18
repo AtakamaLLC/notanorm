@@ -854,12 +854,25 @@ def test_exec_script(db):
     db.insert("bar", y=2)
 
 
-def create_and_fill_test_db(db, num, tab="foo"):
-    db.query(
-        f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)"
-    )
+def create_and_fill_test_db(db, num, tab="foo", **fds):
+    if not fds:
+        fds = {
+            "bar": "integer primary key",
+            "baz": "integer not null",
+            "cnt": "integer default 0",
+        }
+    fd_sql = ",".join(fd + " " + typ for fd, typ in fds.items())
+    db.query(f"CREATE table {tab} ({fd_sql})")
     for ins in range(num):
-        db.insert(tab, bar=ins, baz=0)
+        vals = {
+            nm: ins
+            if typ in ("integer primary key", "integer")
+            else 0
+            if typ == "integer not null"
+            else None
+            for nm, typ in fds.items()
+        }
+        db.insert(tab, **vals)
 
 
 @pytest.mark.db("sqlite")
@@ -946,6 +959,22 @@ def test_join_subqs(db):
     )
 
 
+def test_subqify_join(db):
+    create_and_fill_test_db(db, 5, "x", xid="integer primary key", yid="integer")
+    create_and_fill_test_db(db, 5, "y", yid="integer primary key", zid="integer")
+    create_and_fill_test_db(
+        db, 5, "z", zid="integer primary key", oth="integer default 0"
+    )
+    j1 = db.join("x", "y", yid="yid")
+    assert len(db.select(j1, xid=1)) == 1
+    sub = db.subq(j1, xid=[1, 3])
+    assert len(db.select(sub, xid=1)) == 1
+    row = db.select_one(sub, xid=1)
+    assert row.zid == 1
+    j2 = db.join(sub, "z", zid="zid")
+    assert len(db.select(j2, xid=1)) == 1
+
+
 def test_multi_join_explicit_mappings(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
@@ -977,7 +1006,8 @@ def test_multi_join_auto_left(db):
     j1 = db.join("foo", "oth", bar="bar")
     j2a = db.join("thrd", j1, bar="foo.bar")
 
-    assert len(db.select(j2a, {"bar": 1})) == 1
+    assert len(db.select(j2a, {"foo.bar": 1})) == 1
+    assert len(db.select(j2a, foo__bar=1)) == 1
 
 
 def test_join_fd_names(db):
@@ -985,13 +1015,14 @@ def test_join_fd_names(db):
     create_and_fill_test_db(db, 5, "oth")
     # this creates a mapping of fields
     j1 = db.join("foo", "oth", bar="bar")
-    log.debug("j1: %s", j1.sql)
-    # this uses the mapping
-    row = db.select_one(j1, {"foo.bar": 1})
+    # this uses the mapping and just picks one
+    row = db.select_one(j1, bar=1)
     log.debug("row: %s", row)
-    assert row.oth__bar == 1
-    row.oth__bar = 4
-    assert row.oth__bar == 4
+    assert row.bar == 1
+    assert row.foo__baz == 0
+    row.foo__baz = 4
+    assert row.foo__baz == 4
+    assert row["foo.baz"] == 4
 
 
 def test_where_or(db):
