@@ -983,7 +983,7 @@ class DbBase(
                 else:
                     sql += "*"
             else:
-                sql += ",".join(fields)
+                sql += ",".join(self.auto_quote(key) for key in fields)
 
             if type(table) is JoinQ:
                 sql += " from " + table.sql

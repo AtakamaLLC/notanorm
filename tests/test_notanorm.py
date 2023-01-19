@@ -879,7 +879,7 @@ def create_and_fill_test_db(db, num, tab="foo", **fds):
             "baz": "integer not null",
             "cnt": "integer default 0",
         }
-    fd_sql = ",".join(fd + " " + typ for fd, typ in fds.items())
+    fd_sql = ",".join(db.quote_key(fd) + " " + typ for fd, typ in fds.items())
     db.query(f"CREATE table {tab} ({fd_sql})")
     for ins in range(num):
         vals = {
@@ -964,15 +964,23 @@ def test_nested_subq(db):
 
 
 def test_subq_limited_fields_join(db):
-    create_and_fill_test_db(db, 5)
+    # use weird field name on purpose
+    create_and_fill_test_db(db, 5, select="integer primary key", baz="integer")
     create_and_fill_test_db(db, 5, "oth")
 
-    # subq limited to just bar, can't join on baz
-    with pytest.raises(err.UnknownColumnError):
-        db.select(db.join(db.subq("foo", fields=["bar"], bar=[1, 3]), "oth", baz="baz"))
+    # no limit
+    db.select(db.join(db.subq("foo", select=[1, 3]), "oth", baz="baz"))
 
-    # bar works tho
-    db.select(db.join(db.subq("foo", fields=["bar"], bar=[1, 3]), "oth", bar="bar"))
+    # subq limited to just 'select', so we can't join on 'baz', even tho you can without the limit
+    with pytest.raises(err.UnknownColumnError):
+        db.select(
+            db.join(db.subq("foo", fields=["select"], select=[1, 3]), "oth", baz="baz")
+        )
+
+    # 'select' as a field name works tho
+    db.select(
+        db.join(db.subq("foo", fields=["select"], select=[1, 3]), "oth", select="bar")
+    )
 
 
 def test_joinq_ambig_unknown_col_join(db):
