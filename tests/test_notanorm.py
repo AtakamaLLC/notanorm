@@ -236,6 +236,16 @@ def test_db_select_in(db):
     assert db.select("foo", bar=["hi", "ho"]) == res
 
 
+def test_db_select_explicit_field_map(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="hi")
+    db.insert("foo", bar="ho")
+
+    res = [DbRow({"x": "hi"}), DbRow({"x": "ho"})]
+
+    assert db.select("foo", fields={"x": "bar"}, bar=["hi", "ho"]) == res
+
+
 def test_db_select_join(db):
     db.query("create table foo (col text, d text)")
     db.query("create table baz (col text, d text)")

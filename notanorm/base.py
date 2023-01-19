@@ -110,7 +110,7 @@ class BaseQ(ABC):
     fields = []
     field_map = {}
 
-    def __init__(self, db):
+    def __init__(self, db: "DbBase"):
         self.db = db
 
     @classmethod
@@ -133,18 +133,7 @@ class BaseQ(ABC):
         if not self.field_map:
             return ",".join(self.db.quote_key(fd) for fd in self.fields)
 
-        sql = ""
-        for name, qual_name in self.field_map.items():
-            if self.db.auto_quote(qual_name) != self.db.quote_key(name):
-                sql += (
-                    ", "
-                    + self.db.auto_quote(qual_name)
-                    + " as "
-                    + self.db.quote_key(name)
-                )
-            else:
-                sql += ", " + self.db.auto_quote(qual_name)
-        return sql.lstrip(",")
+        return self.db.field_sql_from_map(self.field_map)
 
 
 BaseQType = TypeVar("BaseQType", bound=BaseQ)
@@ -205,22 +194,23 @@ class JoinQ(BaseQ):
         self.__field_map = field_map
         self.__fields = []
 
-    @property
-    def sql(self) -> str:
+    def __resolve_if_needed(self):
         if not self.__sql:
             self.resolve()
+
+    @property
+    def sql(self) -> str:
+        self.__resolve_if_needed()
         return self.__sql
 
     @property
     def fields(self) -> list:
-        if not self.__sql:
-            self.resolve()
+        self.__resolve_if_needed()
         return self.__fields
 
     @property
     def field_map(self) -> dict:
-        if not self.__sql:
-            self.resolve()
+        self.__resolve_if_needed()
         return self.__field_map
 
     def flat_tabs(self):
@@ -948,55 +938,46 @@ class DbBase(
 
         base_table = table.table if type(table) is SubQ else table
 
-        no_from = False
-        if (
-            type(table) is str
-            and table[0 : len(sql)].lower() == sql
-            and "from" in table.lower()
-        ):
-            sql = ""
-            no_from = True
-
-        if (isinstance(fields, dict) or dict_where) and where:
-            raise ValueError("Dict where cannot be mixed with kwargs")
-
-        if isinstance(fields, dict):
+        if isinstance(fields, dict) and not where and not dict_where:
             dict_where = fields
             fields = None
+
+        if dict_where and where:
+            raise ValueError("Dict where cannot be mixed with kwargs")
 
         if dict_where:
             where = dict_where
 
-        if fields and no_from:
-            raise ValueError("Specify field list or select statement, not both")
-
         vals = []
-        factory = None
-        field_map = None
-        if not no_from:
-            fac = self.__classes.get(base_table)
-            factory = where.pop("__class", fac) if not is_list(where) else fac
 
-            if not fields:
-                if type(table) in (JoinQ, SubQ):
-                    sql += table.field_sql()
-                else:
-                    sql += "*"
+        fac = self.__classes.get(base_table)
+        factory = where.pop("__class", fac) if not is_list(where) else fac
+
+        field_map = None
+        if not fields:
+            if type(table) in (JoinQ, SubQ):
+                sql += table.field_sql()
+            else:
+                sql += "*"
+        else:
+            if isinstance(fields, dict):
+                field_map = fields
+                sql += self.field_sql_from_map(fields)
             else:
                 sql += ",".join(self.auto_quote(key) for key in fields)
 
-            if type(table) is JoinQ:
-                sql += " from " + table.sql
-                vals += table.vals
-                field_map = table.field_map
-            elif type(table) is SubQ:
-                sql += " from (" + table.sql + ") as " + table.alias
-                vals += table.vals
-                field_map = table.field_map
-            elif " join " not in table.lower():
-                sql += " from " + self.quote_key(table)
-            else:
-                sql += " from " + table
+        if type(table) is JoinQ:
+            sql += " from " + table.sql
+            vals += table.vals
+            field_map = table.field_map
+        elif type(table) is SubQ:
+            sql += " from (" + table.sql + ") as " + table.alias
+            vals += table.vals
+            field_map = table.field_map
+        elif " join " not in table.lower():
+            sql += " from " + self.quote_key(table)
+        else:
+            sql += " from " + table
 
         where, where_vals = self._where(where, field_map)
         sql += where
@@ -1323,3 +1304,12 @@ class DbBase(
 
         if type(tab) is str:
             return [col.name for col in self._get_table_cols(tab)]
+
+    def field_sql_from_map(self, field_map: dict):
+        sql = ""
+        for name, qual_name in field_map.items():
+            if self.auto_quote(qual_name) != self.quote_key(name):
+                sql += ", " + self.auto_quote(qual_name) + " as " + self.quote_key(name)
+            else:
+                sql += ", " + self.auto_quote(qual_name)
+        return sql.lstrip(",")
