@@ -371,3 +371,6 @@ class SqliteDb(DbBase):
             if x.pk:
                 prim.add(x.name)
         return prim
+
+    def version(self):
+        return self.query("select sqlite_version() as ver")[0].ver

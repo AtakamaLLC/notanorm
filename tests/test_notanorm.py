@@ -36,6 +36,10 @@ def test_db_delete(db):
     assert not db.select("foo")
 
 
+def test_db_version(db):
+    assert db.version()
+
+
 def test_db_count(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -1001,6 +1005,10 @@ def test_limit(db: DbBase):
     assert len(db.select("foo", _limit=3, order_by="bar desc")) == 3
     assert len(list(db.select_gen("foo", _limit=1, order_by="bar desc"))) == 1
     assert len(list(db.select_gen("foo", _limit=0, order_by="bar desc"))) == 0
-    assert (
-        len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2))) == 2
-    )
+
+    if db.uri_name != "mysql":
+        # mysql doesn't support limits in where subqueries.  probably you shouldn't use them then, if you want stuff to be compat
+        assert (
+            len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2)))
+            == 2
+        )

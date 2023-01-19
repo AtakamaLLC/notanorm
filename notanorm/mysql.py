@@ -340,3 +340,6 @@ class MySqlDb(DbBase):
         )
 
         return ret
+
+    def version(self):
+        return self.query("select version() as ver")[0].ver
