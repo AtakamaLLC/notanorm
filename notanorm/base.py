@@ -181,7 +181,7 @@ class JoinQ(BaseQ):
         tab1: Union[str, BaseQType],
         tab2: Union[str, BaseQType],
         on: dict,
-        field_map: dict,
+        fields: Union[dict, list],
     ):
         super().__init__(db)
 
@@ -191,8 +191,8 @@ class JoinQ(BaseQ):
         self.on = on
         self.vals = []
         self.__sql = ""
-        self.__field_map = field_map
-        self.__fields = []
+        self.__field_map = fields if type(fields) is dict else {}
+        self.__fields = fields if type(fields) is list else []
 
     def __resolve_if_needed(self):
         if not self.__sql:
@@ -1022,7 +1022,14 @@ class DbBase(
         sql, vals, factory = self.__select_to_query(
             table, fields=fields, dict_where=_where, order_by=order_by, **where
         )
-        return SubQ(self, table, sql, vals, _alias, fields=fields)
+        return SubQ(
+            self,
+            table,
+            sql,
+            vals,
+            _alias,
+            fields=fields or getattr(table, "fields", None),
+        )
 
     def join(
         self,
@@ -1030,10 +1037,10 @@ class DbBase(
         tab2: Union[str, BaseQType],
         _on=None,
         *,
-        field_map=None,
+        fields=None,
         **on,
     ) -> JoinQ:
-        return self._join("inner", tab1, tab2, _on, field_map=field_map, **on)
+        return self._join("inner", tab1, tab2, _on, fields=fields, **on)
 
     def left_join(
         self,
@@ -1041,10 +1048,10 @@ class DbBase(
         tab2: Union[str, BaseQType],
         _on=None,
         *,
-        field_map=None,
+        fields=None,
         **on,
     ):
-        return self._join("left", tab1, tab2, _on, field_map=field_map, **on)
+        return self._join("left", tab1, tab2, _on, fields=fields, **on)
 
     def right_join(
         self,
@@ -1052,10 +1059,10 @@ class DbBase(
         tab2: Union[str, BaseQType],
         _on=None,
         *,
-        field_map=None,
+        fields=None,
         **on,
     ):
-        return self._join("right", tab1, tab2, _on, field_map=field_map, **on)
+        return self._join("right", tab1, tab2, _on, fields=fields, **on)
 
     def _join_to_sql(self, tab: Union[str, BaseQType], as_subq=False):
         sel = (
@@ -1079,12 +1086,12 @@ class DbBase(
         tab2: Union[str, BaseQType],
         _on: Optional[Dict[str, str]] = None,
         *,
-        field_map=None,
+        fields=None,
         **on,
     ):
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
         on.update(_on if _on else {})
-        return JoinQ(self, join_type, tab1, tab2, on=on, field_map=field_map)
+        return JoinQ(self, join_type, tab1, tab2, on=on, fields=fields)
 
     def select_gen(
         self,

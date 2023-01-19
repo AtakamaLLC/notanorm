@@ -1085,10 +1085,18 @@ def test_join_explicit_mappings(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(
-        db.join("foo", "oth", bar="bar", field_map={"z": "oth.bar", "x": "foo.bar"})
+        db.join("foo", "oth", bar="bar", fields={"z": "oth.bar", "x": "foo.bar"})
     )
     j2 = db.join("foo", j1, bar="x")
     assert db.select_one(j2, z=1).x == 1
+
+
+def test_join_explicit_fields(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    j1 = db.subq(db.join("foo", "oth", bar="bar", fields=["oth.bar"]))
+    j2 = db.join("foo", j1, bar="bar")
+    assert db.select_one(j2, bar=1).bar == 1
 
 
 def test_join_2_subqs_same_tab(db):
