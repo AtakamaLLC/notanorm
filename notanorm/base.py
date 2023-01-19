@@ -784,8 +784,9 @@ class DbBase(
         )
         return self.query_gen(sql, *vals, factory=factory)
 
+    @abstractmethod
     def version(self):
-        return None
+        ...
 
     def count(self, table, where=None, **kws):
         if where and kws:
