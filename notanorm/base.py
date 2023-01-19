@@ -231,22 +231,26 @@ class JoinQ(BaseQ):
                 join = self
 
             if type(tab) is JoinQ:
-                for tab, subj in tab.flat_tabs():
-                    yield tab, subj or join
+                for sub_tab, subj in tab.flat_tabs():
+                    yield sub_tab, subj or join
             else:
                 yield tab, join
 
     def resolve_field(self, field: str):
-        if field in self.db.get_subq_col_names(self.tab1):
-            return self.tab1 + "." + field
-        if field in self.db.get_subq_col_names(self.tab2):
-            return self.tab2 + "." + field
+        ret = None
+        for tab in (self.tab1, self.tab2):
+            if field in self.db.get_subq_col_names(tab):
+                if ret is not None:
+                    raise UnknownColumnError(
+                        f"{field} found both in {self.tab1} and {self.tab2}, ambiguous join!"
+                    )
+                ret = tab + "." + field
+        if ret is not None:
+            return ret
         raise UnknownColumnError(f"{field} not found in {self.tab1} or {self.tab2}")
 
     @staticmethod
     def tab_to_sql(tab) -> [str, list]:
-        if type(tab) is JoinQ:
-            return tab.sql, []
         if type(tab) is SubQ:
             return "(" + tab.sql + ") as " + tab.alias, tab.vals
         return tab, []
@@ -265,8 +269,6 @@ class JoinQ(BaseQ):
         sql = ""
         vals = []
         for tab, join in flat_tabs:
-            if type(tab) is JoinQ:
-                tab.resolve(ambig_cols)
             tab_sql, tab_vals = self.tab_to_sql(tab)
             if not sql:
                 sql = tab_sql
@@ -309,44 +311,23 @@ class JoinQ(BaseQ):
         self.__field_map = field_map
 
     def get_on_sql(self):
-        fd1 = (
-            self.db.get_subq_col_names(self.tab1)
-            if type(self.tab1) in (SubQ, JoinQ)
-            else []
-        )
-        fd2 = (
-            self.db.get_subq_col_names(self.tab2)
-            if type(self.tab2) in (SubQ, JoinQ)
-            else []
-        )
-
         on_sql = ""
         for k, v in self.on.items():
             on_sql += " and " if on_sql else ""
-            if "." not in k:
-                if type(self.tab1) is str:
-                    k = self.tab1 + "." + k
-                else:
-                    k = self.tab1.resolve_field(k)
-
-            if "." not in v:
-                if type(self.tab2) is str:
-                    v = self.tab2 + "." + v
-                else:
-                    v = self.tab2.resolve_field(v)
-
-            if k in fd1 and type(self.tab1) is SubQ:
-                k = self.db.quote_key(k)
-            else:
-                k = self.db.quote_keys(k)
-
-            if v in fd2 and type(self.tab2) is SubQ:
-                v = self.db.quote_key(v)
-            else:
-                v = self.db.quote_keys(v)
-
+            k = self.__resolve_on_field(k, self.tab1)
+            v = self.__resolve_on_field(v, self.tab2)
             on_sql += k + "=" + v
         return on_sql
+
+    def __resolve_on_field(self, k, tab):
+        k = k.replace("__", ".")
+        if "." not in k:
+            if type(tab) is str:
+                k = tab + "." + k
+            else:
+                k = tab.resolve_field(k)
+        k = self.db.auto_quote(k)
+        return k
 
 
 class AlreadyAliased(str):
@@ -740,7 +721,7 @@ class DbBase(
                         if self.recon_failure_cb is not None:
                             try:
                                 self.recon_failure_cb()
-                            except Exception:
+                            except Exception:  # noqa
                                 log.exception("Exception in recon_failure_cb")
                         raise
                     sleep_time = backoff
@@ -787,10 +768,8 @@ class DbBase(
         self.debug_args = args
         log.debug("SQL: %s, ARGS%s", sql, str(args))
 
-    def query_gen(self, sql: str, *args, factory=None):
+    def query_gen(self, sql: str, *args, factory=None) -> Generator[DbRow, None, None]:
         """Same as query, but returns a generator."""
-        fetch = None
-
         try:
             fetch = self.execute(sql, tuple(args), write=False)
         except Exception as ex:
@@ -817,7 +796,7 @@ class DbBase(
             if fetch:
                 fetch.close()
 
-    def query(self, sql: str, *args, factory=None):
+    def query(self, sql: str, *args, factory=None) -> List[DbRow]:
         """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
         fetch = None
 
@@ -999,7 +978,7 @@ class DbBase(
             factory = where.pop("__class", fac) if not is_list(where) else fac
 
             if not fields:
-                if type(table) in (JoinQ, SubQ) and table.field_map:
+                if type(table) in (JoinQ, SubQ):
                     sql += table.field_sql()
                 else:
                     sql += "*"
@@ -1040,7 +1019,7 @@ class DbBase(
         _where=None,
         order_by=None,
         **where,
-    ):
+    ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
         """
@@ -1057,7 +1036,7 @@ class DbBase(
         order_by=None,
         _alias=None,
         **where,
-    ):
+    ) -> SubQ:
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
         sql, vals, factory = self.__select_to_query(
             table, fields=fields, dict_where=_where, order_by=order_by, **where
@@ -1072,7 +1051,7 @@ class DbBase(
         *,
         field_map=None,
         **on,
-    ):
+    ) -> JoinQ:
         return self._join("inner", tab1, tab2, _on, field_map=field_map, **on)
 
     def left_join(
@@ -1133,7 +1112,7 @@ class DbBase(
         _where=None,
         order_by=None,
         **where,
-    ):
+    ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
             table, fields=fields, dict_where=_where, order_by=order_by, **where
@@ -1298,7 +1277,7 @@ class DbBase(
 
         self.upsert(table, where, **vals)
 
-    def select_one(self, table, fields=None, **where):
+    def select_one(self, table, fields=None, **where) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1311,6 +1290,19 @@ class DbBase(
         if ret:
             return ret[0]
         return None
+
+    def select_any_one(self, table, fields=None, **where) -> Optional[DbRow]:
+        """Select one row.
+
+        Returns None if not found.
+
+        Returns the first one found if there is more than one result.
+        """
+        ret = self.select_gen(table, fields, **where)
+        try:
+            return next(ret)
+        except StopIteration:
+            return None
 
     def _get_table_cols(self, tab: str):
         if not self.__model_cache:

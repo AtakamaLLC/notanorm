@@ -153,6 +153,24 @@ def test_db_select_gen_ex(db):
             pass
 
 
+def test_db_select_gen_close_fetch(db):
+    create_and_fill_test_db(db, 5)
+    with pytest.raises(ValueError):
+        generator = db.select_gen("foo")
+        one = generator
+        next(one)
+        raise ValueError
+    assert db.select_any_one("foo")
+
+
+def test_db_select_any_one(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 0, "oth")
+    assert db.select_any_one("foo").bar is not None
+
+    assert db.select_any_one("oth") is None
+
+
 def test_db_tab_not_found(db):
     db.query("create table foo (bar integer)")
     with pytest.raises(notanorm.errors.TableNotFoundError):
@@ -935,6 +953,54 @@ def test_subq(db):
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
+def test_nested_subq(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert len(
+        db.select(
+            db.subq(db.subq("foo", bar=db.subq("oth", ["bar"], bar=[1, 3])), baz=0)
+        )
+    )
+
+
+def test_subq_limited_fields_join(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+
+    # subq limited to just bar, can't join on baz
+    with pytest.raises(err.UnknownColumnError):
+        db.select(db.join(db.subq("foo", fields=["bar"], bar=[1, 3]), "oth", baz="baz"))
+
+    # bar works tho
+    db.select(db.join(db.subq("foo", fields=["bar"], bar=[1, 3]), "oth", bar="bar"))
+
+
+def test_joinq_ambig_unknown_col_join(db):
+    create_and_fill_test_db(db, 5, "a")
+    create_and_fill_test_db(db, 5, "b")
+    create_and_fill_test_db(db, 5, "c")
+
+    with pytest.raises(err.UnknownColumnError):
+        # nested join... selecting "bar" automagically selects "bar" from the underlying table
+        # but it's ambiguous, so it should not succeed
+        db.select(db.join(db.join("a", "b", bar="bar"), "c", bar="bar"))
+
+    # being specific is fine
+    db.select(db.join(db.join("a", "b", bar="bar"), "c", a__bar="bar"))
+
+    # unknown col error 'bzz'
+    with pytest.raises(err.UnknownColumnError):
+        db.select(db.join(db.join("a", "b", bar="bar"), "c", bzz="bar"))
+
+
+def test_joinq_non_ambig_col(db):
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+    create_and_fill_test_db(db, 5, "c", cid="integer primary key", did="integer")
+
+    db.select(db.join(db.join("a", "b", bid="bid"), "c", cid="cid"))
+
+
 def test_select_subq(db):
     create_and_fill_test_db(db, 5)
     assert len(db.select(db.subq("foo", bar=[1, 3]), bar=1)) == 1
@@ -975,7 +1041,7 @@ def test_subqify_join(db):
     assert len(db.select(j2, xid=1)) == 1
 
 
-def test_multi_join_explicit_mappings(db):
+def test_multi_join_nested_left_right(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
@@ -997,11 +1063,37 @@ def test_multi_join_explicit_mappings(db):
     assert len(db.select(j3b, {"thrd.bar": 1})) == 1
 
 
+def test_join_explicit_mappings(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    j1 = db.subq(
+        db.join("foo", "oth", bar="bar", field_map={"z": "oth.bar", "x": "foo.bar"})
+    )
+    j2 = db.join("foo", j1, bar="x")
+    assert db.select_one(j2, z=1).x == 1
+
+
+def test_join_2_subqs_same_tab(db):
+    create_and_fill_test_db(db, 5)
+    s1 = db.subq("foo", bar=[1, 2, 3])
+    s2 = db.subq("foo", bar=[2, 3, 4])
+    jn = db.join(s1, s2, bar="bar")
+    assert len(db.select(jn)) == 2
+
+
+def test_join_2_subqs(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    s1 = db.subq("foo", bar=[1, 2, 3])
+    s2 = db.subq("foo", bar=[2, 3, 4])
+    jn = db.join(s1, s2, bar="bar")
+    assert len(db.select(jn)) == 2
+
+
 def test_multi_join_auto_left(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
-    create_and_fill_test_db(db, 5, "mor")
 
     j1 = db.join("foo", "oth", bar="bar")
     j2a = db.join("thrd", j1, bar="foo.bar")
