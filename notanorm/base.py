@@ -679,7 +679,9 @@ class DbBase(
                     vals.append(val)
         return sql, vals
 
-    def __select_to_query(self, table, *, fields, dict_where, order_by, **where):
+    def __select_to_query(
+        self, table, *, fields, dict_where, order_by, _limit, **where
+    ):
         sql = "select "
 
         no_from = False
@@ -726,28 +728,59 @@ class DbBase(
             assert ";" not in order_by_fd
             sql += " order by " + order_by_fd
 
+        if _limit is not None:
+            sql += " " + self.limit_query(_limit)
+
         return sql, vals, factory
 
-    def select(self, table, fields=None, _where=None, order_by=None, **where):
+    def limit_query(self, limit):
+        try:
+            rows, offset = limit
+            return f"limit {offset}, {rows}"
+        except TypeError:
+            return f"limit {limit}"
+
+    def select(
+        self, table, fields=None, _where=None, order_by=None, _limit=None, **where
+    ):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
         """
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=_where, order_by=order_by, **where
+            table,
+            fields=fields,
+            dict_where=_where,
+            order_by=order_by,
+            _limit=_limit,
+            **where,
         )
         return self.query(sql, *vals, factory=factory)
 
-    def subq(self, table, fields=None, _where=None, order_by=None, **where):
+    def subq(
+        self, table, fields=None, _where=None, order_by=None, _limit=None, **where
+    ):
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=_where, order_by=order_by, **where
+            table,
+            fields=fields,
+            dict_where=_where,
+            order_by=order_by,
+            _limit=_limit,
+            **where,
         )
         return SubQ(sql, vals)
 
-    def select_gen(self, table, fields=None, _where=None, order_by=None, **where):
+    def select_gen(
+        self, table, fields=None, _where=None, order_by=None, _limit=None, **where
+    ):
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=_where, order_by=order_by, **where
+            table,
+            fields=fields,
+            dict_where=_where,
+            order_by=order_by,
+            _limit=_limit,
+            **where,
         )
         return self.query_gen(sql, *vals, factory=factory)
 

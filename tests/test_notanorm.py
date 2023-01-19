@@ -993,3 +993,14 @@ def test_db_larger_types(db):
     # Otherwise, the comparison will fail.
     db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
     assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
+
+
+def test_limit(db: DbBase):
+    create_and_fill_test_db(db, 5)
+    assert len(db.select("foo", _limit=3)) == 3
+    assert len(db.select("foo", _limit=3, order_by="bar desc")) == 3
+    assert len(list(db.select_gen("foo", _limit=1, order_by="bar desc"))) == 1
+    assert len(list(db.select_gen("foo", _limit=0, order_by="bar desc"))) == 0
+    assert (
+        len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2))) == 2
+    )
