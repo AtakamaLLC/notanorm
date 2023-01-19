@@ -735,7 +735,7 @@ class DbBase(
 
     def limit_query(self, limit):
         try:
-            rows, offset = limit
+            offset, rows = limit
             return f"limit {offset}, {rows}"
         except TypeError:
             return f"limit {limit}"

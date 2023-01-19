@@ -999,7 +999,7 @@ def test_db_larger_types(db):
     assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
 
 
-def test_limit(db: DbBase):
+def test_limit_rowcnt(db: DbBase):
     create_and_fill_test_db(db, 5)
     assert len(db.select("foo", _limit=3)) == 3
     assert len(db.select("foo", _limit=3, order_by="bar desc")) == 3
@@ -1012,3 +1012,12 @@ def test_limit(db: DbBase):
             len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2)))
             == 2
         )
+
+
+def test_limit_offset(db: DbBase):
+    create_and_fill_test_db(db, 5)
+    assert len(db.select("foo", _limit=(1, 3))) == 3
+    assert db.select("foo", _limit=(2, 2), order_by="bar")[0].bar == 2
+    assert len(db.select("foo", _limit=(1, 3), order_by="bar desc")) == 3
+    assert list(db.select_gen("foo", _limit=(0, 3), order_by="bar desc"))[0].bar == 4
+    assert len(list(db.select_gen("foo", _limit=(4, 0), order_by="bar desc"))) == 0
