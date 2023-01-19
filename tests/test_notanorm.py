@@ -169,6 +169,7 @@ def test_db_select_any_one(db):
     assert db.select_any_one("foo").bar is not None
 
     assert db.select_any_one("oth") is None
+    assert db.select_one("oth") is None
 
 
 def test_db_tab_not_found(db):
@@ -1017,6 +1018,32 @@ def test_joinq_non_ambig_col(db):
     create_and_fill_test_db(db, 5, "c", cid="integer primary key", did="integer")
 
     db.select(db.join(db.join("a", "b", bid="bid"), "c", cid="cid"))
+
+
+def test_joinq_left(db):
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 3, "b", bid="integer primary key", cid="integer")
+
+    assert "left" in db.left_join("a", "b", bid="bid").sql
+
+    rows = db.select(db.left_join("a", "b", bid="bid"))
+
+    assert len(rows) == 5
+    assert len(list(row for row in rows if row.cid is not None)) == 3
+
+
+def test_joinq_right(db_mysql):
+    # sqlite does not support right joins
+    db = db_mysql
+    create_and_fill_test_db(db, 3, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+
+    assert "right" in db.right_join("a", "b", bid="bid").sql
+
+    rows = db.select(db.right_join("a", "b", bid="bid"))
+
+    assert len(rows) == 5
+    assert len(list(row for row in rows if row.aid is not None)) == 3
 
 
 def test_select_subq(db):

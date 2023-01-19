@@ -1064,21 +1064,6 @@ class DbBase(
     ):
         return self._join("right", tab1, tab2, _on, fields=fields, **on)
 
-    def _join_to_sql(self, tab: Union[str, BaseQType], as_subq=False):
-        sel = (
-            self.quote_key(tab)
-            if type(tab) is str
-            else "(" + tab.sql + ") as " + tab.alias
-            if type(tab) is SubQ
-            else f"(select {tab.field_sql()} from " + tab.sql + ") as " + tab.alias
-            if type(tab) is JoinQ and as_subq
-            else tab.sql
-        )
-        name = tab.alias if type(tab) in (SubQ, JoinQ) else tab
-        vals = tab.vals if type(tab) in (SubQ, JoinQ) else []
-
-        return sel, name, vals
-
     def _join(
         self,
         join_type: str,
