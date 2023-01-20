@@ -1,5 +1,13 @@
 from .base import DbBase, parse_bool
-from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField, DbColCustomInfo
+from .model import (
+    DbType,
+    DbModel,
+    DbTable,
+    DbCol,
+    DbIndex,
+    DbIndexField,
+    DbColCustomInfo,
+)
 from . import errors as err
 
 import re
@@ -157,7 +165,10 @@ class MySqlDb(DbBase):
         }
     )
     _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
-    _type_map_custom = {"mediumtext": DbColCustomInfo("mysql", "medium"), "text": DbColCustomInfo("mysql", "small")}
+    _type_map_custom = {
+        "mediumtext": DbColCustomInfo("mysql", "medium"),
+        "text": DbColCustomInfo("mysql", "small"),
+    }
 
     def create_table(self, name, schema: DbTable, ignore_existing=False):
         coldefs = []
@@ -349,7 +360,7 @@ class MySqlDb(DbBase):
             notnull=not autoinc_primary and info.null == "NO",
             default=info.default,
             autoinc=info.extra == "auto_increment",
-            custom=custom
+            custom=custom,
         )
 
         return ret

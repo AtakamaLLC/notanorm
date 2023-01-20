@@ -280,7 +280,11 @@ class SqliteDb(DbBase):
             new_cols = []
             for coldef in tdef.columns:
                 # sizes & fixed-width specifiers are ignored in sqlite
-                custom = coldef.custom if coldef.custom and coldef.custom.dialect == "sqlite" else None
+                custom = (
+                    coldef.custom
+                    if coldef.custom and coldef.custom.dialect == "sqlite"
+                    else None
+                )
                 newcol = DbCol(
                     name=coldef.name,
                     typ=coldef.typ,

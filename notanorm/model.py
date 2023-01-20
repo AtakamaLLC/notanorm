@@ -3,7 +3,15 @@
 from enum import Enum
 from typing import NamedTuple, Tuple, Any, Set, Dict, Optional
 
-__all__ = ["DbType", "DbCol", "DbIndex", "DbIndexField", "DbTable", "DbModel", "DbColCustomInfo"]
+__all__ = [
+    "DbType",
+    "DbCol",
+    "DbIndex",
+    "DbIndexField",
+    "DbTable",
+    "DbModel",
+    "DbColCustomInfo",
+]
 
 
 class DbType(Enum):
