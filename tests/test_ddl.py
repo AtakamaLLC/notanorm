@@ -2,7 +2,16 @@ import sys
 import logging
 import pytest
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, DbIndexField, DbColCustomInfo
+from notanorm import (
+    DbModel,
+    DbCol,
+    DbType,
+    DbTable,
+    DbIndex,
+    DbBase,
+    DbIndexField,
+    DbColCustomInfo,
+)
 import notanorm.errors as err
 from notanorm.model import ExplicitNone
 
@@ -407,5 +416,5 @@ def test_custom_creat(db: "DbBase"):
         assert src_mod == db_mod
     else:
         assert src_mod != db_mod
-    
+
     assert db.simplify_model(src_mod) == db.simplify_model(db_mod)
