@@ -184,7 +184,7 @@ class MySqlDb(DbBase):
                     typ = "mediumtext"
                 elif col.custom.info == "small":
                     typ = "text"
-                else:
+                else:  # pragma: no cover
                     assert False, "unknown custom info"
             elif col.size and col.typ == DbType.TEXT:
                 if col.fixed:
