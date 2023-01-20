@@ -1,5 +1,5 @@
 from .base import DbBase, parse_bool
-from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField
+from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField, DbColCustomInfo
 from . import errors as err
 
 import re
@@ -134,7 +134,7 @@ class MySqlDb(DbBase):
         return prim
 
     _type_map = {
-        DbType.TEXT: "text",
+        DbType.TEXT: "longtext",
         DbType.BLOB: "blob",
         DbType.INTEGER: "bigint",
         DbType.BOOLEAN: "boolean",
@@ -153,10 +153,11 @@ class MySqlDb(DbBase):
             "longblob": DbType.BLOB,
             "tinytext": DbType.TEXT,
             "mediumtext": DbType.TEXT,
-            "longtext": DbType.TEXT,
+            "text": DbType.TEXT,
         }
     )
     _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
+    _type_map_custom = {"mediumtext": DbColCustomInfo("mysql", "medium"), "text": DbColCustomInfo("mysql", "small")}
 
     def create_table(self, name, schema: DbTable, ignore_existing=False):
         coldefs = []
@@ -167,7 +168,14 @@ class MySqlDb(DbBase):
 
         for col in schema.columns:
             coldef = "`" + col.name + "`"
-            if col.size and col.typ == DbType.TEXT:
+            if col.custom and col.typ == DbType.TEXT and col.custom.dialect == "mysql":
+                if col.custom.info == "medium":
+                    typ = "mediumtext"
+                elif col.custom.info == "small":
+                    typ = "text"
+                else:
+                    assert False, "unknown custom info"
+            elif col.size and col.typ == DbType.TEXT:
                 if col.fixed:
                     typ = "char"
                 else:
@@ -288,6 +296,8 @@ class MySqlDb(DbBase):
                     d["size"] = 8
                 if col.name in primary_fields:
                     d["notnull"] = True
+                if col.custom and col.custom.dialect == "mysql":
+                    d["custom"] = col.custom
                 col = DbCol(**d)
                 cols.append(col)
             model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
@@ -327,6 +337,8 @@ class MySqlDb(DbBase):
         else:
             typ = self._type_map_inverse[info.type]
 
+        custom = self._type_map_custom.get(info.type, None)
+
         autoinc_primary = in_primary and info.extra == "auto_increment"
 
         ret = DbCol(
@@ -337,6 +349,7 @@ class MySqlDb(DbBase):
             notnull=not autoinc_primary and info.null == "NO",
             default=info.default,
             autoinc=info.extra == "auto_increment",
+            custom=custom
         )
 
         return ret

@@ -3,7 +3,7 @@ from typing import Tuple, Dict, List, Any, Type
 
 from sqlglot import Expression, parse, exp
 
-from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone, DbIndexField
+from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone, DbIndexField, DbColCustomInfo
 from .sqlite import SqliteDb
 from . import errors as err
 
@@ -31,6 +31,8 @@ class DDLHelper:
         exp.DataType.Type.DECIMAL: DbType.DOUBLE,
         exp.DataType.Type.DOUBLE: DbType.DOUBLE,
         exp.DataType.Type.FLOAT: DbType.FLOAT,
+        exp.DataType.Type.MEDIUMTEXT: DbType.TEXT,
+        exp.DataType.Type.LONGTEXT: DbType.TEXT,
     }
 
     if has_varb:
@@ -49,6 +51,12 @@ class DDLHelper:
 
     FIXED_MAP = {
         exp.DataType.Type.CHAR,
+    }
+   
+    # custom info for weird types and the drivers that might care aboutthem
+    CUSTOM_MAP = {
+            ("mysql", exp.DataType.Type.MEDIUMTEXT): DbColCustomInfo("mysql", "medium"), 
+            ("mysql", exp.DataType.Type.TEXT): DbColCustomInfo("mysql", "small"), 
     }
 
     def __init__(self, ddl, *dialects):
@@ -203,9 +211,14 @@ class DDLHelper:
     def __info_to_model(cls, info, dialect) -> Tuple[DbCol, bool, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
-        fixed = typ.this in cls.FIXED_MAP
-        size = cls.SIZE_MAP.get(typ.this, 0)
-        typ = cls.TYPE_MAP[typ.this]
+        this = typ and typ.this
+        fixed = this in cls.FIXED_MAP
+        size = cls.SIZE_MAP.get(this, 0)
+        custom = cls.CUSTOM_MAP.get((dialect, this), None)
+        if not this:
+            typ = DbType.ANY
+        else:
+            typ = cls.TYPE_MAP[this]
         notnull = info.find(exp.NotNullColumnConstraint)
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
@@ -214,7 +227,7 @@ class DDLHelper:
 
         # sqlglot has no dedicated or well-known type for the 32 in VARCHAR(32)
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
-        expr = info.args["kind"].args.get("expressions")
+        expr = info.args["kind"] and info.args["kind"].args.get("expressions")
         if expr:
             size = int(expr[0].this)
 
@@ -242,6 +255,7 @@ class DDLHelper:
                 autoinc=bool(autoinc),
                 size=size,
                 fixed=fixed,
+                custom=custom,
             ),
             is_primary,
             is_unique,
