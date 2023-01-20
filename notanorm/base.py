@@ -745,6 +745,17 @@ class DbBase(
     ):
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
+
+        Special params:
+
+        fields: list of fields or dict of field-mappings*
+        _where: dict of condition clauses, can be used instead of keyword args
+        order_by: string, "colname asc" or "colname desc"
+        _limit: number limiting rows or tuple of (offset, limit)
+
+
+        If a dict is used as a positional in the 2nd arg, and there are no other where clauses,
+        this is a where clause, not a fields arg.
         """
         sql, vals, factory = self.__select_to_query(
             table,
@@ -759,7 +770,11 @@ class DbBase(
     def subq(
         self, table, fields=None, _where=None, order_by=None, _limit=None, **where
     ):
-        """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
+        """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
+
+
+        Same params as select.
+        """
         sql, vals, factory = self.__select_to_query(
             table,
             fields=fields,
