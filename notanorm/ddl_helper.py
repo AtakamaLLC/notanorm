@@ -3,7 +3,16 @@ from typing import Tuple, Dict, List, Any, Type
 
 from sqlglot import Expression, parse, exp
 
-from .model import DbType, DbCol, DbIndex, DbTable, DbModel, ExplicitNone, DbIndexField, DbColCustomInfo
+from .model import (
+    DbType,
+    DbCol,
+    DbIndex,
+    DbTable,
+    DbModel,
+    ExplicitNone,
+    DbIndexField,
+    DbColCustomInfo,
+)
 from .sqlite import SqliteDb
 from . import errors as err
 
@@ -52,11 +61,11 @@ class DDLHelper:
     FIXED_MAP = {
         exp.DataType.Type.CHAR,
     }
-   
+
     # custom info for weird types and the drivers that might care aboutthem
     CUSTOM_MAP = {
-            ("mysql", exp.DataType.Type.MEDIUMTEXT): DbColCustomInfo("mysql", "medium"), 
-            ("mysql", exp.DataType.Type.TEXT): DbColCustomInfo("mysql", "small"), 
+        ("mysql", exp.DataType.Type.MEDIUMTEXT): DbColCustomInfo("mysql", "medium"),
+        ("mysql", exp.DataType.Type.TEXT): DbColCustomInfo("mysql", "small"),
     }
 
     def __init__(self, ddl, *dialects):
