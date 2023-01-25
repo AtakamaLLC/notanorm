@@ -1023,7 +1023,7 @@ def test_limit_offset(db: DbBase):
     assert len(list(db.select_gen("foo", _limit=(4, 0), order_by="bar desc"))) == 0
 
 
-def test_type_translation_mysql(db: DbBase):
+def test_type_translation_mysql_dialect(db: DbBase):
     # mysql-compatible types that can be used with sqlite
     schema = """
         CREATE table foo (
@@ -1039,54 +1039,6 @@ def test_type_translation_mysql(db: DbBase):
         """
 
     schema_model = notanorm.model_from_ddl(schema, "mysql")
-
-    db.execute(schema)
-    exec_model = db.model()
-
-    assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
-
-
-def test_type_translation_sqlite(db: DbBase):
-    # sqlite-compatible types that can be used with mysql
-    schema = """
-        CREATE table foo (
-            a tinytext,
-            b longtext,
-            c mediumtext,
-            d tinyint,
-            e smallint,
-            f bigint,
-            g int,
-            h real,
-            i integer primary key
-        )
-        """
-
-    schema_model = notanorm.model_from_ddl(schema, "sqlite")
-
-    db.execute(schema)
-    exec_model = db.model()
-
-    assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
-
-
-def test_type_translation_any(db: DbBase):
-    # choose a dialect for me
-    schema = """
-        CREATE table foo (
-            a tinytext,
-            b longtext,
-            c mediumtext,
-            d tinyint,
-            e smallint,
-            f bigint,
-            g int,
-            h real,
-            i integer primary key
-        )
-        """
-
-    schema_model = notanorm.model_from_ddl(schema)
 
     db.execute(schema)
     exec_model = db.model()
