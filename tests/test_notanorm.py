@@ -1026,7 +1026,7 @@ def test_limit_offset(db: DbBase):
 def test_type_translation(db: DbBase):
     schema = """
         CREATE table foo (
-            a tinytext,
+            a tinytext primary key,
             b longtext,
             c mediumtext,
             d tinyint,
@@ -1034,7 +1034,7 @@ def test_type_translation(db: DbBase):
             f bigint,
             g int,
             h real,
-            i integer primary key autoincrement
+            i integer
         )
         """
 
