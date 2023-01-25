@@ -1043,6 +1043,4 @@ def test_type_translation(db: DbBase):
     db.execute(schema)
     exec_model = db.model()
 
-    log.warning(exec_model)
-
     assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
