@@ -1024,29 +1024,6 @@ def test_limit_offset(db: DbBase):
 
 
 def test_type_translation_mysql(db: DbBase):
-    # mysql types that can be used with sqlite
-    schema = """
-        CREATE table foo (
-            a text,
-            b longtext,
-            c mediumtext,
-            d integer,
-            e tinyint,
-            f smallint,
-            g bigint,
-            h int
-        )
-        """
-
-    schema_model = notanorm.model_from_ddl(schema, "mysql")
-
-    db.execute(schema)
-    exec_model = db.model()
-
-    assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
-
-
-def test_type_translation_mysql(db: DbBase):
     # mysql-compatible types that can be used with sqlite
     schema = """
         CREATE table foo (
