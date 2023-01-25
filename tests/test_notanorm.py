@@ -1044,3 +1044,14 @@ def test_type_translation_mysql_dialect(db: DbBase):
     exec_model = db.model()
 
     assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
+
+
+def test_clob_invalid():
+    schema = """
+        CREATE table no_clob (
+            a clob
+        )
+        """
+
+    with pytest.raises(ValueError):
+        _ = notanorm.model_from_ddl(schema, "sqlite")
