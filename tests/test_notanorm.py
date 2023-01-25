@@ -1021,3 +1021,28 @@ def test_limit_offset(db: DbBase):
     assert len(db.select("foo", _limit=(1, 3), order_by="bar desc")) == 3
     assert list(db.select_gen("foo", _limit=(0, 3), order_by="bar desc"))[0].bar == 4
     assert len(list(db.select_gen("foo", _limit=(4, 0), order_by="bar desc"))) == 0
+
+
+def test_type_translation(db: DbBase):
+    schema = """
+        CREATE table foo (
+            a tinytext primary key,
+            b longtext not null,
+            c mediumtext,
+            d clob,
+            e tinyint,
+            f smallint,
+            g bigint,
+            h int,
+            i real
+        )
+        """
+
+    schema_model = notanorm.model_from_ddl(schema)
+
+    db.execute(schema)
+    exec_model = db.model()
+
+    log.warning(exec_model)
+
+    assert db.simplify_model(exec_model) == db.simplify_model(schema_model)

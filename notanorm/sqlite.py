@@ -247,6 +247,9 @@ class SqliteDb(DbBase):
             "tinyint": DbType.INTEGER,
             "bigint": DbType.INTEGER,
             "clob": DbType.TEXT,
+            "tinytext": DbType.TEXT,
+            "mediumtext": DbType.TEXT,
+            "longtext": DbType.TEXT,
             "bool": DbType.BOOLEAN,
         }
     )
