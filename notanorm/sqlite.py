@@ -202,7 +202,7 @@ class SqliteDb(DbBase):
             try:
                 typ = cls._type_map_inverse[info.type.lower()]
             except KeyError:
-                typ = DbType.ANY
+                raise ValueError(f"Unsupported type: {info.type}")
 
         return DbCol(
             name=info.name,
@@ -246,7 +246,6 @@ class SqliteDb(DbBase):
             "smallint": DbType.INTEGER,
             "tinyint": DbType.INTEGER,
             "bigint": DbType.INTEGER,
-            "clob": DbType.TEXT,
             "tinytext": DbType.TEXT,
             "mediumtext": DbType.TEXT,
             "longtext": DbType.TEXT,
