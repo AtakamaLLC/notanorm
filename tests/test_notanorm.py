@@ -1024,7 +1024,7 @@ def test_limit_offset(db: DbBase):
 
 
 def test_type_translation_mysql_dialect(db: DbBase):
-    # mysql-compatible types that can be used with sqlite 
+    # mysql-compatible types that can be used with sqlite
     schema = """
         CREATE table foo (
             a text,
