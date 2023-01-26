@@ -29,6 +29,7 @@ class DDLHelper:
     # map of sqlglot expression types to internal model types
     TYPE_MAP = {
         exp.DataType.Type.INT: DbType.INTEGER,
+        exp.DataType.Type.SMALLINT: DbType.INTEGER,
         exp.DataType.Type.TINYINT: DbType.INTEGER,
         exp.DataType.Type.BIGINT: DbType.INTEGER,
         exp.DataType.Type.BOOLEAN: DbType.BOOLEAN,
