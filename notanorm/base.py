@@ -395,6 +395,7 @@ class DbBase(
     def capture_sql(
         self, execute=False
     ) -> Generator[List[Tuple[str, Tuple[Any, ...]]], None, None]:
+        """Use in a with block to return a list of sql statements and parameters."""
         self.__capture = True
         self.__capture_exec = execute
         self.__capture_stmts = []
@@ -404,13 +405,16 @@ class DbBase(
             self.__capture = False
 
     def create_model(self, model: DbModel, ignore_existing=False):
+        """Given a database model, create all the corresponding tables and indexes."""
         for name, schema in model.items():
             self.create_table(name, schema, ignore_existing)
 
-    def create_table(self, name, schema: DbTable, ignore_existing=False):
+    def create_table(
+        self, name, schema: DbTable, ignore_existing=False
+    ):  # pragma: no cover
         raise RuntimeError("Generic create table not supported")
 
-    def create_indexes(self, name, schema: DbTable):
+    def create_indexes(self, name, schema: DbTable):  # pragma: no cover
         raise RuntimeError("Generic create index not supported")
 
     def drop_index(self, table: str, index: DbIndex):
