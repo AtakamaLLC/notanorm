@@ -3,6 +3,7 @@
 NOTE: Make sure to close the db handle when you are done.
 """
 import contextlib
+import os
 import time
 import random
 import threading
@@ -18,7 +19,7 @@ from .errors import (
     DbClosedError,
     UnknownPrimaryError,
 )
-from .model import DbModel, DbTable
+from .model import DbModel, DbTable, DbIndex
 from . import errors as err
 
 
@@ -407,10 +408,24 @@ class DbBase(
             self.create_table(name, schema, ignore_existing)
 
     def create_table(self, name, schema: DbTable, ignore_existing=False):
-        raise RuntimeError("Generic models not supported")
+        raise RuntimeError("Generic create table not supported")
 
-    def create_indexes(self, name, schema: DbTable, ignore_existing=False):
-        raise RuntimeError("Generic models not supported")
+    def create_indexes(self, name, schema: DbTable):
+        raise RuntimeError("Generic create index not supported")
+
+    def drop_index(self, table: str, index: DbIndex):
+        for idx in self.model()[table].indexes:
+            if idx == index:
+                self.drop_index_by_name(table, index.name)
+
+    def drop_index_by_name(self, table: str, index_name):
+        sql = "drop index " + self.quote_key(index_name)
+        self.execute(sql)
+
+    @staticmethod
+    def unique_index_name(table, field_names):
+        # prefer urandom to secrets, less opaque
+        return "ix_" + table + "_" + "_".join(field_names) + "_" + os.urandom(16).hex()
 
     def executescript(self, sql):
         self.execute(sql, _script=True)
@@ -814,6 +829,21 @@ class DbBase(
         where, vals = self._where(where)
         sql += where
         return self.query(sql, *vals)[0]["k"]
+
+    def rename(self, table_from, table_to):
+        """Rename a table"""
+        sql = (
+            "alter table "
+            + self.quote_key(table_from)
+            + " rename to "
+            + self.quote_key(table_to)
+        )
+        return self.execute(sql)
+
+    def drop(self, table):
+        """Rename a table"""
+        sql = "drop table " + self.quote_key(table)
+        return self.execute(sql)
 
     def delete(self, table, where=None, **kws):
         """Delete all rows in a table that match the supplied value(s).

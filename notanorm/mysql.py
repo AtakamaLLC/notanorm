@@ -227,12 +227,12 @@ class MySqlDb(DbBase):
         create += ")"
         self.query(create)
 
-        self.create_indexes(name, schema, ignore_existing)
+        self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema: DbTable, ignore_existing=False):
+    def create_indexes(self, name, schema: DbTable):
         for idx in schema.indexes:
             if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
+                index_name = self.unique_index_name(name, (f.name for f in idx.fields))
                 unique = "unique " if idx.unique else ""
                 icreate = (
                     "create " + unique + "index " + index_name + " on " + name + " ("
@@ -242,11 +242,7 @@ class MySqlDb(DbBase):
                     for f in idx.fields
                 )
                 icreate += ")"
-                try:
-                    self.execute(icreate)
-                except err.OperationalError:
-                    if not ignore_existing:
-                        raise
+                self.execute(icreate)
 
     def model(self):
         tabs = self.query("show tables")
@@ -254,6 +250,12 @@ class MySqlDb(DbBase):
         for tab in tabs:
             ret[tab[0]] = self.table_model(tab[0])
         return ret
+
+    def drop_index_by_name(self, table: str, index_name):
+        sql = (
+            "drop index " + self.quote_key(index_name) + " on " + self.quote_key(table)
+        )
+        self.execute(sql)
 
     def table_model(self, tab):
         res = self.query("show index from  `" + tab + "`")
@@ -276,6 +278,7 @@ class MySqlDb(DbBase):
                     tuple(DbIndexField(**f) for f in fds),
                     primary=primary,
                     unique=unique,
+                    ix__name=name,
                 )
             )
 
