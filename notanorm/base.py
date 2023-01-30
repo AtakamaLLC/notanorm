@@ -3,6 +3,7 @@
 NOTE: Make sure to close the db handle when you are done.
 """
 import contextlib
+import os
 import time
 import random
 import threading
@@ -10,13 +11,25 @@ import logging
 from dataclasses import dataclass
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Any, Tuple, Generator, TypeVar, Optional, Callable
+from typing import (
+    Dict,
+    List,
+    Type,
+    Any,
+    Tuple,
+    Generator,
+    TypeVar,
+    Optional,
+    Callable,
+    Union,
+)
 
 from .errors import (
     OperationalError,
     MoreThanOneError,
     DbClosedError,
     UnknownPrimaryError,
+    UnknownColumnError,
 )
 from .model import DbModel, DbTable
 from . import errors as err
@@ -93,10 +106,217 @@ class Op:
         return self.op == o.op and self.val == o.val
 
 
-class SubQ:
-    def __init__(self, sql: str, vals: Tuple[Any] = ()):
+class BaseQ(ABC):
+    fields: List[str]
+    field_map = Dict[str, str]
+
+    def __init__(self, db: "DbBase"):
+        self.db = db
+
+    @classmethod
+    def unique_name(cls):
+        return os.urandom(16).hex()
+
+    @abstractmethod
+    def resolve_field(self, field: str):
+        ...
+
+    def field_sql(self):
+        if not self.fields:
+            return "*"
+
+        if not self.field_map:
+            return ",".join(self.db.quote_key(fd) for fd in self.fields)
+
+        return self.db.field_sql_from_map(self.field_map)
+
+
+BaseQType = TypeVar("BaseQType", bound=BaseQ)
+
+
+class SubQ(BaseQ):
+    def __init__(
+        self,
+        db: "DbBase",
+        table: Union[str, "SubQ"],
+        sql: str,
+        vals: List[Any] = (),
+        alias=None,
+        fields=None,
+    ):
+        alias = alias or (table if table is str else "subq") + "_" + self.unique_name()
+
+        super().__init__(db)
+
         self.sql = sql
         self.vals = vals
+        self.alias = alias
+        self.fields = fields or []
+        self.field_map = {}
+
+        if type(table) is SubQ:
+            self.table = table.table
+        else:
+            self.table = table
+
+    def resolve_field(self, field: str):
+        if self.fields and field not in self.fields:
+            raise UnknownColumnError(f"{field} not found in {self.fields}")
+        return self.alias + "." + field
+
+
+class JoinQ(BaseQ):
+    def __init__(
+        self,
+        db: "T",
+        join_type: str,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        on: dict,
+        fields: Union[dict, list],
+    ):
+        super().__init__(db)
+
+        self.join_type = join_type
+        self.tab1 = tab1
+        self.tab2 = tab2
+        self.on = on
+        self.vals = []
+        self.__sql = ""
+        self.__field_map = fields if type(fields) is dict else {}
+        self.__fields = fields if type(fields) is list else []
+
+    def __resolve_if_needed(self):
+        if not self.__sql:
+            self.resolve()
+
+    @property
+    def sql(self) -> str:
+        self.__resolve_if_needed()
+        return self.__sql
+
+    @property
+    def fields(self) -> list:
+        self.__resolve_if_needed()
+        return self.__fields
+
+    @property
+    def field_map(self) -> dict:
+        self.__resolve_if_needed()
+        return self.__field_map
+
+    def flat_tabs(self) -> Generator[Tuple[Union[str, SubQ], "JoinQ"], None, None]:
+        """Returns an inordered generator of all tables in all joins.
+
+        Second part of the tuple is the join that referenced them."""
+        for tab in [self.tab1, self.tab2]:
+            if tab is self.tab1:
+                join = None
+            else:
+                join = self
+
+            if type(tab) is JoinQ:
+                for sub_tab, subj in tab.flat_tabs():
+                    yield sub_tab, subj or join
+            else:
+                yield tab, join
+
+    def resolve_field(self, field: str):
+        ret = None
+        for tab in (self.tab1, self.tab2):
+            if field in self.db.get_subq_col_names(tab):
+                if ret is not None:
+                    raise UnknownColumnError(
+                        f"{field} found both in {self.tab1} and {self.tab2}, ambiguous join!"
+                    )
+                ret = tab + "." + field
+        if ret is not None:
+            return ret
+        raise UnknownColumnError(f"{field} not found in {self.tab1} or {self.tab2}")
+
+    @staticmethod
+    def tab_to_sql(tab) -> [str, list]:
+        if type(tab) is SubQ:
+            return "(" + tab.sql + ") as " + tab.alias, tab.vals
+        return tab, []
+
+    def resolve(self, ambig_cols=None):
+        flat_tabs = list(self.flat_tabs())
+
+        if ambig_cols is None:
+            all_cols = defaultdict(lambda: 0)
+
+            for tab, _ in flat_tabs:
+                for col in self.db.get_subq_col_names(tab):
+                    all_cols[col] += 1
+            ambig_cols = {k for k, v in all_cols.items() if v > 1}
+
+        sql = ""
+        vals = []
+        for tab, join in flat_tabs:
+            tab_sql, tab_vals = self.tab_to_sql(tab)
+            if not sql:
+                sql = tab_sql
+            else:
+                sql += " " + join.join_type + " join " + tab_sql
+                on_sql = join.get_on_sql()
+                sql += " on " + on_sql
+
+            vals += tab_vals
+
+        self.vals = vals
+
+        self.__sql = sql
+
+        if self.field_map:
+            self.__fields = list(self.field_map.keys())
+            return
+
+        fields = []
+        field_map = {}
+
+        wild = not ambig_cols
+        if not wild:
+            for tab, _ in flat_tabs:
+                cols = self.db.get_subq_col_names(tab)
+                for col in cols:
+                    if col in ambig_cols:
+                        alias = (tab if type(tab) is str else tab.alias) + "." + col
+                        if col in self.on and type(tab) is str:
+                            field_map[col] = alias
+                            field = col
+                        else:
+                            field_map[alias] = alias
+                            field = alias
+                    else:
+                        field_map[col] = col
+                        field = col
+                    fields.append(field)
+        self.__fields = fields
+        self.__field_map = field_map
+
+    def get_on_sql(self):
+        on_sql = ""
+        for k, v in self.on.items():
+            on_sql += " and " if on_sql else ""
+            k = self.__resolve_on_field(k, self.tab1)
+            v = self.__resolve_on_field(v, self.tab2)
+            on_sql += k + "=" + v
+        return on_sql
+
+    def __resolve_on_field(self, k, tab):
+        k = k.replace("__", ".")
+        if "." not in k:
+            if type(tab) is str:
+                k = tab + "." + k
+            else:
+                k = tab.resolve_field(k)
+        k = self.db.auto_quote(k)
+        return k
+
+
+class AlreadyAliased(str):
+    pass
 
 
 class DbRow(dict):
@@ -132,9 +352,16 @@ class DbRow(dict):
         return self._asdict()
 
     def __getattr__(self, key):
-        return self[key]
+        try:
+            return self[key]
+        except KeyError:
+            # allow user to refer to table.field as table__field
+            return self[key.replace("__", ".")]
 
     def __setattr__(self, key, val):
+        alt_key = key.replace("__", ".")
+        if alt_key in self:
+            key = alt_key
         self[key] = val
 
     def __getitem__(self, key):
@@ -261,6 +488,7 @@ class DbBase(
         else:
             self.r_lock = threading.RLock()
         self.__primary_cache = {}
+        self.__model_cache: Optional[DbModel] = None
         self.__classes = {}
         self._transaction = 0
         self._conn()
@@ -277,7 +505,7 @@ class DbBase(
         return cls.__known_drivers.get(name)
 
     @classmethod
-    def register_driver(cls, sub, name) -> Type["DbBase"]:
+    def register_driver(cls, sub, name):
         cls.__known_drivers[name] = sub
 
     @classmethod
@@ -433,7 +661,13 @@ class DbBase(
 
         return model
 
+    def clear_model_cache(self):
+        self.__model_cache = None
+
     def execute(self, sql: str, parameters=(), _script=False, write=True):
+        if "alter " in sql.lower() or "create " in sql.lower():
+            self.__model_cache = None
+
         self.__debug_sql(sql, parameters)
 
         if self.__capture:
@@ -454,6 +688,7 @@ class DbBase(
                     else:
                         self._executeone(cursor, sql, parameters)
                     break
+
             except Exception as exp:  # pylint: disable=broad-except
                 if cursor:
                     # cursor will be automatically closed on del, but better to do it explicitly
@@ -473,7 +708,7 @@ class DbBase(
                         if self.recon_failure_cb is not None:
                             try:
                                 self.recon_failure_cb()
-                            except Exception:
+                            except Exception:  # noqa
                                 log.exception("Exception in recon_failure_cb")
                         raise
                     sleep_time = backoff
@@ -520,10 +755,8 @@ class DbBase(
         self.debug_args = args
         log.debug("SQL: %s, ARGS%s", sql, str(args))
 
-    def query_gen(self, sql: str, *args, factory=None):
+    def query_gen(self, sql: str, *args, factory=None) -> Generator[DbRow, None, None]:
         """Same as query, but returns a generator."""
-        fetch = None
-
         try:
             fetch = self.execute(sql, tuple(args), write=False)
         except Exception as ex:
@@ -550,7 +783,7 @@ class DbBase(
             if fetch:
                 fetch.close()
 
-    def query(self, sql: str, *args, factory=None):
+    def query(self, sql: str, *args, factory=None) -> List[DbRow]:
         """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
         fetch = None
 
@@ -605,6 +838,11 @@ class DbBase(
         sql, vals = self._insql(table, ins, **vals)
         return self.execute(sql, tuple(vals))
 
+    def auto_quote(self, key: str):
+        return (
+            self.quote_key(key) if type(key) is AlreadyAliased else self.quote_keys(key)
+        )
+
     @classmethod
     def quote_key(cls, key: str) -> str:
         return '"' + key + '"'
@@ -618,7 +856,7 @@ class DbBase(
             return val
         return Op("=", val)
 
-    def _where(self, where):
+    def _where(self, where, field_map=None):
         if not where:
             return "", ()
 
@@ -626,29 +864,40 @@ class DbBase(
             sql = ""
             vals = []
             for ent in where:
-                sub_sql, sub_vals = self._where_base(ent)
+                sub_sql, sub_vals = self._where_base(ent, field_map)
                 if sql:
                     sql = sql + " or " + sub_sql
                 else:
                     sql = sub_sql
                 vals = vals + sub_vals
         else:
-            sql, vals = self._where_base(where)
+            sql, vals = self._where_base(where, field_map)
 
         return " where " + sql, vals
 
-    def _where_base(self, where):
+    def _where_base(self, where, field_map):
         none_keys = [key for key, val in where.items() if val is None]
         list_keys = [(key, val) for key, val in where.items() if is_list(val)]
-        subq_keys = [(key, val) for key, val in where.items() if type(val) == SubQ]
+        subq_keys = [(key, val) for key, val in where.items() if type(val) is SubQ]
 
         del_all(where, none_keys)
         del_all(where, (k[0] for k in list_keys))
         del_all(where, (k[0] for k in subq_keys))
 
+        where = {k.replace("__", "."): v for k, v in where.items()}
+
+        field_map = field_map or {}
         sql = " and ".join(
             [
-                self.quote_keys(key) + self._op_from_val(val).op + self.placeholder
+                (
+                    self.quote_key(field_map[key])
+                    if key in field_map and type(field_map[key]) is AlreadyAliased
+                    else self.quote_keys(field_map[key])
+                    if key in field_map
+                    else self.quote_keys(key)
+                )
+                + self._op_from_val(val).op
+                + self.placeholder
                 for key, val in where.items()
             ]
         )
@@ -680,45 +929,63 @@ class DbBase(
         return sql, vals
 
     def __select_to_query(
-        self, table, *, fields, dict_where, order_by, _limit, **where
+        self,
+        table: Union[str, BaseQType],
+        *,
+        fields,
+        dict_where,
+        order_by,
+        _limit,
+        **where,
     ):
         sql = "select "
 
-        no_from = False
-        if table[0 : len(sql)].lower() == sql and "from" in table.lower():
-            sql = ""
-            no_from = True
+        base_table = table.table if type(table) is SubQ else table
 
-        if (isinstance(fields, dict) or dict_where) and where:
-            raise ValueError("Dict where cannot be mixed with kwargs")
-
-        if isinstance(fields, dict):
+        if isinstance(fields, dict) and not where and not dict_where:
             dict_where = fields
             fields = None
+
+        if dict_where and where:
+            raise ValueError("Dict where cannot be mixed with kwargs")
 
         if dict_where:
             where = dict_where
 
-        if fields and no_from:
-            raise ValueError("Specify field list or select statement, not both")
+        vals = []
 
-        factory = None
-        if not no_from:
-            fac = self.__classes.get(table)
-            factory = where.pop("__class", fac) if not is_list(where) else fac
+        fac = self.__classes.get(base_table)
+        factory = where.pop("__class", fac) if not is_list(where) else fac
 
-            if not fields:
+        field_map = None
+        if not fields:
+            if type(table) in (JoinQ, SubQ):
+                sql += table.field_sql()
+            else:
                 sql += "*"
+        else:
+            if isinstance(fields, dict):
+                field_map = fields
+                sql += self.field_sql_from_map(fields)
             else:
-                sql += ",".join(fields)
+                sql += ",".join(self.auto_quote(key) for key in fields)
 
-            if " join " not in table.lower():
-                sql += " from " + self.quote_key(table)
-            else:
-                sql += " from " + table
+        if type(table) is JoinQ:
+            sql += " from " + table.sql
+            vals += table.vals
+            field_map = table.field_map
+        elif type(table) is SubQ:
+            sql += " from (" + table.sql + ") as " + table.alias
+            vals += table.vals
+            field_map = table.field_map
+        elif " join " not in table.lower():
+            sql += " from " + self.quote_key(table)
+        else:
+            sql += " from " + table
 
-        where, vals = self._where(where)
+        where, where_vals = self._where(where, field_map)
         sql += where
+        vals += where_vals
 
         if order_by:
             if isinstance(order_by, str):
@@ -741,8 +1008,14 @@ class DbBase(
             return f"limit {limit}"
 
     def select(
-        self, table, fields=None, _where=None, order_by=None, _limit=None, **where
-    ):
+        self,
+        table: Union[str, BaseQType],
+        fields=None,
+        _where=None,
+        order_by=None,
+        _limit=None,
+        **where,
+    ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
 
@@ -768,11 +1041,16 @@ class DbBase(
         return self.query(sql, *vals, factory=factory)
 
     def subq(
-        self, table, fields=None, _where=None, order_by=None, _limit=None, **where
-    ):
+        self,
+        table: Union[str, BaseQType],
+        fields=None,
+        _where=None,
+        order_by=None,
+        _limit=None,
+        _alias=None,
+        **where,
+    ) -> SubQ:
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
-
-
         Same params as select.
         """
         sql, vals, factory = self.__select_to_query(
@@ -783,11 +1061,71 @@ class DbBase(
             _limit=_limit,
             **where,
         )
-        return SubQ(sql, vals)
+        return SubQ(
+            self,
+            table,
+            sql,
+            vals,
+            _alias,
+            fields=fields or getattr(table, "fields", None),
+        )
+
+    def join(
+        self,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on=None,
+        *,
+        fields=None,
+        **on,
+    ) -> JoinQ:
+        return self._join("inner", tab1, tab2, _on, fields=fields, **on)
+
+    def left_join(
+        self,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on=None,
+        *,
+        fields=None,
+        **on,
+    ):
+        return self._join("left", tab1, tab2, _on, fields=fields, **on)
+
+    def right_join(
+        self,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on=None,
+        *,
+        fields=None,
+        **on,
+    ):
+        return self._join("right", tab1, tab2, _on, fields=fields, **on)
+
+    def _join(
+        self,
+        join_type: str,
+        tab1: Union[str, BaseQType],
+        tab2: Union[str, BaseQType],
+        _on: Optional[Dict[str, str]] = None,
+        *,
+        fields=None,
+        **on,
+    ):
+        """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
+        on.update(_on if _on else {})
+        return JoinQ(self, join_type, tab1, tab2, on=on, fields=fields)
 
     def select_gen(
-        self, table, fields=None, _where=None, order_by=None, _limit=None, **where
-    ):
+        self,
+        table: Union[str, BaseQType],
+        fields=None,
+        _where=None,
+        order_by=None,
+        _limit=None,
+        **where,
+    ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
             table,
@@ -863,7 +1201,7 @@ class DbBase(
 
         return where
 
-    def _setsql(self, table, where, upd, vals):
+    def _set_sql(self, where, vals):
         none_keys = [key for key, val in where.items() if val is None]
         del_all(where, none_keys)
 
@@ -886,7 +1224,7 @@ class DbBase(
         where = self.infer_where(table, where, vals)
         if not vals:
             return
-        set_sql, vals = self._setsql(table, where, upd, vals)
+        set_sql, vals = self._set_sql(where, vals)
         sql = "update " + self.quote_key(table) + " set " + set_sql
         return self.execute(sql, tuple(vals))
 
@@ -961,16 +1299,58 @@ class DbBase(
 
         self.upsert(table, where, **vals)
 
-    def select_one(self, table, fields=None, **where):
+    def select_one(self, table, fields=None, **where) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
 
         Raises MoreThanOneError if there is more than one result.
         """
-        ret = self.select(table, fields, **where)
+        ret = self.select(table, fields, _limit=2, **where)
         if len(ret) > 1:
             raise MoreThanOneError
         if ret:
             return ret[0]
         return None
+
+    def select_any_one(self, table, fields=None, **where) -> Optional[DbRow]:
+        """Select one row.
+
+        Returns None if not found.
+
+        Returns the first one found if there is more than one result.
+        """
+        ret = self.select_gen(table, fields, _limit=1, **where)
+        try:
+            return next(ret)
+        except StopIteration:
+            return None
+
+    def _get_table_cols(self, tab: str):
+        if self.__model_cache is None:
+            self.__model_cache = self.model()
+        tab_mod = self.__model_cache[tab]
+        return tab_mod.columns
+
+    def get_subq_col_names(self, tab: Union[str, BaseQType]):
+        if getattr(tab, "fields", None):
+            if type(tab) is SubQ:
+                return [AlreadyAliased(fd) for fd in tab.fields]
+            else:
+                return tab.fields
+
+        if type(tab) is SubQ:
+            tab = tab.table
+            return self.get_subq_col_names(tab)
+
+        if type(tab) is str:
+            return [col.name for col in self._get_table_cols(tab)]
+
+    def field_sql_from_map(self, field_map: dict):
+        sql = ""
+        for name, qual_name in field_map.items():
+            if self.auto_quote(qual_name) != self.quote_key(name):
+                sql += ", " + self.auto_quote(qual_name) + " as " + self.quote_key(name)
+            else:
+                sql += ", " + self.auto_quote(qual_name)
+        return sql.lstrip(",")

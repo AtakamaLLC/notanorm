@@ -157,6 +157,28 @@ def test_db_select_gen_ex(db):
             pass
 
 
+def test_db_select_gen_close_fetch(db):
+    create_and_fill_test_db(db, 5)
+    with pytest.raises(ValueError):
+        generator = db.select_gen("foo")
+        one = generator
+        next(one)
+        # cursor has 5 rows, raising here should close the cursor
+        raise ValueError
+
+    # mysql and other db's will fail here if we don't close the cursor
+    assert db.select_any_one("foo")
+
+
+def test_db_select_any_one(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 0, "oth")
+    assert db.select_any_one("foo").bar is not None
+
+    assert db.select_any_one("oth") is None
+    assert db.select_one("oth") is None
+
+
 def test_db_tab_not_found(db):
     db.query("create table foo (bar integer)")
     with pytest.raises(notanorm.errors.TableNotFoundError):
@@ -220,6 +242,16 @@ def test_db_select_in(db):
 
     assert db.select("foo", ["bar"], {"bar": ["hi", "ho"]}) == res
     assert db.select("foo", bar=["hi", "ho"]) == res
+
+
+def test_db_select_explicit_field_map(db):
+    db.query("create table foo (bar text)")
+    db.insert("foo", bar="hi")
+    db.insert("foo", bar="ho")
+
+    res = [DbRow({"x": "hi"}), DbRow({"x": "ho"})]
+
+    assert db.select("foo", fields={"x": "bar"}, bar=["hi", "ho"]) == res
 
 
 def test_db_select_join(db):
@@ -858,12 +890,25 @@ def test_exec_script(db):
     db.insert("bar", y=2)
 
 
-def create_and_fill_test_db(db, num, tab="foo"):
-    db.query(
-        f"CREATE table {tab} (bar integer primary key, baz integer not null, cnt integer default 0)"
-    )
+def create_and_fill_test_db(db, num, tab="foo", **fds):
+    if not fds:
+        fds = {
+            "bar": "integer primary key",
+            "baz": "integer not null",
+            "cnt": "integer default 0",
+        }
+    fd_sql = ",".join(db.quote_key(fd) + " " + typ for fd, typ in fds.items())
+    db.query(f"CREATE table {tab} ({fd_sql})")
     for ins in range(num):
-        db.insert(tab, bar=ins, baz=0)
+        vals = {
+            nm: ins
+            if typ in ("integer primary key", "integer")
+            else 0
+            if typ == "integer not null"
+            else None
+            for nm, typ in fds.items()
+        }
+        db.insert(tab, **vals)
 
 
 @pytest.mark.db("sqlite")
@@ -924,6 +969,237 @@ def test_subq(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
+
+
+def test_nested_subq(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert len(
+        db.select(
+            db.subq(db.subq("foo", bar=db.subq("oth", ["bar"], bar=[1, 3])), baz=0)
+        )
+    )
+
+
+def test_subq_limited_fields_join(db):
+    # use weird field name on purpose
+    create_and_fill_test_db(db, 5, select="integer primary key", baz="integer")
+    create_and_fill_test_db(db, 5, "oth")
+
+    # no limit
+    db.select(db.join(db.subq("foo", select=[1, 3]), "oth", baz="baz"))
+
+    # subq limited to just 'select', so we can't join on 'baz', even tho you can without the limit
+    with pytest.raises(err.UnknownColumnError):
+        db.select(
+            db.join(db.subq("foo", fields=["select"], select=[1, 3]), "oth", baz="baz")
+        )
+
+    # 'select' as a field name works tho
+    db.select(
+        db.join(db.subq("foo", fields=["select"], select=[1, 3]), "oth", select="bar")
+    )
+
+
+def test_joinq_ambig_unknown_col_join(db):
+    create_and_fill_test_db(db, 5, "a")
+    create_and_fill_test_db(db, 5, "b")
+    create_and_fill_test_db(db, 5, "c")
+
+    with pytest.raises(err.UnknownColumnError):
+        # nested join... selecting "bar" automagically selects "bar" from the underlying table
+        # but it's ambiguous, so it should not succeed
+        db.select(db.join(db.join("a", "b", bar="bar"), "c", bar="bar"))
+
+    # being specific is fine
+    db.select(db.join(db.join("a", "b", bar="bar"), "c", a__bar="bar"))
+
+    # unknown col error 'bzz'
+    with pytest.raises(err.UnknownColumnError):
+        db.select(db.join(db.join("a", "b", bar="bar"), "c", bzz="bar"))
+
+
+def test_joinq_non_ambig_col(db):
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+    create_and_fill_test_db(db, 5, "c", cid="integer primary key", did="integer")
+
+    assert db.select(db.join(db.join("a", "b", bid="bid"), "c", cid="cid"))
+
+
+def test_joinq_model_changes(db_sqlite_notmem):
+    db = db_sqlite_notmem
+
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+
+    assert db.select(db.join("a", "b", bid="bid"))
+
+    file = db.uri.split(":", 1)[1]
+
+    dbx = sqlite3.connect(file)
+
+    # other process has changed things!
+    dbx.execute("drop table b")
+    dbx.execute("create table b (b_id integer primary_key, c_id integer)")
+    dbx.execute("insert into b values(1, 1)")
+
+    with pytest.raises(err.OperationalError):
+        db.select(db.join("a", "b", bid="b_id"))
+
+    db.clear_model_cache()
+
+    db.select(db.join("a", "b", bid="b_id"))
+
+
+def test_joinq_left(db):
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 3, "b", bid="integer primary key", cid="integer")
+
+    assert "left" in db.left_join("a", "b", bid="bid").sql
+
+    rows = db.select(db.left_join("a", "b", bid="bid"))
+
+    assert len(rows) == 5
+    assert len(list(row for row in rows if row.cid is not None)) == 3
+
+
+def test_joinq_right(db_mysql):
+    # sqlite does not support right joins
+    db = db_mysql
+    create_and_fill_test_db(db, 3, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+
+    assert "right" in db.right_join("a", "b", bid="bid").sql
+
+    rows = db.select(db.right_join("a", "b", bid="bid"))
+
+    assert len(rows) == 5
+    assert len(list(row for row in rows if row.aid is not None)) == 3
+
+
+def test_select_subq(db):
+    create_and_fill_test_db(db, 5)
+    assert len(db.select(db.subq("foo", bar=[1, 3]), bar=1)) == 1
+
+
+def test_join_simple(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert len(db.select(db.join("foo", "oth", bar="bar"), {"foo.bar": 1})) == 1
+
+
+def test_join_subqs(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    assert (
+        len(
+            db.select(
+                db.join("foo", db.subq("oth", bar=[1, 3]), bar="bar"), {"foo.bar": 1}
+            )
+        )
+        == 1
+    )
+
+
+def test_subqify_join(db):
+    create_and_fill_test_db(db, 5, "x", xid="integer primary key", yid="integer")
+    create_and_fill_test_db(db, 5, "y", yid="integer primary key", zid="integer")
+    create_and_fill_test_db(
+        db, 5, "z", zid="integer primary key", oth="integer default 0"
+    )
+    j1 = db.join("x", "y", yid="yid")
+    assert len(db.select(j1, xid=1)) == 1
+    sub = db.subq(j1, xid=[1, 3])
+    assert len(db.select(sub, xid=1)) == 1
+    row = db.select_one(sub, xid=1)
+    assert row.zid == 1
+    j2 = db.join(sub, "z", zid="zid")
+    assert len(db.select(j2, xid=1)) == 1
+
+
+def test_multi_join_nested_left_right(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    create_and_fill_test_db(db, 5, "thrd")
+    create_and_fill_test_db(db, 5, "mor")
+    j1 = db.join("foo", "oth", bar="bar")
+    log.debug("j1: %s", j1.sql)
+    assert len(db.select(j1, {"foo.bar": 1})) == 1
+    j2a = db.join(j1, "thrd", _on={"foo.bar": "thrd.bar"})
+    log.debug("j2a: %s", j2a.sql)
+    assert len(db.select(j2a, {"foo.bar": 1})) == 1
+    j2b = db.join("thrd", j1, bar="foo.bar")
+    log.debug("j2b: %s", j2b.sql)
+    assert len(db.select(j2b, {"thrd.bar": 1})) == 1
+    j3a = db.join(j2a, "mor", _on={"foo.bar": "mor.bar"})
+    log.debug("j3a: %s", j3a.sql)
+    assert len(db.select(j3a, {"foo.bar": 1})) == 1
+    j3b = db.join("mor", j2b, bar="thrd.bar")
+    log.debug("j3b: %s", j3b.sql)
+    assert len(db.select(j3b, {"thrd.bar": 1})) == 1
+
+
+def test_join_explicit_mappings(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    j1 = db.subq(
+        db.join("foo", "oth", bar="bar", fields={"z": "oth.bar", "x": "foo.bar"})
+    )
+    j2 = db.join("foo", j1, bar="x")
+    assert db.select_one(j2, z=1).x == 1
+
+
+def test_join_explicit_fields(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    j1 = db.subq(db.join("foo", "oth", bar="bar", fields=["oth.bar"]))
+    j2 = db.join("foo", j1, bar="bar")
+    assert db.select_one(j2, bar=1).bar == 1
+
+
+def test_join_2_subqs_same_tab(db):
+    create_and_fill_test_db(db, 5)
+    s1 = db.subq("foo", bar=[1, 2, 3])
+    s2 = db.subq("foo", bar=[2, 3, 4])
+    jn = db.join(s1, s2, bar="bar")
+    assert len(db.select(jn)) == 2
+
+
+def test_join_2_subqs(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    s1 = db.subq("foo", bar=[1, 2, 3])
+    s2 = db.subq("foo", bar=[2, 3, 4])
+    jn = db.join(s1, s2, bar="bar")
+    assert len(db.select(jn)) == 2
+
+
+def test_multi_join_auto_left(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    create_and_fill_test_db(db, 5, "thrd")
+
+    j1 = db.join("foo", "oth", bar="bar")
+    j2a = db.join("thrd", j1, bar="foo.bar")
+
+    assert len(db.select(j2a, {"foo.bar": 1})) == 1
+    assert len(db.select(j2a, foo__bar=1)) == 1
+
+
+def test_join_fd_names(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, "oth")
+    # this creates a mapping of fields
+    j1 = db.join("foo", "oth", bar="bar")
+    # this uses the mapping and just picks one
+    row = db.select_one(j1, bar=1)
+    log.debug("row: %s", row)
+    assert row.bar == 1
+    assert row.foo__baz == 0
+    row.foo__baz = 4
+    assert row.foo__baz == 4
+    assert row["foo.baz"] == 4
 
 
 def test_where_or(db):
