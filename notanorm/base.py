@@ -152,6 +152,7 @@ class SubQ(BaseQ):
         self.vals = vals
         self.alias = alias
         self.fields = fields or []
+        self.field_map = {}
 
         if type(table) is SubQ:
             self.table = table.table
