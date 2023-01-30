@@ -205,7 +205,10 @@ class JoinQ(BaseQ):
         self.__resolve_if_needed()
         return self.__field_map
 
-    def flat_tabs(self):
+    def flat_tabs(self) -> Generator[Tuple[Union[str, SubQ], "JoinQ"], None, None]:
+        """Returns an inordered generator of all tables in all joins.
+
+        Second part of the tuple is the join that referenced them."""
         for tab in [self.tab1, self.tab2]:
             if tab is self.tab1:
                 join = None
