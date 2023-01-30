@@ -36,6 +36,10 @@ def test_db_delete(db):
     assert not db.select("foo")
 
 
+def test_db_version(db):
+    assert db.version()
+
+
 def test_db_count(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -159,7 +163,10 @@ def test_db_select_gen_close_fetch(db):
         generator = db.select_gen("foo")
         one = generator
         next(one)
+        # cursor has 5 rows, raising here should close the cursor
         raise ValueError
+
+    # mysql and other db's will fail here if we don't close the cursor
     assert db.select_any_one("foo")
 
 
@@ -1017,7 +1024,32 @@ def test_joinq_non_ambig_col(db):
     create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
     create_and_fill_test_db(db, 5, "c", cid="integer primary key", did="integer")
 
-    db.select(db.join(db.join("a", "b", bid="bid"), "c", cid="cid"))
+    assert db.select(db.join(db.join("a", "b", bid="bid"), "c", cid="cid"))
+
+
+def test_joinq_model_changes(db_sqlite_notmem):
+    db = db_sqlite_notmem
+
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+
+    assert db.select(db.join("a", "b", bid="bid"))
+
+    file = db.uri.split(":", 1)[1]
+
+    dbx = sqlite3.connect(file)
+
+    # other process has changed things!
+    dbx.execute("drop table b")
+    dbx.execute("create table b (b_id integer primary_key, c_id integer)")
+    dbx.execute("insert into b values(1, 1)")
+
+    with pytest.raises(err.OperationalError):
+        db.select(db.join("a", "b", bid="b_id"))
+
+    db.clear_model_cache()
+
+    db.select(db.join("a", "b", bid="b_id"))
 
 
 def test_joinq_left(db):
@@ -1241,3 +1273,61 @@ def test_db_larger_types(db):
     # Otherwise, the comparison will fail.
     db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
     assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
+
+
+def test_limit_rowcnt(db: DbBase):
+    create_and_fill_test_db(db, 5)
+    assert len(db.select("foo", _limit=3)) == 3
+    assert len(db.select("foo", _limit=3, order_by="bar desc")) == 3
+    assert len(list(db.select_gen("foo", _limit=1, order_by="bar desc"))) == 1
+    assert len(list(db.select_gen("foo", _limit=0, order_by="bar desc"))) == 0
+
+    if db.uri_name != "mysql":
+        # mysql doesn't support limits in where subqueries.  probably you shouldn't use them then, if you want stuff to be compat
+        assert (
+            len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2)))
+            == 2
+        )
+
+
+def test_limit_offset(db: DbBase):
+    create_and_fill_test_db(db, 5)
+    assert len(db.select("foo", _limit=(1, 3))) == 3
+    assert db.select("foo", _limit=(2, 2), order_by="bar")[0].bar == 2
+    assert len(db.select("foo", _limit=(1, 3), order_by="bar desc")) == 3
+    assert list(db.select_gen("foo", _limit=(0, 3), order_by="bar desc"))[0].bar == 4
+    assert len(list(db.select_gen("foo", _limit=(4, 0), order_by="bar desc"))) == 0
+
+
+def test_type_translation_mysql_dialect(db: DbBase):
+    # mysql-compatible types that can be used with sqlite
+    schema = """
+        CREATE table foo (
+            a text,
+            b longtext,
+            c mediumtext,
+            d integer,
+            e tinyint,
+            f smallint,
+            g bigint,
+            h int primary key
+        )
+        """
+
+    schema_model = notanorm.model_from_ddl(schema, "mysql")
+
+    db.execute(schema)
+    exec_model = db.model()
+
+    assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
+
+
+def test_clob_invalid():
+    schema = """
+        CREATE table no_clob (
+            a clob
+        )
+        """
+
+    with pytest.raises(ValueError):
+        _ = notanorm.model_from_ddl(schema, "sqlite")

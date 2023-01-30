@@ -202,6 +202,8 @@ class SqliteDb(DbBase):
             try:
                 typ = cls._type_map_inverse[info.type.lower()]
             except KeyError:
+                if info.type.lower() == "clob":
+                    raise ValueError(f"Unsupported type: {info.type}")
                 typ = DbType.ANY
 
         return DbCol(
@@ -246,7 +248,9 @@ class SqliteDb(DbBase):
             "smallint": DbType.INTEGER,
             "tinyint": DbType.INTEGER,
             "bigint": DbType.INTEGER,
-            "clob": DbType.TEXT,
+            "tinytext": DbType.TEXT,
+            "mediumtext": DbType.TEXT,
+            "longtext": DbType.TEXT,
             "bool": DbType.BOOLEAN,
         }
     )
@@ -280,12 +284,18 @@ class SqliteDb(DbBase):
             new_cols = []
             for coldef in tdef.columns:
                 # sizes & fixed-width specifiers are ignored in sqlite
+                custom = (
+                    coldef.custom
+                    if coldef.custom and coldef.custom.dialect == "sqlite"
+                    else None
+                )
                 newcol = DbCol(
                     name=coldef.name,
                     typ=coldef.typ,
                     autoinc=coldef.autoinc,
                     notnull=coldef.notnull,
                     default=coldef.default,
+                    custom=custom,
                 )
                 new_cols.append(newcol)
             new_idxes = set()
@@ -371,3 +381,6 @@ class SqliteDb(DbBase):
             if x.pk:
                 prim.add(x.name)
         return prim
+
+    def version(self):
+        return self.query("select sqlite_version() as ver")[0].ver

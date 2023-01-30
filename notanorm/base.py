@@ -3,6 +3,7 @@
 NOTE: Make sure to close the db handle when you are done.
 """
 import contextlib
+import os
 import time
 import random
 import threading
@@ -106,21 +107,15 @@ class Op:
 
 
 class BaseQ(ABC):
-    _next = 0
-    fields = []
-    field_map = {}
+    fields: List[str]
+    field_map = Dict[str, str]
 
     def __init__(self, db: "DbBase"):
         self.db = db
 
     @classmethod
-    def next_num(cls):
-        cls._next = cls._next + 1 % 100000
-        return cls._next
-
-    @classmethod
-    def reset_num(cls) -> None:
-        cls._next = 0
+    def unique_name(cls):
+        return os.urandom(16).hex()
 
     @abstractmethod
     def resolve_field(self, field: str):
@@ -149,9 +144,7 @@ class SubQ(BaseQ):
         alias=None,
         fields=None,
     ):
-        alias = alias or (table if table is str else "subq") + "_" + str(
-            self.next_num()
-        )
+        alias = alias or (table if table is str else "subq") + "_" + self.unique_name()
 
         super().__init__(db)
 
@@ -172,8 +165,6 @@ class SubQ(BaseQ):
 
 
 class JoinQ(BaseQ):
-    _next = 0
-
     def __init__(
         self,
         db: "T",
@@ -666,6 +657,9 @@ class DbBase(
 
         return model
 
+    def clear_model_cache(self):
+        self.__model_cache = None
+
     def execute(self, sql: str, parameters=(), _script=False, write=True):
         if "alter " in sql.lower() or "create " in sql.lower():
             self.__model_cache = None
@@ -683,7 +677,6 @@ class DbBase(
 
             try:
                 with self.r_lock:
-                    SubQ.reset_num()
                     cursor = self._cursor(self._conn())
                     if _script:
                         assert not parameters, "Script isn't compatible with parameters"
@@ -932,7 +925,14 @@ class DbBase(
         return sql, vals
 
     def __select_to_query(
-        self, table: Union[str, BaseQType], *, fields, dict_where, order_by, **where
+        self,
+        table: Union[str, BaseQType],
+        *,
+        fields,
+        dict_where,
+        order_by,
+        _limit,
+        **where,
     ):
         sql = "select "
 
@@ -991,7 +991,17 @@ class DbBase(
             assert ";" not in order_by_fd
             sql += " order by " + order_by_fd
 
+        if _limit is not None:
+            sql += " " + self.limit_query(_limit)
+
         return sql, vals, factory
+
+    def limit_query(self, limit):
+        try:
+            offset, rows = limit
+            return f"limit {offset}, {rows}"
+        except TypeError:
+            return f"limit {limit}"
 
     def select(
         self,
@@ -999,13 +1009,30 @@ class DbBase(
         fields=None,
         _where=None,
         order_by=None,
+        _limit=None,
         **where,
     ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
+
+        Special params:
+
+        fields: list of fields or dict of field-mappings*
+        _where: dict of condition clauses, can be used instead of keyword args
+        order_by: string, "colname asc" or "colname desc"
+        _limit: number limiting rows or tuple of (offset, limit)
+
+
+        If a dict is used as a positional in the 2nd arg, and there are no other where clauses,
+        this is a where clause, not a fields arg.
         """
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=_where, order_by=order_by, **where
+            table,
+            fields=fields,
+            dict_where=_where,
+            order_by=order_by,
+            _limit=_limit,
+            **where,
         )
         return self.query(sql, *vals, factory=factory)
 
@@ -1015,12 +1042,20 @@ class DbBase(
         fields=None,
         _where=None,
         order_by=None,
+        _limit=None,
         _alias=None,
         **where,
     ) -> SubQ:
-        """Subquery from table (or join) using fields (or *) and where (vals can be list or none)."""
+        """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
+        Same params as select.
+        """
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=_where, order_by=order_by, **where
+            table,
+            fields=fields,
+            dict_where=_where,
+            order_by=order_by,
+            _limit=_limit,
+            **where,
         )
         return SubQ(
             self,
@@ -1084,13 +1119,23 @@ class DbBase(
         fields=None,
         _where=None,
         order_by=None,
+        _limit=None,
         **where,
     ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
-            table, fields=fields, dict_where=_where, order_by=order_by, **where
+            table,
+            fields=fields,
+            dict_where=_where,
+            order_by=order_by,
+            _limit=_limit,
+            **where,
         )
         return self.query_gen(sql, *vals, factory=factory)
+
+    @abstractmethod
+    def version(self):
+        ...
 
     def count(self, table, where=None, **kws):
         if where and kws:
@@ -1257,7 +1302,7 @@ class DbBase(
 
         Raises MoreThanOneError if there is more than one result.
         """
-        ret = self.select(table, fields, **where)
+        ret = self.select(table, fields, _limit=2, **where)
         if len(ret) > 1:
             raise MoreThanOneError
         if ret:
@@ -1271,14 +1316,14 @@ class DbBase(
 
         Returns the first one found if there is more than one result.
         """
-        ret = self.select_gen(table, fields, **where)
+        ret = self.select_gen(table, fields, _limit=1, **where)
         try:
             return next(ret)
         except StopIteration:
             return None
 
     def _get_table_cols(self, tab: str):
-        if not self.__model_cache:
+        if self.__model_cache is None:
             self.__model_cache = self.model()
         tab_mod = self.__model_cache[tab]
         return tab_mod.columns
