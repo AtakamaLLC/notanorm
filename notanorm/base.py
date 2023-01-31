@@ -1165,12 +1165,17 @@ class DbBase(
     def version(self):
         ...
 
-    def aggregate(self, table, agg_map, where=None, _group_by=None, **kws):
+    def aggregate(self, table, agg_map_or_str, where=None, _group_by=None, **kws):
         if where and kws:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
         if not where:
             where = kws
+
+        if type(agg_map_or_str) is str:
+            agg_map = {"k": agg_map_or_str}
+        else:
+            agg_map = agg_map_or_str
 
         aggs = ",".join(
             aggval + " as " + self.quote_key(alias) for alias, aggval in agg_map.items()
@@ -1192,31 +1197,28 @@ class DbBase(
                 ret[index] = {}
                 for alias in agg_map:
                     ret[index][alias] = row[alias]
-            return ret
+            if type(agg_map_or_str) is str:
+                ret = {k: v["k"] for k, v in ret.items()}
         else:
-            return self.query(sql, *vals)[0]
+            ret = self.query(sql, *vals)[0]
+            if type(agg_map_or_str) is str:
+                ret = ret["k"]
+
+        return ret
 
     def count(self, table, where=None, _group_by=None, **kws):
-        ret = self.aggregate(
-            table, {"k": "count(*)"}, where=where, _group_by=_group_by, **kws
+        return self.aggregate(
+            table, "count(*)", where=where, _group_by=_group_by, **kws
         )
-        if not _group_by:
-            return ret["k"]
-        else:
-            return {k: v["k"] for k, v in ret.items()}
 
     def sum(self, table, field, where=None, _group_by=None, **kws):
-        ret = self.aggregate(
+        return self.aggregate(
             table,
-            {"k": "sum(" + self.quote_key(field) + ")"},
+            "sum(" + self.quote_key(field) + ")",
             where=where,
             _group_by=_group_by,
             **kws,
         )
-        if not _group_by:
-            return ret["k"]
-        else:
-            return {k: v["k"] for k, v in ret.items()}
 
     def delete(self, table, where=None, **kws):
         """Delete all rows in a table that match the supplied value(s).

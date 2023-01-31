@@ -1384,6 +1384,9 @@ def test_agg_group_by(db: DbBase):
         (2, 4): {"sum": 4, "cnt": 2},
     }
 
+    # simple max is easy!
+    assert db.aggregate("a", "max(f3)", f1=1) == 3
+
     with pytest.raises(ValueError):
         # no mix where
         db.aggregate(
