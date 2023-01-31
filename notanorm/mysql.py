@@ -42,6 +42,7 @@ class MySqlDb(DbBase):
 
     placeholder = "%s"
     default_values = " () values ()"
+    max_index_name = 64
 
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")

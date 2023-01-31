@@ -450,6 +450,7 @@ class DbBase(
     r_lock = None
     use_pooled_locks = False
     use_collation_locks = False
+    max_index_name = 1024
     __lock_pool = defaultdict(threading.RLock)
 
     @property
@@ -653,10 +654,20 @@ class DbBase(
         sql = "drop index " + self.quote_key(index_name)
         self.execute(sql)
 
-    @staticmethod
-    def unique_index_name(table, field_names):
+    @classmethod
+    def unique_index_name(cls, table, field_names):
+        """Given a table an a list of field names, returns a unique index name.
+
+        Default impl chooses ix_<tab>_<fields>_<uuid>
+        """
         # prefer urandom to secrets, less opaque
-        return "ix_" + table + "_" + "_".join(field_names) + "_" + os.urandom(16).hex()
+        uid = os.urandom(16).hex()
+        ret = "ix_" + table + "_" + "_".join(field_names) + "_" + uid
+        if len(ret) > cls.max_index_name:
+            ret = "ix_" + table + "_" + uid
+            if len(ret) > cls.max_index_name:
+                ret = "ix_" + uid
+        return ret
 
     def executescript(self, sql):
         self.execute(sql, _script=True)
