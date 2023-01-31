@@ -1048,8 +1048,6 @@ def test_joinq_model_changes(db_sqlite_notmem):
 
     assert db.select(db.join("a", "b", bid="bid"))
 
-    file = db.uri.split(":", 1)[1]
-
     # other process has changed things!
     db._conn().execute("drop table b")
     db._conn().execute("create table b (b_id integer primary_key, c_id integer)")
