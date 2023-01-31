@@ -1047,6 +1047,10 @@ def test_joinq_model_changes(db_sqlite_notmem):
     with pytest.raises(err.OperationalError):
         db.select(db.join("a", "b", bid="b_id"))
 
+    # explicit table names is always ok
+    db.select(db.join("a", "b", a__bid="b__b_id"), ["a.aid", "b.b_id"])
+
+    # or you can clear the cache
     db.clear_model_cache()
 
     db.select(db.join("a", "b", bid="b_id"))
