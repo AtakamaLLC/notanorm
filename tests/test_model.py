@@ -39,10 +39,25 @@ def test_model_create_many(db: "DbBase"):
     assert db.simplify_model(check) == db.simplify_model(model)
 
 
-def test_model_many_cols(db: "DbBase"):
+def test_model_many_index_cols(db: "DbBase"):
     model = DbModel(
         {
             "foo": DbTable(
+                columns=tuple(
+                    DbCol("x" + str(i), typ=DbType.INTEGER) for i in range(100)
+                ),
+                indexes={
+                    DbIndex(fields=tuple(DbIndexField("x" + str(i)) for i in range(16)))
+                },
+            )
+        }
+    )
+    db.create_model(model)
+
+    verybigtablename = "x" * 60
+    model = DbModel(
+        {
+            verybigtablename: DbTable(
                 columns=tuple(
                     DbCol("x" + str(i), typ=DbType.INTEGER) for i in range(100)
                 ),
