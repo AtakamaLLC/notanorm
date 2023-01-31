@@ -840,7 +840,7 @@ class DbBase(
 
     def auto_quote(self, key: str):
         return (
-            self.quote_key_or_func(key)
+            self.quote_field_or_func(key)
             if type(key) is AlreadyAliased
             else self.quote_keys(key)
         )
