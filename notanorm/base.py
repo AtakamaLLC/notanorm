@@ -968,7 +968,7 @@ class DbBase(
         factory = where.pop("__class", fac) if not is_list(where) else fac
 
         field_map = None
-        if fields is None:
+        if not fields:
             if type(table) in (JoinQ, SubQ):
                 sql += table.field_sql()
             else:
