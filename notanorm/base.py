@@ -1172,7 +1172,9 @@ class DbBase(
         if not where:
             where = kws
 
-        if type(agg_map_or_str) is str:
+        simple_result = type(agg_map_or_str) is str
+
+        if simple_result:
             agg_map = {"k": agg_map_or_str}
         else:
             agg_map = agg_map_or_str
@@ -1197,11 +1199,11 @@ class DbBase(
                 ret[index] = {}
                 for alias in agg_map:
                     ret[index][alias] = row[alias]
-            if type(agg_map_or_str) is str:
+            if simple_result:
                 ret = {k: v["k"] for k, v in ret.items()}
         else:
             ret = self.query(sql, *vals)[0]
-            if type(agg_map_or_str) is str:
+            if simple_result:
                 ret = ret["k"]
 
         return ret
