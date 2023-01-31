@@ -223,8 +223,6 @@ class JoinQ(BaseQ):
 
     def resolve_field(self, field: str):
         ret = None
-        if "." in field:
-            return field
         for tab in (self.tab1, self.tab2):
             if field in self.db.get_subq_col_names(tab):
                 if ret is not None:
@@ -849,7 +847,7 @@ class DbBase(
 
     @classmethod
     def quote_field_or_func(cls, key: str) -> str:
-        if "(" in key:
+        if "(" in key or "*" in key:
             return key
         return cls.quote_key(key)
 

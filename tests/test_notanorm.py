@@ -50,6 +50,13 @@ def test_db_count(db):
     assert db.count("foo", {"bar": "ho"}) == 0
 
 
+def test_db_sum(db):
+    create_and_fill_test_db(db, 4, "x", bar="integer primary key")
+
+    assert db.count("x") == 4
+    assert db.sum("x", "bar") == sum([0, 1, 2, 3])
+
+
 def test_db_select(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -58,6 +65,12 @@ def test_db_select(db):
     assert db.select("foo", bar=None) == []
     assert db.select("foo", {"bar": "hi"})[0].bar == "hi"
     assert db.select("foo", {"bar": "ho"}) == []
+
+
+def test_db_select_not_both_where(db):
+    create_and_fill_test_db(db, 2)
+    with pytest.raises(ValueError):
+        assert db.select("foo", ["bar"], {"bar": 1}, baz=1) == []
 
 
 def test_db_row_obj__dict__(db):
@@ -1037,18 +1050,19 @@ def test_joinq_model_changes(db_sqlite_notmem):
 
     file = db.uri.split(":", 1)[1]
 
-    dbx = sqlite3.connect(file)
-
     # other process has changed things!
-    dbx.execute("drop table b")
-    dbx.execute("create table b (b_id integer primary_key, c_id integer)")
-    dbx.execute("insert into b values(1, 1)")
+    db._conn().execute("drop table b")
+    db._conn().execute("create table b (b_id integer primary_key, c_id integer)")
+    db._conn().execute("insert into b values (1, 1)")
 
     with pytest.raises(err.OperationalError):
         db.select(db.join("a", "b", bid="b_id"))
 
     # explicit table names is always ok
-    db.select(db.join("a", "b", a__bid="b__b_id"), ["a.aid", "b.b_id"])
+    assert db.select(db.join("a", "b", a__bid="b__b_id"), ["a.aid", "b.b_id"])
+
+    # asterisk is cool too
+    assert db.select(db.join("a", "b", a__bid="b__b_id"), ["a.*"])[0].aid == 1
 
     # or you can clear the cache
     db.clear_model_cache()
@@ -1270,6 +1284,17 @@ def test_quote_key(db: DbBase) -> None:
     assert type(db).quote_key("key") == from_inst
 
 
+def test_quote_special(db: DbBase) -> None:
+    from_inst = db.quote_keys("*")
+    assert from_inst == "*"
+
+    from_inst = db.quote_keys("events.*")
+    assert from_inst == db.quote_key("events") + ".*"
+
+    from_inst = db.quote_keys("count(*)")
+    assert from_inst == "count(*)"
+
+
 def test_db_larger_types(db):
     db.query("create table foo (bar mediumblob)")
     # If mediumblob is accidentally translated to blob, the max size in mysql is
@@ -1358,6 +1383,16 @@ def test_agg_group_by(db: DbBase):
         (2, 3): {"sum": 1, "cnt": 1},
         (2, 4): {"sum": 4, "cnt": 2},
     }
+
+    with pytest.raises(ValueError):
+        # no mix where
+        db.aggregate(
+            "a",
+            {"sum": "sum(f3)", "cnt": "count(*)"},
+            {"f2": 2},
+            f1=1,
+            _group_by=["f1", "f2"],
+        )
 
 
 def test_type_translation_mysql_dialect(db: DbBase):
