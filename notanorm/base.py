@@ -118,7 +118,7 @@ class Op:
 
 class BaseQ(ABC):
     fields: List[str]
-    field_map = Dict[str, str]
+    field_map: Dict[str, str]
 
     def __init__(self, db: "DbBase"):
         self.db = db
@@ -325,9 +325,25 @@ class JoinQ(BaseQ):
         return k
 
 
-class Where:
-    def __init__(self, ops: List[Dict[str, Union[Op, SubQ]]]):
-        self.ops = ops
+QueryValueType = Union[Op, SubQ, List["QueryValueType"], str, int, float, None]
+QueryDictType = Dict[str, QueryValueType]
+QueryListType = List[QueryDictType]
+WhereClauseType = Union[QueryDictType, QueryListType]
+WhereKwargsType = Union[QueryValueType, QueryListType]
+
+
+class And(QueryListType):
+    """This list is "AND"'d in the resulting query:
+
+    Dict is field, op
+    """
+
+
+class Or(QueryListType):
+    """This list is "OR"'d in the resulting query:
+
+    Dict is field, op
+    """
 
 
 class AlreadyAliased(str):
@@ -881,8 +897,8 @@ class DbBase(
         if not where:
             return "", []
 
-        if type(where) is Where:
-            sql, vals = self._where_base(where.ops, field_map, is_and=True)
+        if type(where) is And:
+            sql, vals = self._where_base(Or(where), field_map, is_and=True)
         elif is_list(where):
             sql = ""
             vals = []
@@ -899,7 +915,7 @@ class DbBase(
 
         return sql, vals
 
-    def _where_items(self, where_items: List[Tuple[str, Union[Op, SubQ]]], field_map):
+    def _where_items(self, where_items: List[Tuple[str, QueryValueType]], field_map):
         none_keys = [key for key, val in where_items if val is None]
         list_keys = [(key, val) for key, val in where_items if is_list(val)]
         subq_keys = [(key, val) for key, val in where_items if type(val) is SubQ]
@@ -959,11 +975,11 @@ class DbBase(
         self,
         table: Union[str, BaseQType],
         *,
-        fields,
-        dict_where,
+        fields: Union[Dict[str, str], List[str]],
+        dict_where: WhereClauseType,
         order_by,
         _limit,
-        **where,
+        **where: WhereKwargsType,
     ):
         sql = "select "
 
@@ -1041,7 +1057,7 @@ class DbBase(
         _where=None,
         order_by=None,
         _limit=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
@@ -1075,7 +1091,7 @@ class DbBase(
         order_by=None,
         _limit=None,
         _alias=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> SubQ:
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
         Same params as select.
@@ -1151,7 +1167,7 @@ class DbBase(
         _where=None,
         order_by=None,
         _limit=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
         sql, vals, factory = self.__select_to_query(
@@ -1326,7 +1342,9 @@ class DbBase(
 
         self.upsert(table, where, **vals)
 
-    def select_one(self, table, fields=None, **where) -> Optional[DbRow]:
+    def select_one(
+        self, table, fields=None, **where: WhereKwargsType
+    ) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1340,7 +1358,9 @@ class DbBase(
             return ret[0]
         return None
 
-    def select_any_one(self, table, fields=None, **where) -> Optional[DbRow]:
+    def select_any_one(
+        self, table, fields=None, **where: WhereKwargsType
+    ) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1373,7 +1393,7 @@ class DbBase(
         if type(tab) is str:
             return [col.name for col in self._get_table_cols(tab)]
 
-    def field_sql_from_map(self, field_map: dict):
+    def field_sql_from_map(self, field_map: Dict[str, str]):
         sql = ""
         for name, qual_name in field_map.items():
             if self.auto_quote(qual_name) != self.quote_key(name):

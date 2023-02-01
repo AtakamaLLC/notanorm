@@ -14,7 +14,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType, Where, Op
+from notanorm import SqliteDb, DbRow, DbBase, DbType, And, Op
 from notanorm.connparse import open_db, parse_db_uri
 
 log = logging.getLogger(__name__)
@@ -360,6 +360,15 @@ def test_db_upsert_lrid(db):
     assert ret.lastrowid
 
 
+def test_db_update_none_val(db):
+    db.query("create table foo (bar integer, baz integer)")
+    db.insert("foo", bar=None, baz=2)
+    db.insert("foo", bar=2, baz=2)
+    assert db.count("foo", bar=None) == 1, "count w none"
+    db.update("foo", {"bar": None}, baz=3)
+    assert db.select_one("foo", bar=None).baz == 3, "update w none"
+
+
 def test_tab_exists(db):
     db.query("create table foo (bar integer)")
     with pytest.raises(err.TableExistsError):
@@ -389,6 +398,7 @@ def test_multi_close(db):
     db.close()
     db.close()
 
+    # noinspection PyMissingConstructor
     class VeryClose(SqliteDb):
         def __init__(self):
             self.close()
@@ -692,10 +702,10 @@ def test_sqlite_unsafe_gen(db_notmem):
             db.upsert("foo", bar=row.bar, baz=row.baz + 1)
 
     # ok, select inside select
-    for row in db.select_gen("foo"):
+    for _ in db.select_gen("foo"):
         db.select("foo")
 
-    for row in db.select_gen("foo"):
+    for _ in db.select_gen("foo"):
         list(db.select_gen("foo"))
 
 
@@ -971,18 +981,19 @@ def test_where_or(db):
 def test_where_complex(db):
     create_and_fill_test_db(db, 5)
     assert (
-        len(db.select("foo", _where=Where([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])))
+        len(db.select("foo", _where=And([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])))
         == 3
     )
     assert (
         len(
             db.select(
                 "foo",
-                _where=[{"bar": 1}, Where([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])],
+                _where=[{"bar": 1}, And([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])],
             )
         )
         == 4
     )
+    assert len(db.select("foo", _where=And([{"bar": db.subq("foo", ["bar"])}]))) == 5
 
 
 def test_del_raises(db):
@@ -1033,7 +1044,8 @@ def test_limit_rowcnt(db: DbBase):
     assert len(list(db.select_gen("foo", _limit=0, order_by="bar desc"))) == 0
 
     if db.uri_name != "mysql":
-        # mysql doesn't support limits in where subqueries.  probably you shouldn't use them then, if you want stuff to be compat
+        # mysql doesn't support limits in where subqueries.  probably you shouldn't use them then,
+        # if you want stuff to be compat
         assert (
             len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2)))
             == 2
