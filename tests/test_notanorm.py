@@ -1357,6 +1357,24 @@ def test_raw_fields_group_by(db: DbBase):
     assert all(e.cnt <= l.cnt for e, l in zip(ret, ret[1:]))
 
 
+def test_subq_group_by(db: DbBase):
+    create_group_tabs(db)
+    sub = db.subq(
+        "a", {"cnt": "count(*)", "ver": "max(f3)"}, {}, _group_by=["f1", "f2"]
+    )
+    ret = db.select(sub, ver=2)
+    assert ret == [{"cnt": 2, "ver": 2}, {"cnt": 2, "ver": 2}]
+
+
+def test_group_by_subq(db: DbBase):
+    create_group_tabs(db)
+    sub = db.subq("a", f1=1)
+    ret = db.select(
+        sub, {"cnt": "count(*)", "ver": "max(f3)", "f2": "f2"}, {}, _group_by=["f2"]
+    )
+    assert ret == [{"cnt": 2, "ver": 2, "f2": 1}, {"cnt": 3, "ver": 3, "f2": 2}]
+
+
 def test_agg_group_by(db: DbBase):
     create_group_tabs(db)
 

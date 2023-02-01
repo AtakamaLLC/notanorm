@@ -1085,7 +1085,7 @@ class DbBase(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by or _order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
             **where,
