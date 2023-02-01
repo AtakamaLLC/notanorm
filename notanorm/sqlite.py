@@ -186,9 +186,7 @@ class SqliteDb(DbBase):
         unique = bool(index.unique) and not primary
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
         fields = tuple(DbIndexField(n) for n in field_names)
-        return DbIndex(
-            fields=fields, primary=primary, unique=unique, ix__name=index.name
-        )
+        return DbIndex(fields=fields, primary=primary, unique=unique, name=index.name)
 
     @classmethod
     def __info_to_model(cls, info):

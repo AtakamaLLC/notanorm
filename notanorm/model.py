@@ -93,9 +93,7 @@ class DbIndex(NamedTuple):
     fields: Tuple[DbIndexField, ...]
     unique: bool = False  # has a unique index?
     primary: bool = False  # is the primary key?
-
-    # don't use this field, it's internal, but named tuples are weirdly limited
-    ix__name: Optional[str] = None
+    name: Optional[str] = None  # only set when reading from the db, ignored on creation
 
     def _as_tup(self) -> Tuple[Tuple[DbIndexField, ...], bool, bool]:
         return (self.fields, self.unique, self.primary)
@@ -105,11 +103,6 @@ class DbIndex(NamedTuple):
 
     def __hash__(self):
         return hash(self._as_tup())
-
-    # correct way to access the name
-    @property
-    def name(self) -> Optional[str]:
-        return self.ix__name
 
 
 class DbTable(NamedTuple):

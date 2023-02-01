@@ -279,7 +279,7 @@ class MySqlDb(DbBase):
                     tuple(DbIndexField(**f) for f in fds),
                     primary=primary,
                     unique=unique,
-                    ix__name=name,
+                    name=name,
                 )
             )
 
