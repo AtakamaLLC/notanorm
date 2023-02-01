@@ -333,6 +333,7 @@ WhereClauseType = Union[QueryDictType, QueryListType]
 WhereKwargsType = Union[QueryValueType, QueryListType]
 LimitArgType = Union[int, Tuple[int, int]]
 GroupByArgType = Union[str, Iterable[str]]
+OrderByArgType = Union[str, Iterable[str]]
 
 
 class And(QueryListType):
@@ -1054,7 +1055,7 @@ class DbBase(
 
         return sql, vals, factory
 
-    def order_by_query(self, _order_by):
+    def order_by_query(self, _order_by: OrderByArgType):
         if isinstance(_order_by, str):
             _order_by = [_order_by]
         order_by_fd = ",".join(_order_by)
@@ -1080,7 +1081,7 @@ class DbBase(
         _where=None,
         *,
         order_by=None,
-        _order_by=None,
+        _order_by: OrderByArgType = None,
         _limit: Optional[LimitArgType] = None,
         _group_by: Optional[GroupByArgType] = None,
         **where: WhereKwargsType,
@@ -1118,7 +1119,7 @@ class DbBase(
         _where=None,
         *,
         order_by=None,
-        _order_by=None,
+        _order_by: OrderByArgType = None,
         _limit: Optional[LimitArgType] = None,
         _group_by: Optional[GroupByArgType] = None,
         _alias=None,
@@ -1199,7 +1200,7 @@ class DbBase(
         _where=None,
         *,
         order_by=None,
-        _order_by=None,
+        _order_by: OrderByArgType = None,
         _limit: Optional[LimitArgType] = None,
         _group_by: Optional[GroupByArgType] = None,
         **where: WhereKwargsType,
@@ -1226,8 +1227,8 @@ class DbBase(
         agg_map_or_str,
         where=None,
         _group_by: Optional[GroupByArgType] = None,
-        _order_by=None,
-        _order=None,
+        _order_by: OrderByArgType = None,
+        _order: Optional[str] = None,  # used only for "simplified" aggregates
         _limit: Optional[LimitArgType] = None,
         **kws,
     ):
