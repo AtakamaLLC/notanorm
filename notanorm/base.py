@@ -325,7 +325,7 @@ class JoinQ(BaseQ):
         return k
 
 
-QueryValueType = Union[Op, SubQ, List["QueryValueType"], str, int, float, None]
+QueryValueType = Union[Op, SubQ, List["QueryValueType"], str, int, float, bytes, None]
 QueryDictType = Dict[str, QueryValueType]
 QueryListType = List[QueryDictType]
 WhereClauseType = Union[QueryDictType, QueryListType]
