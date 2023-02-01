@@ -22,6 +22,7 @@ from typing import (
     Optional,
     Callable,
     Union,
+    Iterable,
 )
 
 from .errors import (
@@ -330,6 +331,9 @@ QueryDictType = Dict[str, QueryValueType]
 QueryListType = List[QueryDictType]
 WhereClauseType = Union[QueryDictType, QueryListType]
 WhereKwargsType = Union[QueryValueType, QueryListType]
+LimitArgType = Union[int, Tuple[int, int]]
+GroupByArgType = Union[str, Iterable[str]]
+OrderByArgType = Union[str, Iterable[str]]
 
 
 class And(QueryListType):
@@ -871,15 +875,24 @@ class DbBase(
 
     def auto_quote(self, key: str):
         return (
-            self.quote_key(key) if type(key) is AlreadyAliased else self.quote_keys(key)
+            self.quote_field_or_func(key)
+            if type(key) is AlreadyAliased
+            else self.quote_keys(key)
         )
+
+    @classmethod
+    def quote_field_or_func(cls, key: str) -> str:
+        if "(" in key or "*" in key:
+            return key
+        return cls.quote_key(key)
 
     @classmethod
     def quote_key(cls, key: str) -> str:
         return '"' + key + '"'
 
-    def quote_keys(self, key):
-        return ".".join([self.quote_key(k) for k in key.split(".")])
+    @classmethod
+    def quote_keys(cls, key):
+        return ".".join([cls.quote_field_or_func(k) for k in key.split(".")])
 
     @staticmethod
     def _op_from_val(val):
@@ -971,28 +984,29 @@ class DbBase(
                     vals.append(val)
         return sql, vals
 
-    def __select_to_query(
+    def select_to_query(
         self,
         table: Union[str, BaseQType],
         *,
         fields: Union[Dict[str, str], List[str]],
         dict_where: WhereClauseType,
-        order_by,
-        _limit,
+        _order_by,
+        _limit: Optional[LimitArgType],
+        _group_by,
         **where: WhereKwargsType,
     ):
         sql = "select "
 
         base_table = table.table if type(table) is SubQ else table
 
-        if isinstance(fields, dict) and not where and not dict_where:
+        if isinstance(fields, dict) and not where and dict_where is None:
             dict_where = fields
             fields = None
 
-        if dict_where and where:
+        if dict_where is not None and where:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
-        if dict_where:
+        if dict_where is not None:
             where = dict_where
 
         vals = []
@@ -1030,20 +1044,30 @@ class DbBase(
         sql += where
         vals += where_vals
 
-        if order_by:
-            if isinstance(order_by, str):
-                order_by = [order_by]
-            order_by_fd = ",".join(order_by)
-            # todo: limit order_by more strictly
-            assert ";" not in order_by_fd
-            sql += " order by " + order_by_fd
+        if _group_by is not None:
+            sql += " " + self.group_by_query(_group_by)
+
+        if _order_by:
+            sql += " " + self.order_by_query(_order_by)
 
         if _limit is not None:
             sql += " " + self.limit_query(_limit)
 
         return sql, vals, factory
 
-    def limit_query(self, limit):
+    def order_by_query(self, _order_by: OrderByArgType):
+        if isinstance(_order_by, str):
+            _order_by = [_order_by]
+        order_by_fd = ",".join(_order_by)
+        # todo: limit order_by more strictly
+        assert ";" not in order_by_fd
+        return "order by " + order_by_fd
+
+    def group_by_query(self, group_by: GroupByArgType):
+        gb = ",".join([group_by] if type(group_by) is str else group_by)
+        return f"group by {gb}"
+
+    def limit_query(self, limit: LimitArgType):
         try:
             offset, rows = limit
             return f"limit {offset}, {rows}"
@@ -1055,8 +1079,11 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
-        _limit=None,
+        _order_by: OrderByArgType = None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         **where: WhereKwargsType,
     ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
@@ -1068,17 +1095,19 @@ class DbBase(
         _where: dict of condition clauses, can be used instead of keyword args
         order_by: string, "colname asc" or "colname desc"
         _limit: number limiting rows or tuple of (offset, limit)
+        _group_by: group_by clause
 
 
         If a dict is used as a positional in the 2nd arg, and there are no other where clauses,
         this is a where clause, not a fields arg.
         """
-        sql, vals, factory = self.__select_to_query(
+        sql, vals, factory = self.select_to_query(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
+            _group_by=_group_by,
             **where,
         )
         return self.query(sql, *vals, factory=factory)
@@ -1088,20 +1117,24 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
-        _limit=None,
+        _order_by: OrderByArgType = None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         _alias=None,
         **where: WhereKwargsType,
     ) -> SubQ:
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
         Same params as select.
         """
-        sql, vals, factory = self.__select_to_query(
+        sql, vals, factory = self.select_to_query(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
+            _group_by=_group_by,
             **where,
         )
         return SubQ(
@@ -1165,17 +1198,21 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
-        _limit=None,
+        _order_by: OrderByArgType = None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         **where: WhereKwargsType,
     ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
-        sql, vals, factory = self.__select_to_query(
+        sql, vals, factory = self.select_to_query(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
+            _group_by=_group_by,
             **where,
         )
         return self.query_gen(sql, *vals, factory=factory)
@@ -1184,17 +1221,87 @@ class DbBase(
     def version(self):
         ...
 
-    def count(self, table, where=None, **kws):
+    def aggregate(
+        self,
+        table,
+        agg_map_or_str,
+        where=None,
+        _group_by: Optional[GroupByArgType] = None,
+        _order_by: OrderByArgType = None,
+        _order: Optional[str] = None,  # used only for "simplified" aggregates
+        _limit: Optional[LimitArgType] = None,
+        **kws,
+    ):
         if where and kws:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
         if not where:
             where = kws
 
-        sql = "select count(*) as k from " + self.quote_key(table)
+        simple_result = type(agg_map_or_str) is str
+
+        # when using simple results, the caller doesn't have access to result field names
+        # instead they specify "_order"
+        if _order:
+            assert simple_result, "_order kw is only valid when doing simple aggregates"
+            _order_by = "k " + _order
+
+        if simple_result:
+            agg_map = {"k": agg_map_or_str}
+        else:
+            agg_map = agg_map_or_str
+
+        aggs = ",".join(
+            aggval + " as " + self.quote_key(alias) for alias, aggval in agg_map.items()
+        )
+
+        sql = "select " + aggs
+        if _group_by:
+            sql += "," + ",".join(_group_by)
+        sql += " from " + self.quote_key(table)
         where, vals = self._where(where)
         sql += where
-        return self.query(sql, *vals)[0]["k"]
+
+        if _group_by:
+            sql += " " + self.group_by_query(_group_by)
+
+        if _order_by:
+            sql += " " + self.order_by_query(_order_by)
+
+        if _limit:
+            sql += " " + self.limit_query(_limit)
+
+        if _group_by:
+            ret = {}
+            for row in self.query(sql, *vals):
+                index = tuple(row[field] for field in _group_by)
+                if len(index) == 1:
+                    index = index[0]
+                ret[index] = {}
+                for alias in agg_map:
+                    ret[index][alias] = row[alias]
+            if simple_result:
+                ret = {k: v["k"] for k, v in ret.items()}
+        else:
+            ret = self.query(sql, *vals)[0]
+            if simple_result:
+                ret = ret["k"]
+
+        return ret
+
+    def count(self, table, where=None, *, _group_by=None, **kws):
+        return self.aggregate(
+            table, "count(*)", where=where, _group_by=_group_by, **kws
+        )
+
+    def sum(self, table, field, where=None, _group_by=None, **kws):
+        return self.aggregate(
+            table,
+            "sum(" + self.quote_key(field) + ")",
+            where=where,
+            _group_by=_group_by,
+            **kws,
+        )
 
     def delete(self, table, where=None, **kws):
         """Delete all rows in a table that match the supplied value(s).

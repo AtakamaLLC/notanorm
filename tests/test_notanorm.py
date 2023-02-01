@@ -47,6 +47,13 @@ def test_db_count(db):
     assert db.count("foo", {"bar": "ho"}) == 0
 
 
+def test_db_sum(db):
+    create_and_fill_test_db(db, 4, "x", bar="integer primary key")
+
+    assert db.count("x") == 4
+    assert db.sum("x", "bar") == sum([0, 1, 2, 3])
+
+
 def test_db_select(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -55,6 +62,12 @@ def test_db_select(db):
     assert db.select("foo", bar=None) == []
     assert db.select("foo", {"bar": "hi"})[0].bar == "hi"
     assert db.select("foo", {"bar": "ho"}) == []
+
+
+def test_db_select_not_both_where(db):
+    create_and_fill_test_db(db, 2)
+    with pytest.raises(ValueError):
+        assert db.select("foo", ["bar"], {"bar": 1}, baz=1) == []
 
 
 def test_db_row_obj__dict__(db):
@@ -803,18 +816,21 @@ def test_joinq_model_changes(db_sqlite_notmem):
 
     assert db.select(db.join("a", "b", bid="bid"))
 
-    file = db.uri.split(":", 1)[1]
-
-    dbx = sqlite3.connect(file)
-
     # other process has changed things!
-    dbx.execute("drop table b")
-    dbx.execute("create table b (b_id integer primary_key, c_id integer)")
-    dbx.execute("insert into b values(1, 1)")
+    db._conn().execute("drop table b")
+    db._conn().execute("create table b (b_id integer primary_key, c_id integer)")
+    db._conn().execute("insert into b values (1, 1)")
 
     with pytest.raises(err.OperationalError):
         db.select(db.join("a", "b", bid="b_id"))
 
+    # explicit table names is always ok
+    assert db.select(db.join("a", "b", a__bid="b__b_id"), ["a.aid", "b.b_id"])
+
+    # asterisk is cool too
+    assert db.select(db.join("a", "b", a__bid="b__b_id"), ["a.*"])[0].aid == 1
+
+    # or you can clear the cache
     db.clear_model_cache()
 
     db.select(db.join("a", "b", bid="b_id"))
@@ -1041,6 +1057,17 @@ def test_quote_key(db: DbBase) -> None:
     assert type(db).quote_key("key") == from_inst
 
 
+def test_quote_special(db: DbBase) -> None:
+    from_inst = db.quote_keys("*")
+    assert from_inst == "*"
+
+    from_inst = db.quote_keys("events.*")
+    assert from_inst == db.quote_key("events") + ".*"
+
+    from_inst = db.quote_keys("count(*)")
+    assert from_inst == "count(*)"
+
+
 def test_db_larger_types(db):
     db.query("create table foo (bar mediumblob)")
     # If mediumblob is accidentally translated to blob, the max size in mysql is
@@ -1073,6 +1100,107 @@ def test_limit_offset(db: DbBase):
     assert len(db.select("foo", _limit=(1, 3), order_by="bar desc")) == 3
     assert list(db.select_gen("foo", _limit=(0, 3), order_by="bar desc"))[0].bar == 4
     assert len(list(db.select_gen("foo", _limit=(4, 0), order_by="bar desc"))) == 0
+
+
+def create_group_tabs(db):
+    create_and_fill_test_db(db, 0, "a", f1="integer", f2="integer", f3="integer")
+
+    db.insert("a", f1=1, f2=1, f3=2)
+    db.insert("a", f1=1, f2=1, f3=2)
+    db.insert("a", f1=1, f2=2, f3=3)
+    db.insert("a", f1=1, f2=2, f3=3)
+    db.insert("a", f1=1, f2=2, f3=3)
+    db.insert("a", f1=2, f2=3, f3=1)
+    db.insert("a", f1=2, f2=4, f3=2)
+    db.insert("a", f1=2, f2=4, f3=2)
+
+
+def test_raw_fields_group_by(db: DbBase):
+    create_group_tabs(db)
+    ret = db.select(
+        "a",
+        {"cnt": "count(*)", "ver": "max(f3)"},
+        {},
+        _group_by=["f1", "f2"],
+        _order_by=["cnt"],
+        _limit=3,
+    )
+    # check limit
+    assert len(ret) == 3
+    # check count == f3
+    assert all(r.cnt == r.ver for r in ret)
+    # check order by
+    assert all(e.cnt <= l.cnt for e, l in zip(ret, ret[1:]))
+
+
+def test_subq_group_by(db: DbBase):
+    create_group_tabs(db)
+    sub = db.subq(
+        "a", {"cnt": "count(*)", "ver": "max(f3)"}, {}, _group_by=["f1", "f2"]
+    )
+    ret = db.select(sub, ver=2)
+    assert ret == [{"cnt": 2, "ver": 2}, {"cnt": 2, "ver": 2}]
+
+
+def test_group_by_subq(db: DbBase):
+    create_group_tabs(db)
+    sub = db.subq("a", f1=1)
+    ret = db.select(
+        sub, {"cnt": "count(*)", "ver": "max(f3)", "f2": "f2"}, {}, _group_by=["f2"]
+    )
+    assert ret == [{"cnt": 2, "ver": 2, "f2": 1}, {"cnt": 3, "ver": 3, "f2": 2}]
+
+
+def test_agg_group_by(db: DbBase):
+    create_group_tabs(db)
+
+    # group by one col == dict with col index into counts
+    assert db.count("a", _group_by=["f1"]) == {1: 5, 2: 3}
+
+    # limit/order is ok in counts, maybe you have a lot of counts
+    assert db.count("a", _group_by=["f1"], _limit=1, _order="asc") == {2: 3}
+    assert db.count("a", _group_by=["f1"], _limit=1, _order="desc") == {1: 5}
+
+    # group by 2 cols == dict with tuple index into counts
+    assert db.count("a", _group_by=["f1", "f2"]) == {
+        (1, 1): 2,
+        (1, 2): 3,
+        (2, 3): 1,
+        (2, 4): 2,
+    }
+
+    # group by 2 cols, sum
+    assert db.sum("a", "f3", _group_by=["f1", "f2"]) == {
+        (1, 1): 4,
+        (1, 2): 9,
+        (2, 3): 1,
+        (2, 4): 4,
+    }
+
+    # multi aggregate
+    ret = db.aggregate(
+        "a", {"sum": "sum(f3)", "cnt": "count(*)"}, _group_by=["f1", "f2"]
+    )
+
+    assert ret == {
+        (1, 1): {"sum": 4, "cnt": 2},
+        (1, 2): {"sum": 9, "cnt": 3},
+        (2, 3): {"sum": 1, "cnt": 1},
+        (2, 4): {"sum": 4, "cnt": 2},
+    }
+
+    # simple max is easy!
+    assert db.aggregate("a", "max(f3)", f1=1) == 3
+
+    with pytest.raises(ValueError):
+        # no mix where
+        db.aggregate(
+            "a",
+            {"sum": "sum(f3)", "cnt": "count(*)"},
+            {"f2": 2},
+            f1=1,
+            _group_by=["f1", "f2"],
+        )
 
 
 def test_type_translation_mysql_dialect(db: DbBase):
