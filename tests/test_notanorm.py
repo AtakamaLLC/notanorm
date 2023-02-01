@@ -14,7 +14,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType, And, Op
+from notanorm import SqliteDb, DbRow, DbBase, DbType, And, Or, Op
 from notanorm.connparse import open_db, parse_db_uri
 
 log = logging.getLogger(__name__)
@@ -994,6 +994,20 @@ def test_where_complex(db):
         == 4
     )
     assert len(db.select("foo", _where=And([{"bar": db.subq("foo", ["bar"])}]))) == 5
+
+    assert (
+        len(db.select("foo", _where=And([{"bar": [1, 2, 3]}, {"bar": Op("<", 3)}])))
+        == 2
+    )
+    assert (
+        len(
+            db.select(
+                "foo",
+                _where=And([{"bar": [1, 2, 3]}, Or(({"bar": [2]}, {"baz": [0]}))]),
+            )
+        )
+        == 3
+    )
 
 
 def test_del_raises(db):
