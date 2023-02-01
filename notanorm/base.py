@@ -22,6 +22,7 @@ from typing import (
     Optional,
     Callable,
     Union,
+    Iterable,
 )
 
 from .errors import (
@@ -330,6 +331,8 @@ QueryDictType = Dict[str, QueryValueType]
 QueryListType = List[QueryDictType]
 WhereClauseType = Union[QueryDictType, QueryListType]
 WhereKwargsType = Union[QueryValueType, QueryListType]
+LimitArgType = Union[int, Tuple[int, int]]
+GroupByArgType = Union[str, Iterable[str]]
 
 
 class And(QueryListType):
@@ -987,7 +990,7 @@ class DbBase(
         fields: Union[Dict[str, str], List[str]],
         dict_where: WhereClauseType,
         _order_by,
-        _limit,
+        _limit: Optional[LimitArgType],
         _group_by,
         **where: WhereKwargsType,
     ):
@@ -1059,11 +1062,11 @@ class DbBase(
         assert ";" not in order_by_fd
         return "order by " + order_by_fd
 
-    def group_by_query(self, group_by):
+    def group_by_query(self, group_by: GroupByArgType):
         gb = ",".join([group_by] if type(group_by) is str else group_by)
         return f"group by {gb}"
 
-    def limit_query(self, limit):
+    def limit_query(self, limit: LimitArgType):
         try:
             offset, rows = limit
             return f"limit {offset}, {rows}"
@@ -1078,8 +1081,8 @@ class DbBase(
         *,
         order_by=None,
         _order_by=None,
-        _limit=None,
-        _group_by=None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         **where: WhereKwargsType,
     ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
@@ -1116,8 +1119,8 @@ class DbBase(
         *,
         order_by=None,
         _order_by=None,
-        _limit=None,
-        _group_by=None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         _alias=None,
         **where: WhereKwargsType,
     ) -> SubQ:
@@ -1197,8 +1200,8 @@ class DbBase(
         *,
         order_by=None,
         _order_by=None,
-        _limit=None,
-        _group_by=None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         **where: WhereKwargsType,
     ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
@@ -1222,10 +1225,10 @@ class DbBase(
         table,
         agg_map_or_str,
         where=None,
-        _group_by=None,
+        _group_by: Optional[GroupByArgType] = None,
         _order_by=None,
         _order=None,
-        _limit=None,
+        _limit: Optional[LimitArgType] = None,
         **kws,
     ):
         if where and kws:
