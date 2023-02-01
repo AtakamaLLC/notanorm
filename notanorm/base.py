@@ -43,10 +43,20 @@ def is_list(obj):
     return isinstance(obj, (list, set, tuple))
 
 
+def is_dict(obj):
+    """Determine if object is dict-like."""
+    return isinstance(obj, (dict,))
+
+
 def del_all(mapping, to_remove):
     """Remove list of elements from mapping."""
     for key in to_remove:
         del mapping[key]
+
+
+def prune_keys(tuple_list: List[Tuple[str, Any]], to_remove: set):
+    """Return list without elements"""
+    return [(key, val) for key, val in tuple_list if key not in to_remove]
 
 
 def parse_bool(field_name: str, value: str) -> bool:
@@ -313,6 +323,11 @@ class JoinQ(BaseQ):
                 k = tab.resolve_field(k)
         k = self.db.auto_quote(k)
         return k
+
+
+class Where:
+    def __init__(self, ops: List[Dict[str, Union[Op, SubQ]]]):
+        self.ops = ops
 
 
 class AlreadyAliased(str):
@@ -857,34 +872,46 @@ class DbBase(
         return Op("=", val)
 
     def _where(self, where, field_map=None):
-        if not where:
+        sql, vals = self._where_base(where, field_map)
+        if not sql:
             return "", ()
+        return " where " + sql, vals
 
-        if is_list(where):
+    def _where_base(self, where, field_map=None, is_and=False):
+        if not where:
+            return "", []
+
+        if type(where) is Where:
+            sql, vals = self._where_base(where.ops, field_map, is_and=True)
+        elif is_list(where):
             sql = ""
             vals = []
             for ent in where:
                 sub_sql, sub_vals = self._where_base(ent, field_map)
+                op = "and" if is_and else "or"
                 if sql:
-                    sql = sql + " or " + sub_sql
+                    sql = sql + " " + op + " (" + sub_sql + ")"
                 else:
                     sql = sub_sql
                 vals = vals + sub_vals
         else:
-            sql, vals = self._where_base(where, field_map)
+            sql, vals = self._where_items(list(where.items()), field_map)
 
-        return " where " + sql, vals
+        return sql, vals
 
-    def _where_base(self, where, field_map):
-        none_keys = [key for key, val in where.items() if val is None]
-        list_keys = [(key, val) for key, val in where.items() if is_list(val)]
-        subq_keys = [(key, val) for key, val in where.items() if type(val) is SubQ]
+    def _where_items(self, where_items: List[Tuple[str, Union[Op, SubQ]]], field_map):
+        none_keys = [key for key, val in where_items if val is None]
+        list_keys = [(key, val) for key, val in where_items if is_list(val)]
+        subq_keys = [(key, val) for key, val in where_items if type(val) is SubQ]
 
-        del_all(where, none_keys)
-        del_all(where, (k[0] for k in list_keys))
-        del_all(where, (k[0] for k in subq_keys))
+        where_items = prune_keys(
+            where_items,
+            set(none_keys)
+            | set(k[0] for k in list_keys)
+            | set(k[0] for k in subq_keys),
+        )
 
-        where = {k.replace("__", "."): v for k, v in where.items()}
+        where = [(k.replace("__", "."), v) for k, v in where_items]
 
         field_map = field_map or {}
         sql = " and ".join(
@@ -898,7 +925,7 @@ class DbBase(
                 )
                 + self._op_from_val(val).op
                 + self.placeholder
-                for key, val in where.items()
+                for key, val in where
             ]
         )
 
@@ -909,7 +936,7 @@ class DbBase(
                 [self.quote_keys(key) + " is NULL" for key in none_keys]
             )
 
-        vals = [self._op_from_val(val).val for val in where.values()]
+        vals = [self._op_from_val(val).val for _, val in where]
         if list_keys:
             vals = list(vals)
             for key, lst in list_keys:
@@ -955,7 +982,7 @@ class DbBase(
         vals = []
 
         fac = self.__classes.get(base_table)
-        factory = where.pop("__class", fac) if not is_list(where) else fac
+        factory = where.pop("__class", fac) if is_dict(where) else fac
 
         field_map = None
         if not fields:
