@@ -943,7 +943,7 @@ class DbBase(
         *,
         fields,
         dict_where,
-        order_by,
+        _order_by,
         _limit,
         _group_by,
         **where,
@@ -997,21 +997,24 @@ class DbBase(
         sql += where
         vals += where_vals
 
-        if order_by:
-            if isinstance(order_by, str):
-                order_by = [order_by]
-            order_by_fd = ",".join(order_by)
-            # todo: limit order_by more strictly
-            assert ";" not in order_by_fd
-            sql += " order by " + order_by_fd
+        if _group_by is not None:
+            sql += " " + self.group_by_query(_group_by)
+
+        if _order_by:
+            sql += " " + self.order_by_query(_order_by)
 
         if _limit is not None:
             sql += " " + self.limit_query(_limit)
 
-        if _group_by is not None:
-            sql += " " + self.group_by_query(_group_by)
-
         return sql, vals, factory
+
+    def order_by_query(self, _order_by):
+        if isinstance(_order_by, str):
+            _order_by = [_order_by]
+        order_by_fd = ",".join(_order_by)
+        # todo: limit order_by more strictly
+        assert ";" not in order_by_fd
+        return "order by " + order_by_fd
 
     def group_by_query(self, group_by):
         gb = ",".join([group_by] if type(group_by) is str else group_by)
@@ -1029,7 +1032,9 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
+        _order_by=None,
         _limit=None,
         _group_by=None,
         **where,
@@ -1053,7 +1058,7 @@ class DbBase(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
             **where,
@@ -1065,7 +1070,9 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
+        _order_by=None,
         _limit=None,
         _group_by=None,
         _alias=None,
@@ -1078,7 +1085,7 @@ class DbBase(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
             **where,
@@ -1144,7 +1151,9 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
+        _order_by=None,
         _limit=None,
         _group_by=None,
         **where,
@@ -1154,7 +1163,7 @@ class DbBase(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
             **where,
@@ -1165,7 +1174,17 @@ class DbBase(
     def version(self):
         ...
 
-    def aggregate(self, table, agg_map_or_str, where=None, _group_by=None, **kws):
+    def aggregate(
+        self,
+        table,
+        agg_map_or_str,
+        where=None,
+        _group_by=None,
+        _order_by=None,
+        _order=None,
+        _limit=None,
+        **kws,
+    ):
         if where and kws:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
@@ -1173,6 +1192,12 @@ class DbBase(
             where = kws
 
         simple_result = type(agg_map_or_str) is str
+
+        # when using simple results, the caller doesn't have access to result field names
+        # instead they specify "_order"
+        if _order:
+            assert simple_result, "_order kw is only valid when doing simple aggregates"
+            _order_by = "k " + _order
 
         if simple_result:
             agg_map = {"k": agg_map_or_str}
@@ -1189,8 +1214,17 @@ class DbBase(
         sql += " from " + self.quote_key(table)
         where, vals = self._where(where)
         sql += where
+
         if _group_by:
             sql += " " + self.group_by_query(_group_by)
+
+        if _order_by:
+            sql += " " + self.order_by_query(_order_by)
+
+        if _limit:
+            sql += " " + self.limit_query(_limit)
+
+        if _group_by:
             ret = {}
             for row in self.query(sql, *vals):
                 index = tuple(row[field] for field in _group_by)
@@ -1208,7 +1242,7 @@ class DbBase(
 
         return ret
 
-    def count(self, table, where=None, _group_by=None, **kws):
+    def count(self, table, where=None, *, _group_by=None, **kws):
         return self.aggregate(
             table, "count(*)", where=where, _group_by=_group_by, **kws
         )

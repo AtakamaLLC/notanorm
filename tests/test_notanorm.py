@@ -1342,10 +1342,19 @@ def create_group_tabs(db):
 def test_raw_fields_group_by(db: DbBase):
     create_group_tabs(db)
     ret = db.select(
-        "a", {"cnt": "count(*)", "ver": "max(f3)"}, {}, _group_by=["f1", "f2"]
+        "a",
+        {"cnt": "count(*)", "ver": "max(f3)"},
+        {},
+        _group_by=["f1", "f2"],
+        _order_by=["cnt"],
+        _limit=3,
     )
-    assert len(ret) == 4
+    # check limit
+    assert len(ret) == 3
+    # check count == f3
     assert all(r.cnt == r.ver for r in ret)
+    # check order by
+    assert all(e.cnt <= l.cnt for e, l in zip(ret, ret[1:]))
 
 
 def test_agg_group_by(db: DbBase):
@@ -1353,6 +1362,10 @@ def test_agg_group_by(db: DbBase):
 
     # group by one col == dict with col index into counts
     assert db.count("a", _group_by=["f1"]) == {1: 5, 2: 3}
+
+    # limit/order is ok in counts, maybe you have a lot of counts
+    assert db.count("a", _group_by=["f1"], _limit=1, _order="asc") == {2: 3}
+    assert db.count("a", _group_by=["f1"], _limit=1, _order="desc") == {1: 5}
 
     # group by 2 cols == dict with tuple index into counts
     assert db.count("a", _group_by=["f1", "f2"]) == {
