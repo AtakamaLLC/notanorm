@@ -43,10 +43,20 @@ def is_list(obj):
     return isinstance(obj, (list, set, tuple))
 
 
+def is_dict(obj):
+    """Determine if object is dict-like."""
+    return isinstance(obj, (dict,))
+
+
 def del_all(mapping, to_remove):
     """Remove list of elements from mapping."""
     for key in to_remove:
         del mapping[key]
+
+
+def prune_keys(tuple_list: List[Tuple[str, Any]], to_remove: set):
+    """Return list without elements"""
+    return [(key, val) for key, val in tuple_list if key not in to_remove]
 
 
 def parse_bool(field_name: str, value: str) -> bool:
@@ -108,7 +118,7 @@ class Op:
 
 class BaseQ(ABC):
     fields: List[str]
-    field_map = Dict[str, str]
+    field_map: Dict[str, str]
 
     def __init__(self, db: "DbBase"):
         self.db = db
@@ -313,6 +323,27 @@ class JoinQ(BaseQ):
                 k = tab.resolve_field(k)
         k = self.db.auto_quote(k)
         return k
+
+
+QueryValueType = Union[Op, SubQ, List["QueryValueType"], str, int, float, bytes, None]
+QueryDictType = Dict[str, QueryValueType]
+QueryListType = List[QueryDictType]
+WhereClauseType = Union[QueryDictType, QueryListType]
+WhereKwargsType = Union[QueryValueType, QueryListType]
+
+
+class And(QueryListType):
+    """This list is "AND"'d in the resulting query:
+
+    Dict is field, op
+    """
+
+
+class Or(QueryListType):
+    """This list is "OR"'d in the resulting query:
+
+    Dict is field, op
+    """
 
 
 class AlreadyAliased(str):
@@ -866,34 +897,46 @@ class DbBase(
         return Op("=", val)
 
     def _where(self, where, field_map=None):
-        if not where:
+        sql, vals = self._where_base(where, field_map)
+        if not sql:
             return "", ()
+        return " where " + sql, vals
 
-        if is_list(where):
+    def _where_base(self, where, field_map=None, is_and=False):
+        if not where:
+            return "", []
+
+        if type(where) is And:
+            sql, vals = self._where_base(Or(where), field_map, is_and=True)
+        elif is_list(where):
             sql = ""
             vals = []
             for ent in where:
                 sub_sql, sub_vals = self._where_base(ent, field_map)
+                op = "and" if is_and else "or"
                 if sql:
-                    sql = sql + " or " + sub_sql
+                    sql = sql + " " + op + " (" + sub_sql + ")"
                 else:
                     sql = sub_sql
                 vals = vals + sub_vals
         else:
-            sql, vals = self._where_base(where, field_map)
+            sql, vals = self._where_items(list(where.items()), field_map)
 
-        return " where " + sql, vals
+        return sql, vals
 
-    def _where_base(self, where, field_map):
-        none_keys = [key for key, val in where.items() if val is None]
-        list_keys = [(key, val) for key, val in where.items() if is_list(val)]
-        subq_keys = [(key, val) for key, val in where.items() if type(val) is SubQ]
+    def _where_items(self, where_items: List[Tuple[str, QueryValueType]], field_map):
+        none_keys = [key for key, val in where_items if val is None]
+        list_keys = [(key, val) for key, val in where_items if is_list(val)]
+        subq_keys = [(key, val) for key, val in where_items if type(val) is SubQ]
 
-        del_all(where, none_keys)
-        del_all(where, (k[0] for k in list_keys))
-        del_all(where, (k[0] for k in subq_keys))
+        where_items = prune_keys(
+            where_items,
+            set(none_keys)
+            | set(k[0] for k in list_keys)
+            | set(k[0] for k in subq_keys),
+        )
 
-        where = {k.replace("__", "."): v for k, v in where.items()}
+        where = [(k.replace("__", "."), v) for k, v in where_items]
 
         field_map = field_map or {}
         sql = " and ".join(
@@ -907,7 +950,7 @@ class DbBase(
                 )
                 + self._op_from_val(val).op
                 + self.placeholder
-                for key, val in where.items()
+                for key, val in where
             ]
         )
 
@@ -918,7 +961,7 @@ class DbBase(
                 [self.quote_keys(key) + " is NULL" for key in none_keys]
             )
 
-        vals = [self._op_from_val(val).val for val in where.values()]
+        vals = [self._op_from_val(val).val for _, val in where]
         if list_keys:
             vals = list(vals)
             for key, lst in list_keys:
@@ -941,12 +984,12 @@ class DbBase(
         self,
         table: Union[str, BaseQType],
         *,
-        fields,
-        dict_where,
+        fields: Union[Dict[str, str], List[str]],
+        dict_where: WhereClauseType,
         _order_by,
         _limit,
         _group_by,
-        **where,
+        **where: WhereKwargsType,
     ):
         sql = "select "
 
@@ -965,7 +1008,7 @@ class DbBase(
         vals = []
 
         fac = self.__classes.get(base_table)
-        factory = where.pop("__class", fac) if not is_list(where) else fac
+        factory = where.pop("__class", fac) if is_dict(where) else fac
 
         field_map = None
         if not fields:
@@ -1037,7 +1080,7 @@ class DbBase(
         _order_by=None,
         _limit=None,
         _group_by=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
@@ -1076,7 +1119,7 @@ class DbBase(
         _limit=None,
         _group_by=None,
         _alias=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> SubQ:
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
         Same params as select.
@@ -1156,7 +1199,7 @@ class DbBase(
         _order_by=None,
         _limit=None,
         _group_by=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
         sql, vals, factory = self.select_to_query(
@@ -1402,7 +1445,9 @@ class DbBase(
 
         self.upsert(table, where, **vals)
 
-    def select_one(self, table, fields=None, **where) -> Optional[DbRow]:
+    def select_one(
+        self, table, fields=None, **where: WhereKwargsType
+    ) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1416,7 +1461,9 @@ class DbBase(
             return ret[0]
         return None
 
-    def select_any_one(self, table, fields=None, **where) -> Optional[DbRow]:
+    def select_any_one(
+        self, table, fields=None, **where: WhereKwargsType
+    ) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1449,7 +1496,7 @@ class DbBase(
         if type(tab) is str:
             return [col.name for col in self._get_table_cols(tab)]
 
-    def field_sql_from_map(self, field_map: dict):
+    def field_sql_from_map(self, field_map: Dict[str, str]):
         sql = ""
         for name, qual_name in field_map.items():
             if self.auto_quote(qual_name) != self.quote_key(name):
