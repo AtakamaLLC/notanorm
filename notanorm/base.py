@@ -1193,7 +1193,7 @@ class DbBase(
         return self.execute(sql)
 
     def drop(self, table):
-        """Rename a table"""
+        """Drop a table"""
         sql = "drop table " + self.quote_key(table)
         return self.execute(sql)
 
