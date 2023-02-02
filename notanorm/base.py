@@ -22,6 +22,7 @@ from typing import (
     Optional,
     Callable,
     Union,
+    Iterable,
 )
 
 from .errors import (
@@ -43,10 +44,20 @@ def is_list(obj):
     return isinstance(obj, (list, set, tuple))
 
 
+def is_dict(obj):
+    """Determine if object is dict-like."""
+    return isinstance(obj, (dict,))
+
+
 def del_all(mapping, to_remove):
     """Remove list of elements from mapping."""
     for key in to_remove:
         del mapping[key]
+
+
+def prune_keys(tuple_list: List[Tuple[str, Any]], to_remove: set):
+    """Return list without elements"""
+    return [(key, val) for key, val in tuple_list if key not in to_remove]
 
 
 def parse_bool(field_name: str, value: str) -> bool:
@@ -108,7 +119,7 @@ class Op:
 
 class BaseQ(ABC):
     fields: List[str]
-    field_map = Dict[str, str]
+    field_map: Dict[str, str]
 
     def __init__(self, db: "DbBase"):
         self.db = db
@@ -313,6 +324,30 @@ class JoinQ(BaseQ):
                 k = tab.resolve_field(k)
         k = self.db.auto_quote(k)
         return k
+
+
+QueryValueType = Union[Op, SubQ, List["QueryValueType"], str, int, float, bytes, None]
+QueryDictType = Dict[str, QueryValueType]
+QueryListType = List[QueryDictType]
+WhereClauseType = Union[QueryDictType, QueryListType]
+WhereKwargsType = Union[QueryValueType, QueryListType]
+LimitArgType = Union[int, Tuple[int, int]]
+GroupByArgType = Union[str, Iterable[str]]
+OrderByArgType = Union[str, Iterable[str]]
+
+
+class And(QueryListType):
+    """This list is "AND"'d in the resulting query:
+
+    Dict is field, op
+    """
+
+
+class Or(QueryListType):
+    """This list is "OR"'d in the resulting query:
+
+    Dict is field, op
+    """
 
 
 class AlreadyAliased(str):
@@ -869,15 +904,24 @@ class DbBase(
 
     def auto_quote(self, key: str):
         return (
-            self.quote_key(key) if type(key) is AlreadyAliased else self.quote_keys(key)
+            self.quote_field_or_func(key)
+            if type(key) is AlreadyAliased
+            else self.quote_keys(key)
         )
+
+    @classmethod
+    def quote_field_or_func(cls, key: str) -> str:
+        if "(" in key or "*" in key:
+            return key
+        return cls.quote_key(key)
 
     @classmethod
     def quote_key(cls, key: str) -> str:
         return '"' + key + '"'
 
-    def quote_keys(self, key):
-        return ".".join([self.quote_key(k) for k in key.split(".")])
+    @classmethod
+    def quote_keys(cls, key):
+        return ".".join([cls.quote_field_or_func(k) for k in key.split(".")])
 
     @staticmethod
     def _op_from_val(val):
@@ -886,34 +930,46 @@ class DbBase(
         return Op("=", val)
 
     def _where(self, where, field_map=None):
-        if not where:
+        sql, vals = self._where_base(where, field_map)
+        if not sql:
             return "", ()
+        return " where " + sql, vals
 
-        if is_list(where):
+    def _where_base(self, where, field_map=None, is_and=False):
+        if not where:
+            return "", []
+
+        if type(where) is And:
+            sql, vals = self._where_base(Or(where), field_map, is_and=True)
+        elif is_list(where):
             sql = ""
             vals = []
             for ent in where:
                 sub_sql, sub_vals = self._where_base(ent, field_map)
+                op = "and" if is_and else "or"
                 if sql:
-                    sql = sql + " or " + sub_sql
+                    sql = sql + " " + op + " (" + sub_sql + ")"
                 else:
                     sql = sub_sql
                 vals = vals + sub_vals
         else:
-            sql, vals = self._where_base(where, field_map)
+            sql, vals = self._where_items(list(where.items()), field_map)
 
-        return " where " + sql, vals
+        return sql, vals
 
-    def _where_base(self, where, field_map):
-        none_keys = [key for key, val in where.items() if val is None]
-        list_keys = [(key, val) for key, val in where.items() if is_list(val)]
-        subq_keys = [(key, val) for key, val in where.items() if type(val) is SubQ]
+    def _where_items(self, where_items: List[Tuple[str, QueryValueType]], field_map):
+        none_keys = [key for key, val in where_items if val is None]
+        list_keys = [(key, val) for key, val in where_items if is_list(val)]
+        subq_keys = [(key, val) for key, val in where_items if type(val) is SubQ]
 
-        del_all(where, none_keys)
-        del_all(where, (k[0] for k in list_keys))
-        del_all(where, (k[0] for k in subq_keys))
+        where_items = prune_keys(
+            where_items,
+            set(none_keys)
+            | set(k[0] for k in list_keys)
+            | set(k[0] for k in subq_keys),
+        )
 
-        where = {k.replace("__", "."): v for k, v in where.items()}
+        where = [(k.replace("__", "."), v) for k, v in where_items]
 
         field_map = field_map or {}
         sql = " and ".join(
@@ -927,7 +983,7 @@ class DbBase(
                 )
                 + self._op_from_val(val).op
                 + self.placeholder
-                for key, val in where.items()
+                for key, val in where
             ]
         )
 
@@ -938,7 +994,7 @@ class DbBase(
                 [self.quote_keys(key) + " is NULL" for key in none_keys]
             )
 
-        vals = [self._op_from_val(val).val for val in where.values()]
+        vals = [self._op_from_val(val).val for _, val in where]
         if list_keys:
             vals = list(vals)
             for key, lst in list_keys:
@@ -957,34 +1013,35 @@ class DbBase(
                     vals.append(val)
         return sql, vals
 
-    def __select_to_query(
+    def select_to_query(
         self,
         table: Union[str, BaseQType],
         *,
-        fields,
-        dict_where,
-        order_by,
-        _limit,
-        **where,
+        fields: Union[Dict[str, str], List[str]],
+        dict_where: WhereClauseType,
+        _order_by,
+        _limit: Optional[LimitArgType],
+        _group_by,
+        **where: WhereKwargsType,
     ):
         sql = "select "
 
         base_table = table.table if type(table) is SubQ else table
 
-        if isinstance(fields, dict) and not where and not dict_where:
+        if isinstance(fields, dict) and not where and dict_where is None:
             dict_where = fields
             fields = None
 
-        if dict_where and where:
+        if dict_where is not None and where:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
-        if dict_where:
+        if dict_where is not None:
             where = dict_where
 
         vals = []
 
         fac = self.__classes.get(base_table)
-        factory = where.pop("__class", fac) if not is_list(where) else fac
+        factory = where.pop("__class", fac) if is_dict(where) else fac
 
         field_map = None
         if not fields:
@@ -1016,20 +1073,30 @@ class DbBase(
         sql += where
         vals += where_vals
 
-        if order_by:
-            if isinstance(order_by, str):
-                order_by = [order_by]
-            order_by_fd = ",".join(order_by)
-            # todo: limit order_by more strictly
-            assert ";" not in order_by_fd
-            sql += " order by " + order_by_fd
+        if _group_by is not None:
+            sql += " " + self.group_by_query(_group_by)
+
+        if _order_by:
+            sql += " " + self.order_by_query(_order_by)
 
         if _limit is not None:
             sql += " " + self.limit_query(_limit)
 
         return sql, vals, factory
 
-    def limit_query(self, limit):
+    def order_by_query(self, _order_by: OrderByArgType):
+        if isinstance(_order_by, str):
+            _order_by = [_order_by]
+        order_by_fd = ",".join(_order_by)
+        # todo: limit order_by more strictly
+        assert ";" not in order_by_fd
+        return "order by " + order_by_fd
+
+    def group_by_query(self, group_by: GroupByArgType):
+        gb = ",".join([group_by] if type(group_by) is str else group_by)
+        return f"group by {gb}"
+
+    def limit_query(self, limit: LimitArgType):
         try:
             offset, rows = limit
             return f"limit {offset}, {rows}"
@@ -1041,9 +1108,12 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
-        _limit=None,
-        **where,
+        _order_by: OrderByArgType = None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
+        **where: WhereKwargsType,
     ) -> List[DbRow]:
         """Select from table (or join) using fields (or *) and where (vals can be list or none).
         __class keyword optionally replaces Row obj.
@@ -1054,17 +1124,19 @@ class DbBase(
         _where: dict of condition clauses, can be used instead of keyword args
         order_by: string, "colname asc" or "colname desc"
         _limit: number limiting rows or tuple of (offset, limit)
+        _group_by: group_by clause
 
 
         If a dict is used as a positional in the 2nd arg, and there are no other where clauses,
         this is a where clause, not a fields arg.
         """
-        sql, vals, factory = self.__select_to_query(
+        sql, vals, factory = self.select_to_query(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
+            _group_by=_group_by,
             **where,
         )
         return self.query(sql, *vals, factory=factory)
@@ -1074,20 +1146,24 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
-        _limit=None,
+        _order_by: OrderByArgType = None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
         _alias=None,
-        **where,
+        **where: WhereKwargsType,
     ) -> SubQ:
         """Subquery from table (or join) using fields (or *) and where (vals can be list or none).
         Same params as select.
         """
-        sql, vals, factory = self.__select_to_query(
+        sql, vals, factory = self.select_to_query(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
+            _group_by=_group_by,
             **where,
         )
         return SubQ(
@@ -1151,17 +1227,21 @@ class DbBase(
         table: Union[str, BaseQType],
         fields=None,
         _where=None,
+        *,
         order_by=None,
-        _limit=None,
-        **where,
+        _order_by: OrderByArgType = None,
+        _limit: Optional[LimitArgType] = None,
+        _group_by: Optional[GroupByArgType] = None,
+        **where: WhereKwargsType,
     ) -> Generator[DbRow, None, None]:
         """Same as select, but returns a generator."""
-        sql, vals, factory = self.__select_to_query(
+        sql, vals, factory = self.select_to_query(
             table,
             fields=fields,
             dict_where=_where,
-            order_by=order_by,
+            _order_by=order_by or _order_by,
             _limit=_limit,
+            _group_by=_group_by,
             **where,
         )
         return self.query_gen(sql, *vals, factory=factory)
@@ -1170,17 +1250,87 @@ class DbBase(
     def version(self):
         ...
 
-    def count(self, table, where=None, **kws):
+    def aggregate(
+        self,
+        table,
+        agg_map_or_str,
+        where=None,
+        _group_by: Optional[GroupByArgType] = None,
+        _order_by: OrderByArgType = None,
+        _order: Optional[str] = None,  # used only for "simplified" aggregates
+        _limit: Optional[LimitArgType] = None,
+        **kws,
+    ):
         if where and kws:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
         if not where:
             where = kws
 
-        sql = "select count(*) as k from " + self.quote_key(table)
+        simple_result = type(agg_map_or_str) is str
+
+        # when using simple results, the caller doesn't have access to result field names
+        # instead they specify "_order"
+        if _order:
+            assert simple_result, "_order kw is only valid when doing simple aggregates"
+            _order_by = "k " + _order
+
+        if simple_result:
+            agg_map = {"k": agg_map_or_str}
+        else:
+            agg_map = agg_map_or_str
+
+        aggs = ",".join(
+            aggval + " as " + self.quote_key(alias) for alias, aggval in agg_map.items()
+        )
+
+        sql = "select " + aggs
+        if _group_by:
+            sql += "," + ",".join(_group_by)
+        sql += " from " + self.quote_key(table)
         where, vals = self._where(where)
         sql += where
-        return self.query(sql, *vals)[0]["k"]
+
+        if _group_by:
+            sql += " " + self.group_by_query(_group_by)
+
+        if _order_by:
+            sql += " " + self.order_by_query(_order_by)
+
+        if _limit:
+            sql += " " + self.limit_query(_limit)
+
+        if _group_by:
+            ret = {}
+            for row in self.query(sql, *vals):
+                index = tuple(row[field] for field in _group_by)
+                if len(index) == 1:
+                    index = index[0]
+                ret[index] = {}
+                for alias in agg_map:
+                    ret[index][alias] = row[alias]
+            if simple_result:
+                ret = {k: v["k"] for k, v in ret.items()}
+        else:
+            ret = self.query(sql, *vals)[0]
+            if simple_result:
+                ret = ret["k"]
+
+        return ret
+
+    def count(self, table, where=None, *, _group_by=None, **kws):
+        return self.aggregate(
+            table, "count(*)", where=where, _group_by=_group_by, **kws
+        )
+
+    def sum(self, table, field, where=None, _group_by=None, **kws):
+        return self.aggregate(
+            table,
+            "sum(" + self.quote_key(field) + ")",
+            where=where,
+            _group_by=_group_by,
+            **kws,
+        )
 
     def rename(self, table_from, table_to):
         """Rename a table"""
@@ -1343,7 +1493,9 @@ class DbBase(
 
         self.upsert(table, where, **vals)
 
-    def select_one(self, table, fields=None, **where) -> Optional[DbRow]:
+    def select_one(
+        self, table, fields=None, **where: WhereKwargsType
+    ) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1357,7 +1509,9 @@ class DbBase(
             return ret[0]
         return None
 
-    def select_any_one(self, table, fields=None, **where) -> Optional[DbRow]:
+    def select_any_one(
+        self, table, fields=None, **where: WhereKwargsType
+    ) -> Optional[DbRow]:
         """Select one row.
 
         Returns None if not found.
@@ -1390,7 +1544,7 @@ class DbBase(
         if type(tab) is str:
             return [col.name for col in self._get_table_cols(tab)]
 
-    def field_sql_from_map(self, field_map: dict):
+    def field_sql_from_map(self, field_map: Dict[str, str]):
         sql = ""
         for name, qual_name in field_map.items():
             if self.auto_quote(qual_name) != self.quote_key(name):

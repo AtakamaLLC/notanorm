@@ -3,22 +3,19 @@
 
 import copy
 import logging
-import multiprocessing
 import sqlite3
 import threading
 import time
-from multiprocessing.pool import ThreadPool, Pool as ProcessPool
+from multiprocessing.pool import ThreadPool
 from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType, ReconnectionArgs
+from notanorm import SqliteDb, DbRow, DbBase, DbType, And, Or, Op
 from notanorm.connparse import open_db, parse_db_uri
-
-from tests.conftest import cleanup_mysql_db
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +47,13 @@ def test_db_count(db):
     assert db.count("foo", {"bar": "ho"}) == 0
 
 
+def test_db_sum(db):
+    create_and_fill_test_db(db, 4, "x", bar="integer primary key")
+
+    assert db.count("x") == 4
+    assert db.sum("x", "bar") == sum([0, 1, 2, 3])
+
+
 def test_db_select(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
@@ -58,6 +62,12 @@ def test_db_select(db):
     assert db.select("foo", bar=None) == []
     assert db.select("foo", {"bar": "hi"})[0].bar == "hi"
     assert db.select("foo", {"bar": "ho"}) == []
+
+
+def test_db_select_not_both_where(db):
+    create_and_fill_test_db(db, 2)
+    with pytest.raises(ValueError):
+        assert db.select("foo", ["bar"], {"bar": 1}, baz=1) == []
 
 
 def test_db_row_obj__dict__(db):
@@ -363,6 +373,15 @@ def test_db_upsert_lrid(db):
     assert ret.lastrowid
 
 
+def test_db_update_none_val(db):
+    db.query("create table foo (bar integer, baz integer)")
+    db.insert("foo", bar=None, baz=2)
+    db.insert("foo", bar=2, baz=2)
+    assert db.count("foo", bar=None) == 1, "count w none"
+    db.update("foo", {"bar": None}, baz=3)
+    assert db.select_one("foo", bar=None).baz == 3, "update w none"
+
+
 def test_tab_exists(db):
     db.query("create table foo (bar integer)")
     with pytest.raises(err.TableExistsError):
@@ -388,48 +407,11 @@ def test_db_upsert_non_null(db):
     assert db.select_one("foo").bop == "keep"
 
 
-def test_conn_retry(db):
-    db.query("create table foo (x integer)")
-    db._conn_p.close()  # pylint: disable=no-member
-    db.max_reconnect_attempts = 1
-    with pytest.raises(Exception):
-        db.query("create table foo (x integer)")
-    db.max_reconnect_attempts = 2
-    db.query("create table bar (x integer)")
-    db.max_reconnect_attempts = 99
-
-
-def test_reconnect_cb(tmp_path):
-    def cb():
-        nonlocal cb_called
-        cb_called = True
-        raise Exception("ensure that the cb exception is caught")
-
-    cb_called = False
-    recon_args = ReconnectionArgs(max_reconnect_attempts=2, failure_callback=cb)
-    db = SqliteDb(str(tmp_path / "db"), reconnection_args=recon_args, timeout=0)
-    try:
-        db.query("create table foo (x integer)")
-        assert not cb_called
-        with patch.object(db, "_executeone", side_effect=err.DbConnectionError):
-            with pytest.raises(err.DbConnectionError):
-                db.query("create table bar (x integer)")
-    finally:
-        db.close()
-
-
-def test_conn_reopen(db):
-    db.query("create table foo (x integer)")
-    db.close()
-    assert db.closed
-    with pytest.raises(Exception):
-        db.query("create table foo (x integer)")
-
-
 def test_multi_close(db):
     db.close()
     db.close()
 
+    # noinspection PyMissingConstructor
     class VeryClose(SqliteDb):
         def __init__(self):
             self.close()
@@ -452,102 +434,6 @@ def test_safedb_inmemorydb(db):
     pool.map(updater, range(100))
 
     assert db.query("select bar from foo")[0].bar == 100
-
-
-def get_db(db_name, db_conn):
-    if db_name == "sqlite":
-        return SqliteDb(*db_conn[0], **db_conn[1])
-    else:
-        from notanorm import MySqlDb
-
-        return MySqlDb(*db_conn[0], **db_conn[1])
-
-
-def cleanup_db(db):
-    if db.__class__.__name__ == "MySqlDb":
-        cleanup_mysql_db(db)
-
-
-def _test_upsert_i(db_name, i, db_conn, mod):
-    db = get_db(db_name, db_conn)
-
-    with db.transaction() as db:
-        db.upsert("foo", bar=i % mod, baz=i)
-        row = db.select_one("foo", bar=i % mod)
-        db.update("foo", bar=i % mod, cnt=row.cnt + 1)
-
-
-# todo: maybe using the native "mysql connector" would enable fixing this
-#       but really, why would mysql allow blocking transactions like sqlite?
-@pytest.mark.db("sqlite")
-def test_upsert_multiprocess(db_name, db_notmem, tmp_path):
-    db = db_notmem
-    create_and_fill_test_db(db, 0)
-
-    num = 22
-    ts = []
-    mod = 5
-
-    for i in range(0, num):
-        currt = multiprocessing.Process(
-            target=_test_upsert_i,
-            args=(db_name, i, db.connection_args, mod),
-            daemon=True,
-        )
-        ts.append(currt)
-
-    for t in ts:
-        t.start()
-
-    for t in ts:
-        t.join()
-
-    log.debug(db.select("foo"))
-    assert len(db.select("foo")) == mod
-    for i in range(mod):
-        ent = db.select_one("foo", bar=i)
-        assert ent.cnt == int(num / mod) + (i < num % mod)
-
-
-# for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
-# todo: maybe using the native "mysql connector" would enable fixing this
-@pytest.mark.db("sqlite")
-def test_upsert_threaded_multidb(db_notmem, db_name):
-    print("sqlite3 version", sqlite3.sqlite_version)
-
-    db = db_notmem
-    db.query(
-        "create table foo (bar integer primary key, baz integer, cnt integer default 0)"
-    )
-
-    num = 22
-    ts = []
-    mod = 5
-
-    def _upsert_i(up_i, up_db_name, db_conn, up_mod):
-        with get_db(up_db_name, db_conn) as _db:
-            _db.upsert("foo", bar=up_i % up_mod, baz=up_i)
-            with _db.transaction():
-                row = _db.select_one("foo", bar=up_i % up_mod)
-                _db.update("foo", bar=up_i % up_mod, cnt=row.cnt + 1)
-
-    for i in range(0, num):
-        currt = threading.Thread(
-            target=_upsert_i, args=(i, db_name, db.connection_args, mod), daemon=True
-        )
-        ts.append(currt)
-
-    for t in ts:
-        t.start()
-
-    for t in ts:
-        t.join()
-
-    log.debug(db.select("foo"))
-    assert len(db.select("foo")) == mod
-    for i in range(mod):
-        ent = db.select_one("foo", bar=i)
-        assert ent.cnt == int(num / mod) + (i < num % mod)
 
 
 def test_transactions_any_exc(db):
@@ -576,38 +462,6 @@ def test_transactions_deadlock(db):
     for i in range(50):
         db.insert("foo", bar=i)
     thread.join()
-
-
-def test_upsert_thready_one(db_notmem):
-    db = db_notmem
-
-    create_and_fill_test_db(db, 0)
-
-    failed = False
-    num = 100
-    mod = 7
-
-    def upsert_i(db, i):
-        try:
-            db.upsert("foo", bar=str(i % mod), baz=i)
-        except Exception as e:
-            nonlocal failed
-            failed = True
-            log.error("failed to upsert: %s", repr(e))
-
-    ts = []
-    for i in range(0, num):
-        currt = threading.Thread(target=upsert_i, args=(db, i), daemon=True)
-        ts.append(currt)
-
-    for t in ts:
-        t.start()
-
-    for t in ts:
-        t.join()
-
-    assert not failed
-    assert len(db.select("foo")) == mod
 
 
 def test_select_gen_not_lock(db: DbBase):
@@ -653,23 +507,6 @@ def test_select_gen_not_lock(db: DbBase):
     assert (end - start) < 1
 
 
-# for some reqson mysql seems connect in a way that causes multiple object to have the same underlying connection
-# todo: maybe using the native "connector" would enable fixing this
-@pytest.mark.db("sqlite")
-def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
-    print("sqlite3 version", sqlite3.sqlite_version)
-
-    db1 = db_notmem
-    db2 = get_db(db_name, db1.connection_args)
-
-    db1.max_reconnect_attempts = 1
-
-    with db2.transaction():
-        with pytest.raises(sqlite3.OperationalError, match=r".*database.*is locked"):
-            with db1.transaction():
-                pass
-
-
 def test_readonly_fail(db, db_name: str):
     db.query("create table foo (bar text)")
     db.insert("foo", bar="y1")
@@ -683,49 +520,6 @@ def test_readonly_fail(db, db_name: str):
 
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
-
-
-@pytest.mark.db("sqlite")
-def test_collation(db):
-    def collate(v1, v2):
-        return 1 if v1 > v2 else -1 if v1 < v2 else 0
-
-    db._conn().create_collation("COMP", collate)
-    db.query("create table foo (bar text collate COMP)")
-    # collation + multi-thread mode = possible deadlock
-    db.use_collation_locks = True
-
-    with db.transaction():
-        for i in range(5000):
-            db.insert("foo", bar=str(i))
-
-    evt = threading.Event()
-
-    def select_gen():
-        evt.wait()
-        log.warning("gen-start")
-        for row in db.select_gen("foo", order_by="bar"):
-            log.info("gen: %s", row.bar)
-        log.warning("gen-end")
-
-    def select_one():
-        evt.wait()
-        log.warning("one-start")
-        for i in range(5000):
-            row = db.select_one("foo", bar=str(i))
-            log.info("one: %s", row.bar)
-        log.warning("one-end")
-
-    select_gen_thread = threading.Thread(target=select_gen, daemon=True)
-    select_one_thread = threading.Thread(target=select_one, daemon=True)
-
-    select_gen_thread.start()
-    select_one_thread.start()
-
-    evt.set()
-
-    select_gen_thread.join()
-    select_one_thread.join()
 
 
 def test_missing_column(db):
@@ -921,10 +715,10 @@ def test_sqlite_unsafe_gen(db_notmem):
             db.upsert("foo", bar=row.bar, baz=row.baz + 1)
 
     # ok, select inside select
-    for row in db.select_gen("foo"):
+    for _ in db.select_gen("foo"):
         db.select("foo")
 
-    for row in db.select_gen("foo"):
+    for _ in db.select_gen("foo"):
         list(db.select_gen("foo"))
 
 
@@ -950,19 +744,6 @@ def test_sqlite_guard_thread(db_notmem):
         break
 
     assert cool
-
-
-def upserty(uri, i):
-    db = open_db(uri)
-    try:
-        db.generator_guard = True
-        for row in db.select_gen("foo"):
-            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
-        # this is ok: we passed
-        return i
-    except err.UnsafeGeneratorError:
-        # this is ok: we created a consistent error
-        return -1
 
 
 def test_subq(db):
@@ -1035,18 +816,21 @@ def test_joinq_model_changes(db_sqlite_notmem):
 
     assert db.select(db.join("a", "b", bid="bid"))
 
-    file = db.uri.split(":", 1)[1]
-
-    dbx = sqlite3.connect(file)
-
     # other process has changed things!
-    dbx.execute("drop table b")
-    dbx.execute("create table b (b_id integer primary_key, c_id integer)")
-    dbx.execute("insert into b values(1, 1)")
+    db._conn().execute("drop table b")
+    db._conn().execute("create table b (b_id integer primary_key, c_id integer)")
+    db._conn().execute("insert into b values (1, 1)")
 
     with pytest.raises(err.OperationalError):
         db.select(db.join("a", "b", bid="b_id"))
 
+    # explicit table names is always ok
+    assert db.select(db.join("a", "b", a__bid="b__b_id"), ["a.aid", "b.b_id"])
+
+    # asterisk is cool too
+    assert db.select(db.join("a", "b", a__bid="b__b_id"), ["a.*"])[0].aid == 1
+
+    # or you can clear the cache
     db.clear_model_cache()
 
     db.select(db.join("a", "b", bid="b_id"))
@@ -1210,6 +994,38 @@ def test_where_or(db):
     assert len(db.select("foo")) == 3
 
 
+def test_where_complex(db):
+    create_and_fill_test_db(db, 5)
+    assert (
+        len(db.select("foo", _where=And([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])))
+        == 3
+    )
+    assert (
+        len(
+            db.select(
+                "foo",
+                _where=[{"bar": 1}, And([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])],
+            )
+        )
+        == 4
+    )
+    assert len(db.select("foo", _where=And([{"bar": db.subq("foo", ["bar"])}]))) == 5
+
+    assert (
+        len(db.select("foo", _where=And([{"bar": [1, 2, 3]}, {"bar": Op("<", 3)}])))
+        == 2
+    )
+    assert (
+        len(
+            db.select(
+                "foo",
+                _where=And([{"bar": [1, 2, 3]}, Or(({"bar": [2]}, {"baz": [0]}))]),
+            )
+        )
+        == 3
+    )
+
+
 def test_del_raises(db):
     create_and_fill_test_db(db, 5)
     db.delete("foo", bar=2)
@@ -1218,31 +1034,6 @@ def test_del_raises(db):
         db.delete("foo")
     with pytest.raises(ValueError):
         db.delete("foo", {"bar": 3}, baz=0)
-
-
-def test_generator_proc(db_notmem):
-    db = db_notmem
-
-    uri = db.uri
-    log.debug("using uri" + uri)
-
-    create_and_fill_test_db(db, 20)
-    db.close()
-
-    proc_num = 4
-
-    pool = ProcessPool(processes=proc_num)
-
-    import functools
-
-    func = functools.partial(upserty, uri)
-
-    expected = list(range(proc_num * 2))
-
-    if db.uri_name == "sqlite":
-        expected = [-1] * proc_num * 2
-
-    assert pool.map(func, range(proc_num * 2)) == expected
 
 
 def test_db_direct_clone(db_notmem):
@@ -1266,6 +1057,17 @@ def test_quote_key(db: DbBase) -> None:
     assert type(db).quote_key("key") == from_inst
 
 
+def test_quote_special(db: DbBase) -> None:
+    from_inst = db.quote_keys("*")
+    assert from_inst == "*"
+
+    from_inst = db.quote_keys("events.*")
+    assert from_inst == db.quote_key("events") + ".*"
+
+    from_inst = db.quote_keys("count(*)")
+    assert from_inst == "count(*)"
+
+
 def test_db_larger_types(db):
     db.query("create table foo (bar mediumblob)")
     # If mediumblob is accidentally translated to blob, the max size in mysql is
@@ -1283,7 +1085,8 @@ def test_limit_rowcnt(db: DbBase):
     assert len(list(db.select_gen("foo", _limit=0, order_by="bar desc"))) == 0
 
     if db.uri_name != "mysql":
-        # mysql doesn't support limits in where subqueries.  probably you shouldn't use them then, if you want stuff to be compat
+        # mysql doesn't support limits in where subqueries.  probably you shouldn't use them then,
+        # if you want stuff to be compat
         assert (
             len(db.select("foo", bar=db.subq("foo", ["bar"], bar=[1, 2, 3], _limit=2)))
             == 2
@@ -1297,6 +1100,107 @@ def test_limit_offset(db: DbBase):
     assert len(db.select("foo", _limit=(1, 3), order_by="bar desc")) == 3
     assert list(db.select_gen("foo", _limit=(0, 3), order_by="bar desc"))[0].bar == 4
     assert len(list(db.select_gen("foo", _limit=(4, 0), order_by="bar desc"))) == 0
+
+
+def create_group_tabs(db):
+    create_and_fill_test_db(db, 0, "a", f1="integer", f2="integer", f3="integer")
+
+    db.insert("a", f1=1, f2=1, f3=2)
+    db.insert("a", f1=1, f2=1, f3=2)
+    db.insert("a", f1=1, f2=2, f3=3)
+    db.insert("a", f1=1, f2=2, f3=3)
+    db.insert("a", f1=1, f2=2, f3=3)
+    db.insert("a", f1=2, f2=3, f3=1)
+    db.insert("a", f1=2, f2=4, f3=2)
+    db.insert("a", f1=2, f2=4, f3=2)
+
+
+def test_raw_fields_group_by(db: DbBase):
+    create_group_tabs(db)
+    ret = db.select(
+        "a",
+        {"cnt": "count(*)", "ver": "max(f3)"},
+        {},
+        _group_by=["f1", "f2"],
+        _order_by=["cnt"],
+        _limit=3,
+    )
+    # check limit
+    assert len(ret) == 3
+    # check count == f3
+    assert all(r.cnt == r.ver for r in ret)
+    # check order by
+    assert all(e.cnt <= l.cnt for e, l in zip(ret, ret[1:]))
+
+
+def test_subq_group_by(db: DbBase):
+    create_group_tabs(db)
+    sub = db.subq(
+        "a", {"cnt": "count(*)", "ver": "max(f3)"}, {}, _group_by=["f1", "f2"]
+    )
+    ret = db.select(sub, ver=2)
+    assert ret == [{"cnt": 2, "ver": 2}, {"cnt": 2, "ver": 2}]
+
+
+def test_group_by_subq(db: DbBase):
+    create_group_tabs(db)
+    sub = db.subq("a", f1=1)
+    ret = db.select(
+        sub, {"cnt": "count(*)", "ver": "max(f3)", "f2": "f2"}, {}, _group_by=["f2"]
+    )
+    assert ret == [{"cnt": 2, "ver": 2, "f2": 1}, {"cnt": 3, "ver": 3, "f2": 2}]
+
+
+def test_agg_group_by(db: DbBase):
+    create_group_tabs(db)
+
+    # group by one col == dict with col index into counts
+    assert db.count("a", _group_by=["f1"]) == {1: 5, 2: 3}
+
+    # limit/order is ok in counts, maybe you have a lot of counts
+    assert db.count("a", _group_by=["f1"], _limit=1, _order="asc") == {2: 3}
+    assert db.count("a", _group_by=["f1"], _limit=1, _order="desc") == {1: 5}
+
+    # group by 2 cols == dict with tuple index into counts
+    assert db.count("a", _group_by=["f1", "f2"]) == {
+        (1, 1): 2,
+        (1, 2): 3,
+        (2, 3): 1,
+        (2, 4): 2,
+    }
+
+    # group by 2 cols, sum
+    assert db.sum("a", "f3", _group_by=["f1", "f2"]) == {
+        (1, 1): 4,
+        (1, 2): 9,
+        (2, 3): 1,
+        (2, 4): 4,
+    }
+
+    # multi aggregate
+    ret = db.aggregate(
+        "a", {"sum": "sum(f3)", "cnt": "count(*)"}, _group_by=["f1", "f2"]
+    )
+
+    assert ret == {
+        (1, 1): {"sum": 4, "cnt": 2},
+        (1, 2): {"sum": 9, "cnt": 3},
+        (2, 3): {"sum": 1, "cnt": 1},
+        (2, 4): {"sum": 4, "cnt": 2},
+    }
+
+    # simple max is easy!
+    assert db.aggregate("a", "max(f3)", f1=1) == 3
+
+    with pytest.raises(ValueError):
+        # no mix where
+        db.aggregate(
+            "a",
+            {"sum": "sum(f3)", "cnt": "count(*)"},
+            {"f2": 2},
+            f1=1,
+            _group_by=["f1", "f2"],
+        )
 
 
 def test_type_translation_mysql_dialect(db: DbBase):
