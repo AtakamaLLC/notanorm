@@ -186,7 +186,7 @@ class SqliteDb(DbBase):
         unique = bool(index.unique) and not primary
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
         fields = tuple(DbIndexField(n) for n in field_names)
-        return DbIndex(fields=fields, primary=primary, unique=unique)
+        return DbIndex(fields=fields, primary=primary, unique=unique, name=index.name)
 
     @classmethod
     def __info_to_model(cls, info):
@@ -332,19 +332,17 @@ class SqliteDb(DbBase):
         log.info(create)
         self.execute(create)
 
-        self.create_indexes(name, schema, ignore_existing)
+        self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema, ignore_existing=False):
-        ignore = "if not exists " if ignore_existing else ""
+    def create_indexes(self, name, schema):
         for idx in schema.indexes:
             if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
+                index_name = self.unique_index_name(name, (f.name for f in idx.fields))
                 unique = "unique " if idx.unique else ""
                 icreate = (
                     "create "
                     + unique
                     + "index "
-                    + ignore
                     + self.quote_key(index_name)
                     + " on "
                     + name

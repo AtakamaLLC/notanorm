@@ -93,6 +93,7 @@ class DbIndex(NamedTuple):
     fields: Tuple[DbIndexField, ...]
     unique: bool = False  # has a unique index?
     primary: bool = False  # is the primary key?
+    name: Optional[str] = None  # only set when reading from the db, ignored on creation
 
     def _as_tup(self) -> Tuple[Tuple[DbIndexField, ...], bool, bool]:
         return (self.fields, self.unique, self.primary)
@@ -102,6 +103,18 @@ class DbIndex(NamedTuple):
 
     def __hash__(self):
         return hash(self._as_tup())
+
+    @classmethod
+    def from_fields(cls, fields, unique=False, primary=False):
+        assert type(fields) in (tuple, list)
+        return DbIndex(
+            tuple(
+                DbIndexField(*tuple((ent,) if type(ent) is str else ent))
+                for ent in fields
+            ),
+            unique,
+            primary,
+        )
 
 
 class DbTable(NamedTuple):

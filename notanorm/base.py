@@ -32,7 +32,7 @@ from .errors import (
     UnknownPrimaryError,
     UnknownColumnError,
 )
-from .model import DbModel, DbTable
+from .model import DbModel, DbTable, DbIndex
 from . import errors as err
 
 
@@ -485,6 +485,7 @@ class DbBase(
     r_lock = None
     use_pooled_locks = False
     use_collation_locks = False
+    max_index_name = 1024
     __lock_pool = defaultdict(threading.RLock)
 
     @property
@@ -657,6 +658,7 @@ class DbBase(
     def capture_sql(
         self, execute=False
     ) -> Generator[List[Tuple[str, Tuple[Any, ...]]], None, None]:
+        """Use in a with block to return a list of sql statements and parameters."""
         self.__capture = True
         self.__capture_exec = execute
         self.__capture_stmts = []
@@ -666,14 +668,44 @@ class DbBase(
             self.__capture = False
 
     def create_model(self, model: DbModel, ignore_existing=False):
+        """Given a database model, create all the corresponding tables and indexes."""
         for name, schema in model.items():
             self.create_table(name, schema, ignore_existing)
 
-    def create_table(self, name, schema: DbTable, ignore_existing=False):
-        raise RuntimeError("Generic models not supported")
+    def create_table(
+        self, name, schema: DbTable, ignore_existing=False
+    ):  # pragma: no cover
+        raise RuntimeError("Generic create table not supported")
 
-    def create_indexes(self, name, schema: DbTable, ignore_existing=False):
-        raise RuntimeError("Generic models not supported")
+    def create_indexes(self, name, schema: DbTable):  # pragma: no cover
+        raise RuntimeError("Generic create index not supported")
+
+    def drop_index(self, table: str, index: DbIndex):
+        self.drop_index_by_name(table, self.get_index_name(table, index))
+
+    def drop_index_by_name(self, table: str, index_name):
+        sql = "drop index " + self.quote_key(index_name)
+        self.execute(sql)
+
+    def get_index_name(self, table: str, index: DbIndex):
+        for idx in self.model()[table].indexes:
+            if idx == index:
+                return idx.name
+
+    @classmethod
+    def unique_index_name(cls, table, field_names):
+        """Given a table an a list of field names, returns a unique index name.
+
+        Default impl chooses ix_<tab>_<fields>_<uuid>
+        """
+        # prefer urandom to secrets, less opaque
+        uid = os.urandom(16).hex()
+        ret = "ix_" + table + "_" + "_".join(field_names) + "_" + uid
+        if len(ret) > cls.max_index_name:
+            ret = "ix_" + table + "_" + uid
+            if len(ret) > cls.max_index_name:
+                ret = "ix_" + uid
+        return ret
 
     def executescript(self, sql):
         self.execute(sql, _script=True)
@@ -1302,6 +1334,21 @@ class DbBase(
             _group_by=_group_by,
             **kws,
         )
+
+    def rename(self, table_from, table_to):
+        """Rename a table"""
+        sql = (
+            "alter table "
+            + self.quote_key(table_from)
+            + " rename to "
+            + self.quote_key(table_to)
+        )
+        return self.execute(sql)
+
+    def drop(self, table):
+        """Drop a table"""
+        sql = "drop table " + self.quote_key(table)
+        return self.execute(sql)
 
     def delete(self, table, where=None, **kws):
         """Delete all rows in a table that match the supplied value(s).

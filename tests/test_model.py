@@ -1,6 +1,7 @@
 # pylint: disable=missing-docstring, protected-access, unused-argument, too-few-public-methods
 # pylint: disable=import-outside-toplevel, unidiomatic-typecheck
 
+import re
 import logging
 import pytest
 
@@ -36,6 +37,74 @@ def test_model_create_many(db: "DbBase"):
     db.create_model(model)
     check = db.model()
     assert db.simplify_model(check) == db.simplify_model(model)
+
+
+def test_model_many_index_cols(db: "DbBase"):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=tuple(
+                    DbCol("x" + str(i), typ=DbType.INTEGER) for i in range(100)
+                ),
+                indexes={
+                    DbIndex(fields=tuple(DbIndexField("x" + str(i)) for i in range(16)))
+                },
+            )
+        }
+    )
+    db.create_model(model)
+
+    verybigtablename = "x" * 60
+    model = DbModel(
+        {
+            verybigtablename: DbTable(
+                columns=tuple(
+                    DbCol("x" + str(i), typ=DbType.INTEGER) for i in range(100)
+                ),
+                indexes={
+                    DbIndex(fields=tuple(DbIndexField("x" + str(i)) for i in range(16)))
+                },
+            )
+        }
+    )
+    db.create_model(model)
+
+
+def test_model_migrate(db: "DbBase"):
+    model = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("dbl", typ=DbType.INTEGER, default="2"),
+                ),
+                indexes={
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("dbl"),), unique=True),
+                },
+            )
+        }
+    )
+    db.create_model(model)
+    db.rename("foo", "foo_old")
+    model2 = DbModel(
+        {
+            "foo": DbTable(
+                columns=(
+                    DbCol("auto", typ=DbType.INTEGER, autoinc=True, notnull=True),
+                    DbCol("dbl", typ=DbType.DOUBLE, default="2.2"),
+                ),
+                indexes={
+                    DbIndex(fields=(DbIndexField("auto"),), primary=True),
+                    DbIndex(fields=(DbIndexField("dbl"),)),
+                },
+            )
+        }
+    )
+    db.create_model(model2)
+    db.drop("foo_old")
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model2)
 
 
 def test_model_intsize(db):
@@ -277,12 +346,12 @@ def test_model_cap(db):
 
     ddl = db.ddl_from_model(model)
 
-    expect = """
-create table foo("inty" integer);
-create index "ix_foo_inty" on foo ("inty");
+    expect = r"""
+create table foo\("inty" integer\);
+create index "ix_foo_inty_\w+" on foo \("inty"\);
 """
     if db.uri_name == "sqlite":
-        assert ddl.strip() == expect.strip()
+        assert re.match(expect.strip(), ddl.strip())
     else:
         # vague assertion that we captured stuff
         assert "create table" in ddl.lower()

@@ -14,7 +14,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType, And, Or, Op
+from notanorm import SqliteDb, DbRow, DbBase, DbType, DbIndex, And, Or, Op, DbIndexField
 from notanorm.connparse import open_db, parse_db_uri
 
 log = logging.getLogger(__name__)
@@ -1235,3 +1235,30 @@ def test_clob_invalid():
 
     with pytest.raises(ValueError):
         _ = notanorm.model_from_ddl(schema, "sqlite")
+
+
+def test_rename_drop(db):
+    db.execute("create table foo (bar int)")
+    db.insert("foo", bar=1)
+    db.rename("foo", "foo2")
+    db.insert("foo2", bar=1)
+    assert sum(r.bar for r in db.select("foo2")) == 2
+    with pytest.raises(err.TableNotFoundError):
+        db.drop("foo")
+    db.drop("foo2")
+    with pytest.raises(err.TableNotFoundError):
+        db.select("foo2")
+
+
+def test_drop_index(db):
+    db.execute("create table foo (bar integer)")
+    db.execute("create unique index ix_foo_uk on foo(bar)")
+    assert db.model()["foo"].indexes.pop().name
+    idx = DbIndex(fields=(DbIndexField("bar"),), unique=True)
+    # simplified constructor
+    idx2 = DbIndex.from_fields(["bar"], unique=True)
+    assert idx == idx2
+    assert not idx.name
+    assert "ix_foo_uk" == db.get_index_name("foo", idx)
+    db.drop_index("foo", idx)
+    assert not db.model()["foo"].indexes
