@@ -261,7 +261,7 @@ def test_db_select_explicit_field_map(db):
 
     res = [DbRow({"x": "hi"}), DbRow({"x": "ho"})]
 
-    assert db.select("foo", fields={"x": "bar"}, bar=["hi", "ho"]) == res
+    assert db.select("foo", _fields={"x": "bar"}, bar=["hi", "ho"]) == res
 
 
 def test_db_select_join(db):
@@ -781,12 +781,12 @@ def test_subq_limited_fields_join(db):
     # subq limited to just 'select', so we can't join on 'baz', even tho you can without the limit
     with pytest.raises(err.UnknownColumnError):
         db.select(
-            db.join(db.subq("foo", fields=["select"], select=[1, 3]), "oth", baz="baz")
+            db.join(db.subq("foo", _fields=["select"], select=[1, 3]), "oth", baz="baz")
         )
 
     # 'select' as a field name works tho
     db.select(
-        db.join(db.subq("foo", fields=["select"], select=[1, 3]), "oth", select="bar")
+        db.join(db.subq("foo", _fields=["select"], select=[1, 3]), "oth", select="bar")
     )
 
 
@@ -856,24 +856,24 @@ def test_select_star_in_child(db_sqlite_notmem: DbBase) -> None:
     log.debug("%s", res)
 
     log.debug("Single field")
-    res = db.select(db.join("a", "b", bid="bid"), fields=["a.aid"])
+    res = db.select(db.join("a", "b", bid="bid"), _fields=["a.aid"])
     log.debug("%s", res)
     assert res[2].aid
     assert "cid" not in res[0]
 
     log.debug("Single in join field")
-    res = db.select(db.join("a", "b", bid="bid", fields=["a.aid"]))
+    res = db.select(db.join("a", "b", bid="bid", _fields=["a.aid"]))
     log.debug("%s", res)
     assert res[2].aid
     assert "cid" not in res[0]
 
     log.debug("Wildcard field")
-    res = db.select(db.subq(db.join("a", "b", bid="bid"), fields=["a.*"]))
+    res = db.select(db.subq(db.join("a", "b", bid="bid"), _fields=["a.*"]))
     log.debug("%s", res)
     assert res[2].bid
 
     log.debug("Wildcard in join fields")
-    res = db.select(db.subq(db.join("a", "b", bid="bid", fields=["a.*"])))
+    res = db.select(db.subq(db.join("a", "b", bid="bid", _fields=["a.*"])))
     log.debug("%s", res)
     assert res[2].bid
 
@@ -968,13 +968,13 @@ def test_multi_join_nested_left_right(db):
     j1 = db.join("foo", "oth", bar="bar")
     log.debug("j1: %s", j1.sql)
     assert len(db.select(j1, {"foo.bar": 1})) == 1
-    j2a = db.join(j1, "thrd", _on={"foo.bar": "thrd.bar"})
+    j2a = db.join(j1, "thrd", on={"foo.bar": "thrd.bar"})
     log.debug("j2a: %s", j2a.sql)
     assert len(db.select(j2a, {"foo.bar": 1})) == 1
     j2b = db.join("thrd", j1, bar="foo.bar")
     log.debug("j2b: %s", j2b.sql)
     assert len(db.select(j2b, {"thrd.bar": 1})) == 1
-    j3a = db.join(j2a, "mor", _on={"foo.bar": "mor.bar"})
+    j3a = db.join(j2a, "mor", on={"foo.bar": "mor.bar"})
     log.debug("j3a: %s", j3a.sql)
     assert len(db.select(j3a, {"foo.bar": 1})) == 1
     j3b = db.join("mor", j2b, bar="thrd.bar")
@@ -986,7 +986,7 @@ def test_join_explicit_mappings(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(
-        db.join("foo", "oth", bar="bar", fields={"z": "oth.bar", "x": "foo.bar"})
+        db.join("foo", "oth", bar="bar", _fields={"z": "oth.bar", "x": "foo.bar"})
     )
     j2 = db.join("foo", j1, bar="x")
     assert db.select_one(j2, z=1).x == 1
@@ -995,12 +995,18 @@ def test_join_explicit_mappings(db):
 def test_join_explicit_fields(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
-    j1 = db.subq(db.join("foo", "oth", bar="bar", fields=["oth.bar"]))
+    j1 = db.subq(db.join("foo", "oth", bar="bar", _fields=["oth.bar"]))
     assert j1.fields
     j2 = db.join("foo", j1, bar="bar")
     assert j2.sql
     assert j2.where_map
     assert db.select_one(j2, bar=1).bar == 1
+
+
+def test_subq_field_map(db):
+    create_and_fill_test_db(db, 5)
+    j1 = db.subq("foo", _fields={"xxx": "bar"}, bar=[1, 2])
+    assert db.select_one(j1, xxx=1).xxx == 1
 
 
 def test_join_2_subqs_same_tab(db):
