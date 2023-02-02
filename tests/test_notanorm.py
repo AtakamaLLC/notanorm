@@ -752,6 +752,14 @@ def test_subq(db):
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
+def test_subq_wildcards(db):
+    create_and_fill_test_db(db, 5)
+    assert (
+        len(db.select(db.subq("foo", {"bing": "bar", "baz": "baz"}, bar=[1, 3]), baz=0))
+        == 2
+    )
+
+
 def test_nested_subq(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
@@ -836,6 +844,40 @@ def test_joinq_model_changes(db_sqlite_notmem):
     db.select(db.join("a", "b", bid="b_id"))
 
 
+def test_select_star_in_child(db_sqlite_notmem: DbBase) -> None:
+    db = db_sqlite_notmem
+
+    create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
+    create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
+
+    log.debug("No fields")
+    res = db.select(db.join("a", "b", bid="bid"))
+    assert res[2].aid
+    log.debug("%s", res)
+
+    log.debug("Single field")
+    res = db.select(db.join("a", "b", bid="bid"), fields=["a.aid"])
+    log.debug("%s", res)
+    assert res[2].aid
+    assert "cid" not in res[0]
+
+    log.debug("Single in join field")
+    res = db.select(db.join("a", "b", bid="bid", fields=["a.aid"]))
+    log.debug("%s", res)
+    assert res[2].aid
+    assert "cid" not in res[0]
+
+    log.debug("Wildcard field")
+    res = db.select(db.subq(db.join("a", "b", bid="bid"), fields=["a.*"]))
+    log.debug("%s", res)
+    assert res[2].bid
+
+    log.debug("Wildcard in join fields")
+    res = db.select(db.subq(db.join("a", "b", bid="bid", fields=["a.*"])))
+    log.debug("%s", res)
+    assert res[2].bid
+
+
 def test_joinq_left(db):
     create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
     create_and_fill_test_db(db, 3, "b", bid="integer primary key", cid="integer")
@@ -871,19 +913,35 @@ def test_join_simple(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(db.select(db.join("foo", "oth", bar="bar"), {"foo.bar": 1})) == 1
+    assert db.select_one(db.join("foo", "oth", bar="bar"), bar=1) == {
+        "bar": 1,
+        "foo.baz": 0,
+        "foo.cnt": None,
+        "oth.baz": 0,
+        "oth.cnt": None,
+    }
 
 
 def test_join_subqs(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
-    assert (
-        len(
-            db.select(
-                db.join("foo", db.subq("oth", bar=[1, 3]), bar="bar"), {"foo.bar": 1}
-            )
-        )
-        == 1
+    res = db.select(
+        db.join("foo", db.subq("oth", bar=[1, 3], _alias="oth"), bar="bar"),
+        {"foo.bar": 1},
     )
+    assert len(res) == 1
+    # bar is resolved because it's in the on clause
+    # everything else is qualified, because ambig
+    assert res == [
+        {
+            "bar": 1,
+            "foo.baz": 0,
+            "foo.cnt": None,
+            "oth.bar": 1,
+            "oth.baz": 0,
+            "oth.cnt": None,
+        }
+    ]
 
 
 def test_subqify_join(db):
@@ -938,7 +996,10 @@ def test_join_explicit_fields(db):
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(db.join("foo", "oth", bar="bar", fields=["oth.bar"]))
+    assert j1.fields
     j2 = db.join("foo", j1, bar="bar")
+    assert j2.sql
+    assert j2.where_map
     assert db.select_one(j2, bar=1).bar == 1
 
 

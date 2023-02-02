@@ -137,7 +137,7 @@ class BaseQ(ABC):
             return "*"
 
         if not self.field_map:
-            return ",".join(self.db.quote_key(fd) for fd in self.fields)
+            return ",".join(self.db.auto_quote(fd) for fd in self.fields)
 
         return self.db.field_sql_from_map(self.field_map)
 
@@ -164,6 +164,8 @@ class SubQ(BaseQ):
         self.alias = alias
         self.fields = fields or []
         self.field_map = {}
+        if type(fields) is dict:
+            self.fields = list(fields.keys())
 
         if type(table) is SubQ:
             self.table = table.table
@@ -171,7 +173,7 @@ class SubQ(BaseQ):
             self.table = table
 
     def resolve_field(self, field: str):
-        if self.fields and field not in self.fields:
+        if self.fields and field not in {f.split(".")[-1] for f in self.fields}:
             raise UnknownColumnError(f"{field} not found in {self.fields}")
         return self.alias + "." + field
 
@@ -196,6 +198,7 @@ class JoinQ(BaseQ):
         self.__sql = ""
         self.__field_map = fields if type(fields) is dict else {}
         self.__fields = fields if type(fields) is list else []
+        self.where_map = self.__field_map
 
     def __resolve_if_needed(self):
         if not self.__sql:
@@ -279,7 +282,7 @@ class JoinQ(BaseQ):
 
         self.__sql = sql
 
-        if self.field_map:
+        if self.__field_map:
             self.__fields = list(self.field_map.keys())
             return
 
@@ -303,8 +306,12 @@ class JoinQ(BaseQ):
                         field_map[col] = col
                         field = col
                     fields.append(field)
-        self.__fields = fields
-        self.__field_map = field_map
+
+        self.where_map = field_map
+
+        if not self.__fields and not self.__field_map:
+            self.__fields = fields
+            self.__field_map = field_map
 
     def get_on_sql(self):
         on_sql = ""
@@ -1048,7 +1055,7 @@ class DbBase(
 
         field_map = None
         if not fields:
-            if type(table) in (JoinQ, SubQ):
+            if type(table) in (JoinQ,):
                 sql += table.field_sql()
             else:
                 sql += "*"
@@ -1062,7 +1069,7 @@ class DbBase(
         if type(table) is JoinQ:
             sql += " from " + table.sql
             vals += table.vals
-            field_map = table.field_map
+            field_map = table.where_map
         elif type(table) is SubQ:
             sql += " from (" + table.sql + ") as " + table.alias
             vals += table.vals
@@ -1536,7 +1543,12 @@ class DbBase(
     def get_subq_col_names(self, tab: Union[str, BaseQType]):
         if getattr(tab, "fields", None):
             if type(tab) is SubQ:
-                return [AlreadyAliased(fd) for fd in tab.fields]
+                if tab.field_map:
+                    # mapped fields have explicit names, and shouldn't be split
+                    return [AlreadyAliased(fd) for fd in tab.fields]
+                else:
+                    # unmapped (unambiguoius) fields use the trailing name
+                    return [fd.split(".")[-1] for fd in tab.fields]
             else:
                 return tab.fields
 
