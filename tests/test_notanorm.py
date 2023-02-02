@@ -1255,6 +1255,9 @@ def test_drop_index(db):
     db.execute("create unique index ix_foo_uk on foo(bar)")
     assert db.model()["foo"].indexes.pop().name
     idx = DbIndex(fields=(DbIndexField("bar"),), unique=True)
+    # simplified constructor
+    idx2 = DbIndex.from_fields(["bar"], unique=True)
+    assert idx == idx2
     assert not idx.name
     assert "ix_foo_uk" == db.get_index_name("foo", idx)
     db.drop_index("foo", idx)

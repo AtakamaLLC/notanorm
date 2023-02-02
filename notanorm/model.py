@@ -104,6 +104,18 @@ class DbIndex(NamedTuple):
     def __hash__(self):
         return hash(self._as_tup())
 
+    @classmethod
+    def from_fields(cls, fields, unique=False, primary=False):
+        assert type(fields) in (tuple, list)
+        return DbIndex(
+            tuple(
+                DbIndexField(*tuple((ent,) if type(ent) is str else ent))
+                for ent in fields
+            ),
+            unique,
+            primary,
+        )
+
 
 class DbTable(NamedTuple):
     """Table definition."""
