@@ -14,7 +14,7 @@ import pytest
 
 import notanorm.errors
 import notanorm.errors as err
-from notanorm import SqliteDb, DbRow, DbBase, DbType, And, Or, Op
+from notanorm import SqliteDb, DbRow, DbBase, DbType, DbIndex, And, Or, Op, DbIndexField
 from notanorm.connparse import open_db, parse_db_uri
 
 log = logging.getLogger(__name__)
@@ -1253,7 +1253,9 @@ def test_rename_drop(db):
 def test_drop_index(db):
     db.execute("create table foo (bar integer)")
     db.execute("create unique index ix_foo_uk on foo(bar)")
-    idx = db.model()["foo"].indexes.pop()
-    assert idx.name
+    assert db.model()["foo"].indexes.pop().name
+    idx = DbIndex(fields=(DbIndexField("bar"),), unique=True)
+    assert not idx.name
+    assert "ix_foo_uk" == db.get_index_name("foo", idx)
     db.drop_index("foo", idx)
     assert not db.model()["foo"].indexes

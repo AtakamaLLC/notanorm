@@ -681,13 +681,16 @@ class DbBase(
         raise RuntimeError("Generic create index not supported")
 
     def drop_index(self, table: str, index: DbIndex):
-        for idx in self.model()[table].indexes:
-            if idx == index:
-                self.drop_index_by_name(table, index.name)
+        self.drop_index_by_name(table, self.get_index_name(table, index))
 
     def drop_index_by_name(self, table: str, index_name):
         sql = "drop index " + self.quote_key(index_name)
         self.execute(sql)
+
+    def get_index_name(self, table: str, index: DbIndex):
+        for idx in self.model()[table].indexes:
+            if idx == index:
+                return idx.name
 
     @classmethod
     def unique_index_name(cls, table, field_names):
