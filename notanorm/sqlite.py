@@ -77,12 +77,12 @@ class SqliteDb(DbBase):
         finally:
             self.__in_gen.discard(threading.get_ident())
 
-    def execute(self, sql, parameters=(), _script=False, write=True):
+    def execute(self, sql, parameters=(), _script=False, write=True, **kwargs):
         if self.generator_guard and write and threading.get_ident() in self.__in_gen:
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when updating within a loop using sqlite"
             )
-        return super().execute(sql, parameters, _script=_script)
+        return super().execute(sql, parameters, _script=_script, **kwargs)
 
     def clone(self):
         assert not self.__is_mem, "cannot clone memory db"
@@ -131,10 +131,10 @@ class SqliteDb(DbBase):
     def timeout(self, val):
         self.__timeout = val
 
-    def __columns(self, table):
-        self.query("SELECT name, type from sqlite_master")
+    def __columns(self, table, no_capture):
+        self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
 
-        tinfo = self.query("PRAGMA table_info(" + table + ")")
+        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=no_capture)
         if len(tinfo) == 0:
             raise KeyError(f"Table {table} not found in db {self}")
 
@@ -152,8 +152,8 @@ class SqliteDb(DbBase):
             cols.append(self.__info_to_model(col))
         return tuple(cols)
 
-    def __indexes(self, table):
-        tinfo = self.query("PRAGMA table_info(" + table + ")")
+    def __indexes(self, table, no_capture):
+        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=no_capture)
         pks = []
         for col in tinfo:
             if col.pk:
@@ -161,9 +161,11 @@ class SqliteDb(DbBase):
         pks = [p[1] for p in sorted(pks)]
 
         clist = []
-        res = self.query("PRAGMA index_list(" + table + ")")
+        res = self.query("PRAGMA index_list(" + table + ")", no_capture=no_capture)
         for row in res:
-            res = self.query("PRAGMA index_info(" + row.name + ")")
+            res = self.query(
+                "PRAGMA index_info(" + row.name + ")", no_capture=no_capture
+            )
             clist.append(self.__info_to_index(row, res))
 
         if pks:
@@ -171,6 +173,9 @@ class SqliteDb(DbBase):
                 clist.append(
                     DbIndex(fields=tuple(DbIndexField(p) for p in pks), primary=True)
                 )
+        if len(set(clist)) != len(clist):
+            log.warning("duplicate indexes in table %s", table)
+
         return set(clist)
 
     @staticmethod
@@ -216,16 +221,16 @@ class SqliteDb(DbBase):
             fixed=fixed,
         )
 
-    def model(self):
+    def model(self, no_capture=False):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
-        res = self.query("SELECT name, type from sqlite_master")
+        res = self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
         model = DbModel()
         for tab in res:
             if tab.name == "sqlite_sequence":
                 continue
             if tab.type == "table":
-                cols = self.__columns(tab.name)
-                indxs = self.__indexes(tab.name)
+                cols = self.__columns(tab.name, no_capture)
+                indxs = self.__indexes(tab.name, no_capture)
                 model[tab.name] = DbTable(cols, indxs)
         return model
 
@@ -334,23 +339,21 @@ class SqliteDb(DbBase):
 
         self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema):
-        for idx in schema.indexes:
-            if not idx.primary:
-                index_name = self.unique_index_name(name, (f.name for f in idx.fields))
-                unique = "unique " if idx.unique else ""
-                icreate = (
-                    "create "
-                    + unique
-                    + "index "
-                    + self.quote_key(index_name)
-                    + " on "
-                    + name
-                    + " ("
-                )
-                icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
-                icreate += ")"
-                self.execute(icreate)
+    def _create_index(self, table_name, index_name, idx):
+        if not idx.primary:
+            unique = "unique " if idx.unique else ""
+            icreate = (
+                "create "
+                + unique
+                + "index "
+                + self.quote_key(index_name)
+                + " on "
+                + table_name
+                + " ("
+            )
+            icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
+            icreate += ")"
+            self.execute(icreate)
 
     @staticmethod
     def _executemany(cursor, sql):

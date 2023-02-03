@@ -638,7 +638,7 @@ class DbBase(
         """Make a copy of my connection"""
         return type(self)(*self._conn_args, **self._conn_kws)
 
-    def model(self) -> DbModel:
+    def model(self, no_capture=False) -> DbModel:
         raise RuntimeError("Generic models not supported")
 
     def ddl_stmts_from_model(self, model: DbModel):
@@ -680,13 +680,25 @@ class DbBase(
         for name, schema in model.items():
             self.create_table(name, schema, ignore_existing)
 
-    def create_table(
-        self, name, schema: DbTable, ignore_existing=False
-    ):  # pragma: no cover
-        raise RuntimeError("Generic create table not supported")
+    @abstractmethod
+    def create_table(self, name, schema: DbTable, ignore_existing=False):
+        ...
 
-    def create_indexes(self, name, schema: DbTable):  # pragma: no cover
-        raise RuntimeError("Generic create index not supported")
+    def create_indexes(self, name, schema: DbTable):
+        try:
+            existing = self.model(no_capture=True)[name].indexes
+        except Exception:
+            existing = set()
+
+        for idx in schema.indexes:
+            if idx in existing:
+                continue
+            index_name = self.unique_index_name(name, (f.name for f in idx.fields))
+            self._create_index(name, index_name, idx)
+
+    @abstractmethod
+    def _create_index(self, index_name, idx: DbIndex):
+        ...
 
     def drop_index(self, table: str, index: DbIndex):
         self.drop_index_by_name(table, self.get_index_name(table, index))
@@ -739,13 +751,15 @@ class DbBase(
     def clear_model_cache(self):
         self.__model_cache = None
 
-    def execute(self, sql: str, parameters=(), _script=False, write=True):
+    def execute(
+        self, sql: str, parameters=(), _script=False, write=True, no_capture=False
+    ):
         if "alter " in sql.lower() or "create " in sql.lower():
             self.__model_cache = None
 
         self.__debug_sql(sql, parameters)
 
-        if self.__capture:
+        if self.__capture and not no_capture:
             self.__capture_stmts.append((sql, parameters))
             if not self.__capture_exec:
                 return FakeCursor()
@@ -858,7 +872,7 @@ class DbBase(
             if fetch:
                 fetch.close()
 
-    def query(self, sql: str, *args, factory=None) -> List[DbRow]:
+    def query(self, sql: str, *args, factory=None, **kwargs) -> List[DbRow]:
         """Run sql, pass args, optionally use factory for each row (cols passed as kwargs)"""
         fetch = None
 
@@ -867,7 +881,7 @@ class DbBase(
         with self.r_lock:
             try:
                 done = False
-                fetch = self.execute(sql, tuple(args), write=False)
+                fetch = self.execute(sql, tuple(args), write=False, **kwargs)
                 rows = fetch.fetchall() if fetch else []
                 done = True
             except Exception as ex:

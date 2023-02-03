@@ -1061,6 +1061,16 @@ def test_where_or(db):
     assert len(db.select("foo")) == 3
 
 
+def test_warn_dup_index(db, caplog):
+    create_and_fill_test_db(db, 5)
+    db.query("create index ix_1 on foo(bar);")
+    db.query("create index ix_2 on foo(bar);")
+    caplog.clear()
+    # grabbing the model spits out an annoying warning
+    db.model()
+    assert "WARNING" in caplog.text
+
+
 def test_where_complex(db):
     create_and_fill_test_db(db, 5)
     assert (

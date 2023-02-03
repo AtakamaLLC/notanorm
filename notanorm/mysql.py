@@ -14,6 +14,7 @@ import re
 from collections import defaultdict
 from functools import partial
 from typing import Callable, Tuple, List, Dict, Any
+import logging as log
 
 MySQLLib = None
 try:
@@ -135,7 +136,7 @@ class MySqlDb(DbBase):
 
     def _get_primary(self, table):
         info = self.query(
-            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'"
+            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'",
         )
         prim = set()
         for x in info:
@@ -230,26 +231,24 @@ class MySqlDb(DbBase):
 
         self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema: DbTable):
-        for idx in schema.indexes:
-            if not idx.primary:
-                index_name = self.unique_index_name(name, (f.name for f in idx.fields))
-                unique = "unique " if idx.unique else ""
-                icreate = (
-                    "create " + unique + "index " + index_name + " on " + name + " ("
-                )
-                icreate += ",".join(
-                    f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
-                    for f in idx.fields
-                )
-                icreate += ")"
-                self.execute(icreate)
+    def _create_index(self, table_name, index_name, idx):
+        if not idx.primary:
+            unique = "unique " if idx.unique else ""
+            icreate = (
+                "create " + unique + "index " + index_name + " on " + table_name + " ("
+            )
+            icreate += ",".join(
+                f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
+                for f in idx.fields
+            )
+            icreate += ")"
+            self.execute(icreate)
 
-    def model(self):
-        tabs = self.query("show tables")
+    def model(self, no_capture=False):
+        tabs = self.query("show tables", no_capture=no_capture)
         ret = DbModel()
         for tab in tabs:
-            ret[tab[0]] = self.table_model(tab[0])
+            ret[tab[0]] = self.table_model(tab[0], no_capture=no_capture)
         return ret
 
     def drop_index_by_name(self, table: str, index_name):
@@ -258,8 +257,8 @@ class MySqlDb(DbBase):
         )
         self.execute(sql)
 
-    def table_model(self, tab):
-        res = self.query("show index from  `" + tab + "`")
+    def table_model(self, tab, no_capture):
+        res = self.query("show index from  `" + tab + "`", no_capture=no_capture)
 
         idxunique = {}
         idxmap: Dict[str, List[Dict[str, Any]]] = defaultdict(lambda: [])
@@ -293,6 +292,8 @@ class MySqlDb(DbBase):
             dbcol = self.column_model(col, in_primary)
             cols.append(dbcol)
 
+        if len(set(indexes)) != len(indexes):
+            log.warning("duplicate indexes in table %s", tab)
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     @staticmethod
