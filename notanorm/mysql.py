@@ -230,20 +230,18 @@ class MySqlDb(DbBase):
 
         self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema: DbTable):
-        for idx in schema.indexes:
-            if not idx.primary:
-                index_name = self.unique_index_name(name, (f.name for f in idx.fields))
-                unique = "unique " if idx.unique else ""
-                icreate = (
-                    "create " + unique + "index " + index_name + " on " + name + " ("
-                )
-                icreate += ",".join(
-                    f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
-                    for f in idx.fields
-                )
-                icreate += ")"
-                self.execute(icreate)
+    def _create_index(self, table_name, index_name, idx):
+        if not idx.primary:
+            unique = "unique " if idx.unique else ""
+            icreate = (
+                "create " + unique + "index " + index_name + " on " + table_name + " ("
+            )
+            icreate += ",".join(
+                f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
+                for f in idx.fields
+            )
+            icreate += ")"
+            self.execute(icreate)
 
     def model(self):
         tabs = self.query("show tables")

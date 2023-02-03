@@ -313,7 +313,7 @@ def test_model_create_nopk(db: "DbBase"):
     assert not check["foo"].indexes.pop().primary
 
 
-def test_model_create_indexes(db: "DbBase"):
+def test_model_create_indexes(db: "DbBase", caplog):
     # no primary key
     model = DbModel(
         {
@@ -321,6 +321,7 @@ def test_model_create_indexes(db: "DbBase"):
                 columns=(
                     DbCol("inty", typ=DbType.INTEGER, size=4, autoinc=True),
                     DbCol("vary", typ=DbType.BLOB, size=16),
+                    DbCol("xxxx", typ=DbType.INTEGER),
                 ),
                 indexes={
                     DbIndex(fields=(DbIndexField("inty"),), primary=True),
@@ -330,6 +331,18 @@ def test_model_create_indexes(db: "DbBase"):
         }
     )
     db.create_model(model)
+    check = db.model()
+    assert db.simplify_model(check) == db.simplify_model(model)
+    model["foo"].indexes.add(DbIndex(fields=(DbIndexField("xxxx"),)))
+
+    caplog.clear()
+
+    # no dups
+    db.create_indexes("foo", model["foo"])
+    db.create_indexes("foo", model["foo"])
+
+    assert "WARN" not in caplog.text
+
     check = db.model()
     assert db.simplify_model(check) == db.simplify_model(model)
 
