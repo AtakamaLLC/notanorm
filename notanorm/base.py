@@ -757,8 +757,7 @@ class DbBase(
         if "alter " in sql.lower() or "create " in sql.lower():
             self.__model_cache = None
 
-        if not no_capture:
-            self.__debug_sql(sql, parameters)
+        self.__debug_sql(sql, parameters)
 
         if self.__capture and not no_capture:
             self.__capture_stmts.append((sql, parameters))
