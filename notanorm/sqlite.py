@@ -131,10 +131,10 @@ class SqliteDb(DbBase):
     def timeout(self, val):
         self.__timeout = val
 
-    def __columns(self, table):
-        self.query("SELECT name, type from sqlite_master", no_capture=True)
+    def __columns(self, table, no_capture):
+        self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
 
-        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=True)
+        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=no_capture)
         if len(tinfo) == 0:
             raise KeyError(f"Table {table} not found in db {self}")
 
@@ -152,8 +152,8 @@ class SqliteDb(DbBase):
             cols.append(self.__info_to_model(col))
         return tuple(cols)
 
-    def __indexes(self, table):
-        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=True)
+    def __indexes(self, table, no_capture):
+        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=no_capture)
         pks = []
         for col in tinfo:
             if col.pk:
@@ -161,9 +161,11 @@ class SqliteDb(DbBase):
         pks = [p[1] for p in sorted(pks)]
 
         clist = []
-        res = self.query("PRAGMA index_list(" + table + ")", no_capture=True)
+        res = self.query("PRAGMA index_list(" + table + ")", no_capture=no_capture)
         for row in res:
-            res = self.query("PRAGMA index_info(" + row.name + ")", no_capture=True)
+            res = self.query(
+                "PRAGMA index_info(" + row.name + ")", no_capture=no_capture
+            )
             clist.append(self.__info_to_index(row, res))
 
         if pks:
@@ -219,16 +221,16 @@ class SqliteDb(DbBase):
             fixed=fixed,
         )
 
-    def model(self):
+    def model(self, no_capture=False):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
-        res = self.query("SELECT name, type from sqlite_master", no_capture=True)
+        res = self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
         model = DbModel()
         for tab in res:
             if tab.name == "sqlite_sequence":
                 continue
             if tab.type == "table":
-                cols = self.__columns(tab.name)
-                indxs = self.__indexes(tab.name)
+                cols = self.__columns(tab.name, no_capture)
+                indxs = self.__indexes(tab.name, no_capture)
                 model[tab.name] = DbTable(cols, indxs)
         return model
 

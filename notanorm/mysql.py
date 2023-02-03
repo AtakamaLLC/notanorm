@@ -137,7 +137,6 @@ class MySqlDb(DbBase):
     def _get_primary(self, table):
         info = self.query(
             "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'",
-            no_capture=True,
         )
         prim = set()
         for x in info:
@@ -245,11 +244,11 @@ class MySqlDb(DbBase):
             icreate += ")"
             self.execute(icreate)
 
-    def model(self):
-        tabs = self.query("show tables", no_capture=True)
+    def model(self, no_capture=False):
+        tabs = self.query("show tables", no_capture=no_capture)
         ret = DbModel()
         for tab in tabs:
-            ret[tab[0]] = self.table_model(tab[0])
+            ret[tab[0]] = self.table_model(tab[0], no_capture=no_capture)
         return ret
 
     def drop_index_by_name(self, table: str, index_name):
@@ -258,8 +257,8 @@ class MySqlDb(DbBase):
         )
         self.execute(sql)
 
-    def table_model(self, tab):
-        res = self.query("show index from  `" + tab + "`", no_capture=True)
+    def table_model(self, tab, no_capture):
+        res = self.query("show index from  `" + tab + "`", no_capture=no_capture)
 
         idxunique = {}
         idxmap: Dict[str, List[Dict[str, Any]]] = defaultdict(lambda: [])
