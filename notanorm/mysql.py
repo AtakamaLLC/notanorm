@@ -14,6 +14,7 @@ import re
 from collections import defaultdict
 from functools import partial
 from typing import Callable, Tuple, List, Dict, Any
+import logging as log
 
 MySQLLib = None
 try:
@@ -135,7 +136,8 @@ class MySqlDb(DbBase):
 
     def _get_primary(self, table):
         info = self.query(
-            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'"
+            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'",
+            no_capture=True,
         )
         prim = set()
         for x in info:
@@ -244,7 +246,7 @@ class MySqlDb(DbBase):
             self.execute(icreate)
 
     def model(self):
-        tabs = self.query("show tables")
+        tabs = self.query("show tables", no_capture=True)
         ret = DbModel()
         for tab in tabs:
             ret[tab[0]] = self.table_model(tab[0])
@@ -257,7 +259,7 @@ class MySqlDb(DbBase):
         self.execute(sql)
 
     def table_model(self, tab):
-        res = self.query("show index from  `" + tab + "`")
+        res = self.query("show index from  `" + tab + "`", no_capture=True)
 
         idxunique = {}
         idxmap: Dict[str, List[Dict[str, Any]]] = defaultdict(lambda: [])
@@ -291,6 +293,8 @@ class MySqlDb(DbBase):
             dbcol = self.column_model(col, in_primary)
             cols.append(dbcol)
 
+        if len(set(indexes)) != len(indexes):
+            log.warning("duplicate indexes in table %s", tab)
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     @staticmethod
