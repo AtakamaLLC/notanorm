@@ -638,7 +638,7 @@ class DbBase(
         """Make a copy of my connection"""
         return type(self)(*self._conn_args, **self._conn_kws)
 
-    def model(self) -> DbModel:
+    def model(self, no_capture=False) -> DbModel:
         raise RuntimeError("Generic models not supported")
 
     def ddl_stmts_from_model(self, model: DbModel):
