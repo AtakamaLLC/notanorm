@@ -137,7 +137,7 @@ class BaseQ(ABC):
             return "*"
 
         if not self.field_map:
-            return ",".join(self.db.quote_key(fd) for fd in self.fields)
+            return ",".join(self.db.auto_quote(fd) for fd in self.fields)
 
         return self.db.field_sql_from_map(self.field_map)
 
@@ -164,6 +164,9 @@ class SubQ(BaseQ):
         self.alias = alias
         self.fields = fields or []
         self.field_map = {}
+        if type(fields) is dict:
+            self.fields = list(fields.keys())
+            self.field_map = fields
 
         if type(table) is SubQ:
             self.table = table.table
@@ -171,7 +174,7 @@ class SubQ(BaseQ):
             self.table = table
 
     def resolve_field(self, field: str):
-        if self.fields and field not in self.fields:
+        if self.fields and field not in {f.split(".")[-1] for f in self.fields}:
             raise UnknownColumnError(f"{field} not found in {self.fields}")
         return self.alias + "." + field
 
@@ -196,6 +199,7 @@ class JoinQ(BaseQ):
         self.__sql = ""
         self.__field_map = fields if type(fields) is dict else {}
         self.__fields = fields if type(fields) is list else []
+        self.where_map = self.__field_map
 
     def __resolve_if_needed(self):
         if not self.__sql:
@@ -279,7 +283,7 @@ class JoinQ(BaseQ):
 
         self.__sql = sql
 
-        if self.field_map:
+        if self.__field_map:
             self.__fields = list(self.field_map.keys())
             return
 
@@ -303,8 +307,12 @@ class JoinQ(BaseQ):
                         field_map[col] = col
                         field = col
                     fields.append(field)
-        self.__fields = fields
-        self.__field_map = field_map
+
+        self.where_map = field_map
+
+        if not self.__fields and not self.__field_map:
+            self.__fields = fields
+            self.__field_map = field_map
 
     def get_on_sql(self):
         on_sql = ""
@@ -1020,8 +1028,8 @@ class DbBase(
         self,
         table: Union[str, BaseQType],
         *,
-        fields: Union[Dict[str, str], List[str]],
-        dict_where: WhereClauseType,
+        _fields: Union[Dict[str, str], List[str]],
+        _where: WhereClauseType,
         _order_by,
         _limit: Optional[LimitArgType],
         _group_by,
@@ -1031,15 +1039,15 @@ class DbBase(
 
         base_table = table.table if type(table) is SubQ else table
 
-        if isinstance(fields, dict) and not where and dict_where is None:
-            dict_where = fields
-            fields = None
+        if isinstance(_fields, dict) and not where and _where is None:
+            _where = _fields
+            _fields = None
 
-        if dict_where is not None and where:
+        if _where is not None and where:
             raise ValueError("Dict where cannot be mixed with kwargs")
 
-        if dict_where is not None:
-            where = dict_where
+        if _where is not None:
+            where = _where
 
         vals = []
 
@@ -1047,26 +1055,26 @@ class DbBase(
         factory = where.pop("__class", fac) if is_dict(where) else fac
 
         field_map = None
-        if not fields:
-            if type(table) in (JoinQ, SubQ):
+        if not _fields:
+            if type(table) in (JoinQ,):
                 sql += table.field_sql()
             else:
                 sql += "*"
         else:
-            if isinstance(fields, dict):
-                field_map = fields
-                sql += self.field_sql_from_map(fields)
+            if isinstance(_fields, dict):
+                field_map = _fields
+                sql += self.field_sql_from_map(_fields)
             else:
-                sql += ",".join(self.auto_quote(key) for key in fields)
+                sql += ",".join(self.auto_quote(key) for key in _fields)
 
         if type(table) is JoinQ:
             sql += " from " + table.sql
             vals += table.vals
-            field_map = table.field_map
+            field_map = table.where_map
         elif type(table) is SubQ:
             sql += " from (" + table.sql + ") as " + table.alias
             vals += table.vals
-            field_map = table.field_map
+            field_map = {v: k for k, v in table.field_map.items()}
         elif " join " not in table.lower():
             sql += " from " + self.quote_key(table)
         else:
@@ -1109,7 +1117,7 @@ class DbBase(
     def select(
         self,
         table: Union[str, BaseQType],
-        fields=None,
+        _fields=None,
         _where=None,
         *,
         order_by=None,
@@ -1135,8 +1143,8 @@ class DbBase(
         """
         sql, vals, factory = self.select_to_query(
             table,
-            fields=fields,
-            dict_where=_where,
+            _fields=_fields,
+            _where=_where,
             _order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
@@ -1147,7 +1155,7 @@ class DbBase(
     def subq(
         self,
         table: Union[str, BaseQType],
-        fields=None,
+        _fields=None,
         _where=None,
         *,
         order_by=None,
@@ -1162,8 +1170,8 @@ class DbBase(
         """
         sql, vals, factory = self.select_to_query(
             table,
-            fields=fields,
-            dict_where=_where,
+            _fields=_fields,
+            _where=_where,
             _order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
@@ -1175,41 +1183,41 @@ class DbBase(
             sql,
             vals,
             _alias,
-            fields=fields or getattr(table, "fields", None),
+            fields=_fields or getattr(table, "fields", None),
         )
 
     def join(
         self,
-        tab1: Union[str, BaseQType],
-        tab2: Union[str, BaseQType],
-        _on=None,
+        _tab1: Union[str, BaseQType],
+        _tab2: Union[str, BaseQType],
+        on=None,
         *,
-        fields=None,
-        **on,
+        _fields=None,
+        **__on,
     ) -> JoinQ:
-        return self._join("inner", tab1, tab2, _on, fields=fields, **on)
+        return self._join("inner", _tab1, _tab2, on, fields=_fields, **__on)
 
     def left_join(
         self,
-        tab1: Union[str, BaseQType],
-        tab2: Union[str, BaseQType],
-        _on=None,
+        _tab1: Union[str, BaseQType],
+        _tab2: Union[str, BaseQType],
+        on=None,
         *,
-        fields=None,
-        **on,
+        _fields=None,
+        **__on,
     ):
-        return self._join("left", tab1, tab2, _on, fields=fields, **on)
+        return self._join("left", _tab1, _tab2, on, fields=_fields, **__on)
 
     def right_join(
         self,
-        tab1: Union[str, BaseQType],
-        tab2: Union[str, BaseQType],
-        _on=None,
+        _tab1: Union[str, BaseQType],
+        _tab2: Union[str, BaseQType],
+        on=None,
         *,
-        fields=None,
-        **on,
+        _fields=None,
+        **__on,
     ):
-        return self._join("right", tab1, tab2, _on, fields=fields, **on)
+        return self._join("right", _tab1, _tab2, on, fields=_fields, **__on)
 
     def _join(
         self,
@@ -1228,7 +1236,7 @@ class DbBase(
     def select_gen(
         self,
         table: Union[str, BaseQType],
-        fields=None,
+        _fields=None,
         _where=None,
         *,
         order_by=None,
@@ -1240,8 +1248,8 @@ class DbBase(
         """Same as select, but returns a generator."""
         sql, vals, factory = self.select_to_query(
             table,
-            fields=fields,
-            dict_where=_where,
+            _fields=_fields,
+            _where=_where,
             _order_by=order_by or _order_by,
             _limit=_limit,
             _group_by=_group_by,
@@ -1497,7 +1505,7 @@ class DbBase(
         self.upsert(table, where, **vals)
 
     def select_one(
-        self, table, fields=None, **where: WhereKwargsType
+        self, table, _fields=None, **where: WhereKwargsType
     ) -> Optional[DbRow]:
         """Select one row.
 
@@ -1505,7 +1513,7 @@ class DbBase(
 
         Raises MoreThanOneError if there is more than one result.
         """
-        ret = self.select(table, fields, _limit=2, **where)
+        ret = self.select(table, _fields, _limit=2, **where)
         if len(ret) > 1:
             raise MoreThanOneError
         if ret:
@@ -1513,7 +1521,7 @@ class DbBase(
         return None
 
     def select_any_one(
-        self, table, fields=None, **where: WhereKwargsType
+        self, table, _fields=None, **where: WhereKwargsType
     ) -> Optional[DbRow]:
         """Select one row.
 
@@ -1521,7 +1529,7 @@ class DbBase(
 
         Returns the first one found if there is more than one result.
         """
-        ret = self.select_gen(table, fields, _limit=1, **where)
+        ret = self.select_gen(table, _fields, _limit=1, **where)
         try:
             return next(ret)
         except StopIteration:
@@ -1536,7 +1544,12 @@ class DbBase(
     def get_subq_col_names(self, tab: Union[str, BaseQType]):
         if getattr(tab, "fields", None):
             if type(tab) is SubQ:
-                return [AlreadyAliased(fd) for fd in tab.fields]
+                if tab.field_map:
+                    # mapped fields have explicit names, and shouldn't be split
+                    return [AlreadyAliased(fd) for fd in tab.fields]
+                else:
+                    # unmapped (unambiguoius) fields use the trailing name
+                    return [fd.split(".")[-1] for fd in tab.fields]
             else:
                 return tab.fields
 
