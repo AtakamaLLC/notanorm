@@ -687,7 +687,7 @@ class DbBase(
     def create_indexes(self, name, schema: DbTable):
         try:
             existing = self.model(no_capture=True)[name].indexes
-        except:
+        except Exception:
             existing = set()
 
         for idx in schema.indexes:
