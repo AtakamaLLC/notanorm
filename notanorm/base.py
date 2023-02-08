@@ -1116,9 +1116,23 @@ class DbBase(
     def order_by_query(self, _order_by: OrderByArgType):
         if isinstance(_order_by, str):
             _order_by = [_order_by]
-        order_by_fd = ",".join(_order_by)
-        # todo: limit order_by more strictly
-        assert ";" not in order_by_fd
+
+        # TODO(colin): This logic assumes that we're only using column names
+        #              (with an optional direction specifier), while most DBs
+        #              support expressions and other advanced features.
+        splits = [ob.split(maxsplit=1) for ob in _order_by]
+
+        for sp in splits:
+            if len(sp) == 1:
+                continue
+
+            # todo: limit order_by more strictly
+            assert ";" not in sp[-1]
+
+        # Quote the column name, but not the direction specifier.
+        ob_quoted = [" ".join([self.auto_quote(sp[0])] + sp[1:]) for sp in splits]
+
+        order_by_fd = ",".join(ob_quoted)
         return "order by " + order_by_fd
 
     def group_by_query(self, group_by: GroupByArgType):

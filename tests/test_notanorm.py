@@ -1406,6 +1406,121 @@ def test_quote_subq_alias(db: DbBase) -> None:
     )
 
 
+def test_quote_order_by(db: DbBase) -> None:
+    schema = """
+        CREATE table foo (
+            a integer primary key not null,
+            `;evil` integer not null,
+        )
+        """
+
+    evil = ";evil"
+
+    schema_model = notanorm.model_from_ddl(schema, "mysql")
+    db.create_model(schema_model)
+
+    exp_asc = [
+        {"a": 500, evil: 1},
+        {"a": 2, evil: 2},
+        {"a": 30, evil: 3},
+    ]
+
+    for row in exp_asc:
+        db.insert("foo", row)
+    assert len(db.select("foo")) == 3
+
+    assert db.select("foo", _order_by=f"{evil} ASC") == exp_asc
+    assert db.select("foo", _order_by=f"{evil}    ASC ") == exp_asc
+    assert db.select("foo", _order_by=f"{evil} DESC") == list(reversed(exp_asc))
+    # If ASC/DESC isn't specified, the order is implementation-defined.
+    assert db.select("foo", _order_by=f"{evil}") in (exp_asc, list(reversed(exp_asc)))
+
+    # Multiple columns.
+    assert db.select("foo", _order_by=[f"{evil} ASC", "a"]) == exp_asc
+    assert db.select("foo", _order_by=[f"{evil}    ASC ", "a"]) == exp_asc
+    assert db.select("foo", _order_by=[f"{evil} DESC", "a"]) == list(reversed(exp_asc))
+    assert db.select("foo", _order_by=[f"{evil}", "a"]) in (
+        exp_asc,
+        list(reversed(exp_asc)),
+    )
+
+    # Correctly smart-quotes if table is included.
+    assert db.select("foo", _order_by=f"foo.{evil} ASC") == exp_asc
+    assert db.select("foo", _order_by=f"foo.{evil}    ASC ") == exp_asc
+    assert db.select("foo", _order_by=f"foo.{evil} DESC") == list(reversed(exp_asc))
+    assert db.select("foo", _order_by=f"foo.{evil}") in (
+        exp_asc,
+        list(reversed(exp_asc)),
+    )
+
+    assert db.select("foo", _order_by=[f"foo.{evil} ASC", "foo.a"]) == exp_asc
+    assert db.select("foo", _order_by=[f"foo.{evil}    ASC ", "foo.a"]) == exp_asc
+    assert db.select("foo", _order_by=[f"foo.{evil} DESC", "foo.a"]) == list(
+        reversed(exp_asc)
+    )
+    assert db.select("foo", _order_by=[f"foo.{evil}", "foo.a"]) in (
+        exp_asc,
+        list(reversed(exp_asc)),
+    )
+
+    # While we're here, let's test that it works with joins, subqueries, and all that jazz.
+    exp_subq_asc = [
+        {"a": 500, "foo.;evil": 1, "subq.a": 500, "subq.;evil": 1},
+        {"a": 2, "foo.;evil": 2, "subq.a": 2, "subq.;evil": 2},
+        {"a": 30, "foo.;evil": 3, "subq.a": 30, "subq.;evil": 3},
+    ]
+
+    exp_subq_desc = list(reversed(exp_subq_asc))
+
+    assert (
+        db.select(
+            db.join(
+                "foo",
+                db.subq("foo", _order_by=f"foo.{evil} ASC", _alias="subq"),
+                on={"a": "a"},
+            ),
+            _order_by=f"subq.{evil} ASC",
+        )
+        == exp_subq_asc
+    )
+
+    assert (
+        db.select(
+            db.join(
+                "foo",
+                db.subq("foo", _order_by=f"foo.{evil} DESC", _alias="subq"),
+                on={"a": "a"},
+            ),
+            _order_by=f"subq.{evil} ASC",
+        )
+        == exp_subq_asc
+    )
+
+    assert (
+        db.select(
+            db.join(
+                "foo",
+                db.subq("foo", _order_by=f"foo.{evil} DESC", _alias="subq"),
+                on={"a": "a"},
+            ),
+            _order_by=f"subq.{evil} DESC",
+        )
+        == exp_subq_desc
+    )
+
+    assert (
+        db.select(
+            db.join(
+                "foo",
+                db.subq("foo", _order_by=f"foo.{evil} ASC", _alias="subq"),
+                on={"a": "a"},
+            ),
+            _order_by=f"subq.{evil} DESC",
+        )
+        == exp_subq_desc
+    )
+
+
 def test_clob_invalid():
     schema = """
         CREATE table no_clob (
