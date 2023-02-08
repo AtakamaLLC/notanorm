@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from multiprocessing.pool import ThreadPool
-from typing import Generator
+from typing import Generator, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -692,7 +692,7 @@ def create_and_fill_test_db(db, num, tab="foo", **fds):
             "cnt": "integer default 0",
         }
     fd_sql = ",".join(db.quote_key(fd) + " " + typ for fd, typ in fds.items())
-    db.query(f"CREATE table {tab} ({fd_sql})")
+    db.query(f"CREATE table {db.quote_key(tab)} ({fd_sql})")
     for ins in range(num):
         vals = {
             nm: ins
@@ -940,6 +940,28 @@ def test_join_subqs(db):
             "oth.bar": 1,
             "oth.baz": 0,
             "oth.cnt": None,
+        }
+    ]
+
+
+def test_join_subqs_quoting(db):
+    create_and_fill_test_db(db, 5)
+    create_and_fill_test_db(db, 5, ";oth")
+    res = db.select(
+        db.join("foo", db.subq(";oth", bar=[1, 3], _alias=";oth"), bar="bar"),
+        {"foo.bar": 1},
+    )
+    assert len(res) == 1
+    # bar is resolved because it's in the on clause
+    # everything else is qualified, because ambig
+    assert res == [
+        {
+            "bar": 1,
+            "foo.baz": 0,
+            "foo.cnt": None,
+            ";oth.bar": 1,
+            ";oth.baz": 0,
+            ";oth.cnt": None,
         }
     ]
 
@@ -1301,6 +1323,87 @@ def test_type_translation_mysql_dialect(db: DbBase):
     exec_model = db.model()
 
     assert db.simplify_model(exec_model) == db.simplify_model(schema_model)
+
+
+def test_quote_group_by(db: DbBase) -> None:
+    schema = """
+        CREATE table foo (
+            a integer primary key not null,
+            `;evil` text not null,
+        )
+        """
+
+    evil = ";evil"
+
+    schema_model = notanorm.model_from_ddl(schema, "mysql")
+    db.create_model(schema_model)
+
+    exp = [{"a": 1, evil: "yo"}, {"a": 2, evil: "yoyo"}, {"a": 3, evil: "yoyo"}]
+    for row in exp:
+        db.insert("foo", row)
+    assert len(db.select("foo")) == 3
+
+    exp_agg = [{evil: "yo", ";eviler": 1}, {evil: "yoyo", ";eviler": 2}]
+
+    # Check that all columns are properly quoted
+    res = db.select("foo", {evil: evil, ";eviler": "COUNT(*)"}, {}, _group_by=";evil")
+    res.sort(key=lambda x: cast(str, x[evil]))
+    assert res == exp_agg
+
+    # Even when table names are included.
+    res = db.select(
+        "foo", {evil: f"foo.{evil}", ";eviler": "COUNT(*)"}, {}, _group_by="foo.;evil"
+    )
+    res.sort(key=lambda x: cast(str, x[evil]))
+    assert res == exp_agg
+
+    # And even in subqueries.
+    res = db.select(
+        db.subq(
+            "foo",
+            {evil: f"foo.{evil}", ";eviler": "COUNT(*)"},
+            {},
+            _group_by="foo.;evil",
+        )
+    )
+    res.sort(key=lambda x: cast(str, x[evil]))
+    assert res == exp_agg
+
+
+def test_quote_subq_alias(db: DbBase) -> None:
+    schema = """
+        CREATE table foo (
+            a integer primary key not null,
+            `;evil` text not null,
+        )
+        """
+
+    evil = ";evil"
+
+    schema_model = notanorm.model_from_ddl(schema, "mysql")
+    db.create_model(schema_model)
+
+    exp = [{"a": 1, evil: "yo"}, {"a": 2, evil: "yoyo"}, {"a": 3, evil: "yoyo"}]
+    for row in exp:
+        db.insert("foo", row)
+    assert len(db.select("foo")) == 3
+
+    exp_fields = [{k: v for (k, v) in row.items() if k in (evil,)} for row in exp]
+
+    # Check that the subq's alias is properly quoted.
+    assert (
+        db.select(db.subq("foo", [evil], _alias=";eviler", _order_by="a ASC"), [evil])
+        == exp_fields
+    )
+
+    # Check . quoting -- the whole alias should be quoted, but the field should be smart-quoted.
+    assert (
+        db.select(
+            db.subq("foo", [f"foo.{evil}"], _alias="foo.;eviler", _order_by="a ASC"),
+            [evil],
+        )
+        == exp_fields
+    )
 
 
 def test_clob_invalid():
