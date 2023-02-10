@@ -1,10 +1,20 @@
-from .base import DbBase
-from .model import DbType, DbModel, DbTable, DbCol, DbIndex, DbIndexField
+from .base import DbBase, parse_bool
+from .model import (
+    DbType,
+    DbModel,
+    DbTable,
+    DbCol,
+    DbIndex,
+    DbIndexField,
+    DbColCustomInfo,
+)
 from . import errors as err
 
 import re
 from collections import defaultdict
-from typing import Tuple, List, Dict, Any
+from functools import partial
+from typing import Callable, Tuple, List, Dict, Any
+import logging as log
 
 MySQLLib = None
 try:
@@ -33,6 +43,7 @@ class MySqlDb(DbBase):
 
     placeholder = "%s"
     default_values = " () values ()"
+    max_index_name = 64
 
     def _begin(self, conn):
         conn.cursor().execute("START TRANSACTION")
@@ -40,6 +51,7 @@ class MySqlDb(DbBase):
     @classmethod
     def uri_adjust(cls, args, kws):
         # adjust to appropriate types
+        typ: Callable[[Any], Any]
         for nam, typ in [
             ("port", int),
             ("use_unicode", bool),
@@ -53,6 +65,9 @@ class MySqlDb(DbBase):
             ("raise_on_warnings", bool),
         ]:
             if nam in kws:
+                if typ is bool:
+                    typ = partial(parse_bool, nam)
+
                 kws[nam] = typ(kws[nam])
 
         if args:
@@ -121,7 +136,7 @@ class MySqlDb(DbBase):
 
     def _get_primary(self, table):
         info = self.query(
-            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'"
+            "SHOW KEYS FROM " + self.quote_key(table) + " WHERE Key_name = 'PRIMARY'",
         )
         prim = set()
         for x in info:
@@ -129,7 +144,7 @@ class MySqlDb(DbBase):
         return prim
 
     _type_map = {
-        DbType.TEXT: "text",
+        DbType.TEXT: "longtext",
         DbType.BLOB: "blob",
         DbType.INTEGER: "bigint",
         DbType.BOOLEAN: "boolean",
@@ -148,10 +163,14 @@ class MySqlDb(DbBase):
             "longblob": DbType.BLOB,
             "tinytext": DbType.TEXT,
             "mediumtext": DbType.TEXT,
-            "longtext": DbType.TEXT,
+            "text": DbType.TEXT,
         }
     )
     _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
+    _type_map_custom = {
+        "mediumtext": DbColCustomInfo("mysql", "medium"),
+        "text": DbColCustomInfo("mysql", "small"),
+    }
 
     def create_table(self, name, schema: DbTable, ignore_existing=False):
         coldefs = []
@@ -162,7 +181,14 @@ class MySqlDb(DbBase):
 
         for col in schema.columns:
             coldef = "`" + col.name + "`"
-            if col.size and col.typ == DbType.TEXT:
+            if col.custom and col.typ == DbType.TEXT and col.custom.dialect == "mysql":
+                if col.custom.info == "medium":
+                    typ = "mediumtext"
+                elif col.custom.info == "small":
+                    typ = "text"
+                else:  # pragma: no cover
+                    assert False, "unknown custom info"
+            elif col.size and col.typ == DbType.TEXT:
                 if col.fixed:
                     typ = "char"
                 else:
@@ -203,36 +229,36 @@ class MySqlDb(DbBase):
         create += ")"
         self.query(create)
 
-        self.create_indexes(name, schema, ignore_existing)
+        self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema: DbTable, ignore_existing=False):
-        for idx in schema.indexes:
-            if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
-                unique = "unique " if idx.unique else ""
-                icreate = (
-                    "create " + unique + "index " + index_name + " on " + name + " ("
-                )
-                icreate += ",".join(
-                    f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
-                    for f in idx.fields
-                )
-                icreate += ")"
-                try:
-                    self.execute(icreate)
-                except err.OperationalError:
-                    if not ignore_existing:
-                        raise
+    def _create_index(self, table_name, index_name, idx):
+        if not idx.primary:
+            unique = "unique " if idx.unique else ""
+            icreate = (
+                "create " + unique + "index " + index_name + " on " + table_name + " ("
+            )
+            icreate += ",".join(
+                f.name if f.prefix_len is None else f"{f.name}({f.prefix_len})"
+                for f in idx.fields
+            )
+            icreate += ")"
+            self.execute(icreate)
 
-    def model(self):
-        tabs = self.query("show tables")
+    def model(self, no_capture=False):
+        tabs = self.query("show tables", no_capture=no_capture)
         ret = DbModel()
         for tab in tabs:
-            ret[tab[0]] = self.table_model(tab[0])
+            ret[tab[0]] = self.table_model(tab[0], no_capture=no_capture)
         return ret
 
-    def table_model(self, tab):
-        res = self.query("show index from  `" + tab + "`")
+    def drop_index_by_name(self, table: str, index_name):
+        sql = (
+            "drop index " + self.quote_key(index_name) + " on " + self.quote_key(table)
+        )
+        self.execute(sql)
+
+    def table_model(self, tab, no_capture):
+        res = self.query("show index from  `" + tab + "`", no_capture=no_capture)
 
         idxunique = {}
         idxmap: Dict[str, List[Dict[str, Any]]] = defaultdict(lambda: [])
@@ -252,6 +278,7 @@ class MySqlDb(DbBase):
                     tuple(DbIndexField(**f) for f in fds),
                     primary=primary,
                     unique=unique,
+                    name=name,
                 )
             )
 
@@ -265,6 +292,8 @@ class MySqlDb(DbBase):
             dbcol = self.column_model(col, in_primary)
             cols.append(dbcol)
 
+        if len(set(indexes)) != len(indexes):
+            log.warning("duplicate indexes in table %s", tab)
         return DbTable(columns=tuple(cols), indexes=set(indexes))
 
     @staticmethod
@@ -283,6 +312,8 @@ class MySqlDb(DbBase):
                     d["size"] = 8
                 if col.name in primary_fields:
                     d["notnull"] = True
+                if col.custom and col.custom.dialect == "mysql":
+                    d["custom"] = col.custom
                 col = DbCol(**d)
                 cols.append(col)
             model2[nam] = DbTable(columns=tuple(cols), indexes=tab.indexes)
@@ -322,6 +353,8 @@ class MySqlDb(DbBase):
         else:
             typ = self._type_map_inverse[info.type]
 
+        custom = self._type_map_custom.get(info.type, None)
+
         autoinc_primary = in_primary and info.extra == "auto_increment"
 
         ret = DbCol(
@@ -332,6 +365,10 @@ class MySqlDb(DbBase):
             notnull=not autoinc_primary and info.null == "NO",
             default=info.default,
             autoinc=info.extra == "auto_increment",
+            custom=custom,
         )
 
         return ret
+
+    def version(self):
+        return self.query("select version() as ver")[0].ver

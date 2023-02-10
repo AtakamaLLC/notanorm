@@ -3,7 +3,15 @@
 from enum import Enum
 from typing import NamedTuple, Tuple, Any, Set, Dict, Optional
 
-__all__ = ["DbType", "DbCol", "DbIndex", "DbIndexField", "DbTable", "DbModel"]
+__all__ = [
+    "DbType",
+    "DbCol",
+    "DbIndex",
+    "DbIndexField",
+    "DbTable",
+    "DbModel",
+    "DbColCustomInfo",
+]
 
 
 class DbType(Enum):
@@ -29,6 +37,11 @@ class ExplicitNone:
         return repr(None)
 
 
+class DbColCustomInfo(NamedTuple):
+    dialect: str  # dialect (usually matches uri_type)
+    info: Any
+
+
 class DbCol(NamedTuple):
     """Database column definition that should work on all providers."""
 
@@ -39,6 +52,7 @@ class DbCol(NamedTuple):
     notnull: bool = False  # not null
     fixed: bool = False  # not varchar
     default: Any = None  # has a default value
+    custom: DbColCustomInfo = None  # dialect-specific column information
 
     def _as_tup(self):
         return (
@@ -49,6 +63,7 @@ class DbCol(NamedTuple):
             self.notnull,
             self.fixed,
             self.default,
+            self.custom,
         )
 
     def __eq__(self, other):
@@ -78,6 +93,7 @@ class DbIndex(NamedTuple):
     fields: Tuple[DbIndexField, ...]
     unique: bool = False  # has a unique index?
     primary: bool = False  # is the primary key?
+    name: Optional[str] = None  # only set when reading from the db, ignored on creation
 
     def _as_tup(self) -> Tuple[Tuple[DbIndexField, ...], bool, bool]:
         return (self.fields, self.unique, self.primary)
@@ -87,6 +103,18 @@ class DbIndex(NamedTuple):
 
     def __hash__(self):
         return hash(self._as_tup())
+
+    @classmethod
+    def from_fields(cls, fields, unique=False, primary=False):
+        assert type(fields) in (tuple, list)
+        return DbIndex(
+            tuple(
+                DbIndexField(*tuple((ent,) if type(ent) is str else ent))
+                for ent in fields
+            ),
+            unique,
+            primary,
+        )
 
 
 class DbTable(NamedTuple):

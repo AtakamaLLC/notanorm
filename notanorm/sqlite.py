@@ -1,8 +1,10 @@
 import sqlite3
 import re
 import threading
+from functools import partial
+from typing import Any, Callable
 
-from .base import DbBase, DbRow
+from .base import DbBase, DbRow, parse_bool
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel, DbIndexField
 from . import errors as err
 
@@ -20,6 +22,7 @@ class SqliteDb(DbBase):
 
     @classmethod
     def uri_adjust(cls, args, kws):
+        typ: Callable[[Any], Any]
         for nam, typ in [
             ("timeout", float),
             ("check_same_thread", bool),
@@ -27,6 +30,9 @@ class SqliteDb(DbBase):
             ("detect_types", int),
         ]:
             if nam in kws:
+                if typ is bool:
+                    typ = partial(parse_bool, nam)
+
                 kws[nam] = typ(kws[nam])
 
     def _lock_key(self, *args, **kws):
@@ -71,12 +77,12 @@ class SqliteDb(DbBase):
         finally:
             self.__in_gen.discard(threading.get_ident())
 
-    def execute(self, sql, parameters=(), _script=False, write=True):
+    def execute(self, sql, parameters=(), _script=False, write=True, **kwargs):
         if self.generator_guard and write and threading.get_ident() in self.__in_gen:
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when updating within a loop using sqlite"
             )
-        return super().execute(sql, parameters, _script=_script)
+        return super().execute(sql, parameters, _script=_script, **kwargs)
 
     def clone(self):
         assert not self.__is_mem, "cannot clone memory db"
@@ -125,10 +131,12 @@ class SqliteDb(DbBase):
     def timeout(self, val):
         self.__timeout = val
 
-    def __columns(self, table):
-        self.query("SELECT name, type from sqlite_master")
+    def __columns(self, table, no_capture):
+        self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
 
-        tinfo = self.query("PRAGMA table_info(" + table + ")")
+        tinfo = self.query(
+            "PRAGMA table_info(" + self.quote_key(table) + ")", no_capture=no_capture
+        )
         if len(tinfo) == 0:
             raise KeyError(f"Table {table} not found in db {self}")
 
@@ -146,8 +154,10 @@ class SqliteDb(DbBase):
             cols.append(self.__info_to_model(col))
         return tuple(cols)
 
-    def __indexes(self, table):
-        tinfo = self.query("PRAGMA table_info(" + table + ")")
+    def __indexes(self, table, no_capture):
+        tinfo = self.query(
+            "PRAGMA table_info(" + self.quote_key(table) + ")", no_capture=no_capture
+        )
         pks = []
         for col in tinfo:
             if col.pk:
@@ -155,9 +165,13 @@ class SqliteDb(DbBase):
         pks = [p[1] for p in sorted(pks)]
 
         clist = []
-        res = self.query("PRAGMA index_list(" + table + ")")
+        res = self.query(
+            "PRAGMA index_list(" + self.quote_key(table) + ")", no_capture=no_capture
+        )
         for row in res:
-            res = self.query("PRAGMA index_info(" + row.name + ")")
+            res = self.query(
+                "PRAGMA index_info(" + row.name + ")", no_capture=no_capture
+            )
             clist.append(self.__info_to_index(row, res))
 
         if pks:
@@ -165,6 +179,9 @@ class SqliteDb(DbBase):
                 clist.append(
                     DbIndex(fields=tuple(DbIndexField(p) for p in pks), primary=True)
                 )
+        if len(set(clist)) != len(clist):
+            log.warning("duplicate indexes in table %s", table)
+
         return set(clist)
 
     @staticmethod
@@ -180,7 +197,7 @@ class SqliteDb(DbBase):
         unique = bool(index.unique) and not primary
         field_names = [ent.name for ent in sorted(cols, key=lambda col: col.seqno)]
         fields = tuple(DbIndexField(n) for n in field_names)
-        return DbIndex(fields=fields, primary=primary, unique=unique)
+        return DbIndex(fields=fields, primary=primary, unique=unique, name=index.name)
 
     @classmethod
     def __info_to_model(cls, info):
@@ -196,6 +213,8 @@ class SqliteDb(DbBase):
             try:
                 typ = cls._type_map_inverse[info.type.lower()]
             except KeyError:
+                if info.type.lower() == "clob":
+                    raise ValueError(f"Unsupported type: {info.type}")
                 typ = DbType.ANY
 
         return DbCol(
@@ -208,16 +227,16 @@ class SqliteDb(DbBase):
             fixed=fixed,
         )
 
-    def model(self):
+    def model(self, no_capture=False):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
-        res = self.query("SELECT name, type from sqlite_master")
+        res = self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
         model = DbModel()
         for tab in res:
             if tab.name == "sqlite_sequence":
                 continue
             if tab.type == "table":
-                cols = self.__columns(tab.name)
-                indxs = self.__indexes(tab.name)
+                cols = self.__columns(tab.name, no_capture)
+                indxs = self.__indexes(tab.name, no_capture)
                 model[tab.name] = DbTable(cols, indxs)
         return model
 
@@ -240,7 +259,9 @@ class SqliteDb(DbBase):
             "smallint": DbType.INTEGER,
             "tinyint": DbType.INTEGER,
             "bigint": DbType.INTEGER,
-            "clob": DbType.TEXT,
+            "tinytext": DbType.TEXT,
+            "mediumtext": DbType.TEXT,
+            "longtext": DbType.TEXT,
             "bool": DbType.BOOLEAN,
         }
     )
@@ -274,12 +295,18 @@ class SqliteDb(DbBase):
             new_cols = []
             for coldef in tdef.columns:
                 # sizes & fixed-width specifiers are ignored in sqlite
+                custom = (
+                    coldef.custom
+                    if coldef.custom and coldef.custom.dialect == "sqlite"
+                    else None
+                )
                 newcol = DbCol(
                     name=coldef.name,
                     typ=coldef.typ,
                     autoinc=coldef.autoinc,
                     notnull=coldef.notnull,
                     default=coldef.default,
+                    custom=custom,
                 )
                 new_cols.append(newcol)
             new_idxes = set()
@@ -316,27 +343,23 @@ class SqliteDb(DbBase):
         log.info(create)
         self.execute(create)
 
-        self.create_indexes(name, schema, ignore_existing)
+        self.create_indexes(name, schema)
 
-    def create_indexes(self, name, schema, ignore_existing=False):
-        ignore = "if not exists " if ignore_existing else ""
-        for idx in schema.indexes:
-            if not idx.primary:
-                index_name = "ix_" + name + "_" + "_".join(f.name for f in idx.fields)
-                unique = "unique " if idx.unique else ""
-                icreate = (
-                    "create "
-                    + unique
-                    + "index "
-                    + ignore
-                    + self.quote_key(index_name)
-                    + " on "
-                    + name
-                    + " ("
-                )
-                icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
-                icreate += ")"
-                self.execute(icreate)
+    def _create_index(self, table_name, index_name, idx):
+        if not idx.primary:
+            unique = "unique " if idx.unique else ""
+            icreate = (
+                "create "
+                + unique
+                + "index "
+                + self.quote_key(index_name)
+                + " on "
+                + table_name
+                + " ("
+            )
+            icreate += ",".join(self.quote_key(f.name) for f in idx.fields)
+            icreate += ")"
+            self.execute(icreate)
 
     @staticmethod
     def _executemany(cursor, sql):
@@ -365,3 +388,6 @@ class SqliteDb(DbBase):
             if x.pk:
                 prim.add(x.name)
         return prim
+
+    def version(self):
+        return self.query("select sqlite_version() as ver")[0].ver

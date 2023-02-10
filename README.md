@@ -45,10 +45,13 @@ db.update("foo", iv=4, bar="up")                   # update, no where clause, in
 ret = db.update("foo", {"bar": "up"}, bar="hop")   # update, primary key not needed
 print(ret.rowcount, ret.lastrowid)                 # "1 4" <- 1 row updated, primary key was 4
 
-# select_one, select
+# select_one (will raise if more than 1), select
 db.select_one("foo", iv=1).bar                     # hi
 db.select("foo", bar="hi")[0].bar                  # hi
 db.select("foo", {"bar": "hi"})[0].iv              # 1
+
+# just picks a random one, won't error if there's more than one
+db.select_any_one("foo")
 
 # use a generator, for speed
 [row.iv for row in db.select_gen("foo", bar="hi")]                      # [1, 2]
@@ -90,6 +93,10 @@ db.delete_all("foo")
 # select using a subquery
 db.select("foo", bar=db.subq("other", ["foo_id"], 3))
 
+# select using a join
+db.select(db.join("tab1", "tab2", tab1id="tab2id"))
+
+
 ### cross database ddl management
 
 # this requires: pip install sqlglot
@@ -104,6 +111,9 @@ with db.capture_sql(execute=False) as cap:
    ... do some stuff
 
 print(cap)
+
+# print out the model of a db
+print(db.model())
 ```
 
 ## Database support

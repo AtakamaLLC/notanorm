@@ -2,7 +2,16 @@ import sys
 import logging
 import pytest
 
-from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, DbIndexField
+from notanorm import (
+    DbModel,
+    DbCol,
+    DbType,
+    DbTable,
+    DbIndex,
+    DbBase,
+    DbIndexField,
+    DbColCustomInfo,
+)
 import notanorm.errors as err
 from notanorm.model import ExplicitNone
 
@@ -293,12 +302,12 @@ def test_autoinc():
 
 
 def test_default_none():
-    mod = model_from_ddl("create table foo (bar text default null)")
+    mod = model_from_ddl("create table foo (bar longtext default null)")
     assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default=ExplicitNone()),)
 
 
 def test_sqlite_only():
-    mod = model_from_ddl("create table foo (bar default 1)")
+    mod = model_from_ddl("create table foo (bar default 1)", "sqlite")
     assert mod["foo"].columns == (DbCol("bar", DbType.ANY, default="1"),)
 
 
@@ -322,7 +331,7 @@ def test_default_bool():
 
 
 def test_not_null_pk():
-    create = "CREATE TABLE a (id INTEGER, dd TEXT, PRIMARY KEY(id));"
+    create = "CREATE TABLE a (id INTEGER, dd LONGTEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
     assert mod["a"].columns == (
         DbCol("id", DbType.INTEGER, notnull=False, size=4),
@@ -332,7 +341,7 @@ def test_not_null_pk():
 
 
 def test_explicit_not_null_pk():
-    create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT, PRIMARY KEY(id));"
+    create = "CREATE TABLE a (id INTEGER NOT NULL, dd LONGTEXT, PRIMARY KEY(id));"
     mod = model_from_ddl(create)
     assert mod["a"].columns == (
         DbCol("id", DbType.INTEGER, notnull=True, size=4),
@@ -342,7 +351,7 @@ def test_explicit_not_null_pk():
 
 
 def test_unique_col():
-    create = "CREATE TABLE a (id INTEGER NOT NULL, dd TEXT unique);"
+    create = "CREATE TABLE a (id INTEGER NOT NULL, dd LONGTEXT unique);"
     mod = model_from_ddl(create, "mysql")
     assert mod["a"].columns == (
         DbCol("id", DbType.INTEGER, notnull=True, size=4),
@@ -352,7 +361,7 @@ def test_unique_col():
 
 
 def test_default_str():
-    mod = model_from_ddl("create table foo (bar text default 'txt')")
+    mod = model_from_ddl("create table foo (bar longtext default 'txt')")
     assert mod["foo"].columns == (DbCol("bar", DbType.TEXT, default="txt"),)
 
 
@@ -386,3 +395,26 @@ def test_detect_dialect():
 def test_parser_error():
     with pytest.raises(sqlglot.errors.ParseError):
         model_from_ddl("create table foo (bar integer auto_increment, ")
+
+
+def test_custom_type():
+    create = "CREATE TABLE a (st TEXT, mt MEDIUMTEXT, lt LONGTEXT);"
+    mod = model_from_ddl(create, "mysql")
+    assert mod["a"].columns == (
+        DbCol("st", DbType.TEXT, custom=DbColCustomInfo("mysql", "small")),
+        DbCol("mt", DbType.TEXT, custom=DbColCustomInfo("mysql", "medium")),
+        DbCol("lt", DbType.TEXT),
+    )
+
+
+def test_custom_creat(db: "DbBase"):
+    create = "CREATE TABLE a (st TEXT, mt MEDIUMTEXT, lt LONGTEXT);"
+    src_mod = model_from_ddl(create, "mysql")
+    db.create_model(src_mod)
+    db_mod = db.model()
+    if db.uri_name == "mysql":
+        assert src_mod == db_mod
+    else:
+        assert src_mod != db_mod
+
+    assert db.simplify_model(src_mod) == db.simplify_model(db_mod)
