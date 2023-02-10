@@ -155,13 +155,17 @@ class SubQ(BaseQ):
         alias=None,
         fields=None,
     ):
-        alias = alias or (table if table is str else "subq") + "_" + self.unique_name()
+        raw_alias = (
+            alias or (table if table is str else "subq") + "_" + self.unique_name()
+        )
+        alias = db.quote_key(raw_alias)
 
         super().__init__(db)
 
         self.sql = sql
         self.vals = vals
         self.alias = alias
+        self.raw_alias = raw_alias
         self.fields = fields or []
         self.field_map = {}
         if type(fields) is dict:
@@ -176,7 +180,7 @@ class SubQ(BaseQ):
     def resolve_field(self, field: str):
         if self.fields and field not in {f.split(".")[-1] for f in self.fields}:
             raise UnknownColumnError(f"{field} not found in {self.fields}")
-        return self.alias + "." + field
+        return self.raw_alias + "." + field
 
 
 class JoinQ(BaseQ):
@@ -296,7 +300,7 @@ class JoinQ(BaseQ):
                 cols = self.db.get_subq_col_names(tab)
                 for col in cols:
                     if col in ambig_cols:
-                        alias = (tab if type(tab) is str else tab.alias) + "." + col
+                        alias = (tab if type(tab) is str else tab.raw_alias) + "." + col
                         if col in self.on and type(tab) is str:
                             field_map[col] = alias
                             field = col
@@ -1112,13 +1116,29 @@ class DbBase(
     def order_by_query(self, _order_by: OrderByArgType):
         if isinstance(_order_by, str):
             _order_by = [_order_by]
-        order_by_fd = ",".join(_order_by)
-        # todo: limit order_by more strictly
-        assert ";" not in order_by_fd
+
+        # TODO(colin): This logic assumes that we're only using column names
+        #              (with an optional direction specifier), while most DBs
+        #              support expressions and other advanced features.
+        splits = [ob.split(maxsplit=1) for ob in _order_by]
+
+        for sp in splits:
+            if len(sp) == 1:
+                continue
+
+            # todo: limit order_by more strictly
+            assert ";" not in sp[-1]
+
+        # Quote the column name, but not the direction specifier.
+        ob_quoted = [" ".join([self.auto_quote(sp[0])] + sp[1:]) for sp in splits]
+
+        order_by_fd = ",".join(ob_quoted)
         return "order by " + order_by_fd
 
     def group_by_query(self, group_by: GroupByArgType):
-        gb = ",".join([group_by] if type(group_by) is str else group_by)
+        gb_list = [group_by] if type(group_by) is str else group_by
+        gb_quoted = [self.auto_quote(gb) for gb in gb_list]
+        gb = ",".join(gb_quoted)
         return f"group by {gb}"
 
     def limit_query(self, limit: LimitArgType):

@@ -134,7 +134,9 @@ class SqliteDb(DbBase):
     def __columns(self, table, no_capture):
         self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
 
-        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=no_capture)
+        tinfo = self.query(
+            "PRAGMA table_info(" + self.quote_key(table) + ")", no_capture=no_capture
+        )
         if len(tinfo) == 0:
             raise KeyError(f"Table {table} not found in db {self}")
 
@@ -153,7 +155,9 @@ class SqliteDb(DbBase):
         return tuple(cols)
 
     def __indexes(self, table, no_capture):
-        tinfo = self.query("PRAGMA table_info(" + table + ")", no_capture=no_capture)
+        tinfo = self.query(
+            "PRAGMA table_info(" + self.quote_key(table) + ")", no_capture=no_capture
+        )
         pks = []
         for col in tinfo:
             if col.pk:
@@ -161,7 +165,9 @@ class SqliteDb(DbBase):
         pks = [p[1] for p in sorted(pks)]
 
         clist = []
-        res = self.query("PRAGMA index_list(" + table + ")", no_capture=no_capture)
+        res = self.query(
+            "PRAGMA index_list(" + self.quote_key(table) + ")", no_capture=no_capture
+        )
         for row in res:
             res = self.query(
                 "PRAGMA index_info(" + row.name + ")", no_capture=no_capture
