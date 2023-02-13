@@ -715,12 +715,25 @@ def test_sqlite_unsafe_gen(db_notmem):
         for row in db.select_gen("foo"):
             db.upsert("foo", bar=row.bar, baz=row.baz + 1)
 
+    # now with embedded generators
+    for row in db.select_gen("foo"):
+        for row2 in db.select_gen("foo"):
+            pass
+        with pytest.raises(err.UnsafeGeneratorError):
+            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+
+    # safe to update now
+    db.insert("foo", bar=5, baz=6)
+
     # ok, select inside select
     for _ in db.select_gen("foo"):
         db.select("foo")
 
     for _ in db.select_gen("foo"):
         list(db.select_gen("foo"))
+
+    # no memory leaks
+    assert db._in_gen_size() == 0
 
 
 @pytest.mark.db("sqlite")
