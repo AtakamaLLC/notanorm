@@ -6,9 +6,10 @@ import logging
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from multiprocessing.pool import ThreadPool
-from typing import Generator, cast
-from unittest.mock import MagicMock
+from typing import Generator, Iterator, cast
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1557,3 +1558,130 @@ def test_drop_index(db):
     assert "ix_foo_uk" == db.get_index_name("foo", idx)
     db.drop_index("foo", idx)
     assert not db.model()["foo"].indexes
+
+    # If an index can't be found, just return None as the name.
+    assert db.get_index_name("foo", idx) is None
+
+
+def _sample_model() -> notanorm.DbModel:
+    schema = """
+        create table foo (
+            pk integer primary key auto_increment,
+            b integer,
+            c integer not null,
+            d integer
+        );
+
+        create index ix_foo_b on foo(b);
+        create unique index ix_foo_c on foo(c);
+        create unique index ix_foo_d on foo(d);
+
+        create table bar (
+            a integer,
+            b integer
+        );
+
+        create index ix_bar_a on bar(a);
+        """
+
+    return notanorm.model_from_ddl(schema, "mysql")
+
+
+class _CustomExc(Exception):
+    pass
+
+
+@contextmanager
+def _raise_on_model_fetch(db: DbBase) -> Iterator[MagicMock]:
+    with patch.object(db, "model", side_effect=_CustomExc, autospec=True) as m:
+        yield m
+
+
+def test_create_model_explicit_model(db: DbBase) -> None:
+    schema_model = _sample_model()
+
+    existing_model = db.model()
+
+    # Confirm that None is treated separate from falsey values.
+    assert dict(existing_model) == {}
+
+    # Check that if we pass an existing model, we don't call model().
+    with _raise_on_model_fetch(db):
+        # Sanity check: patch is wired up properly.
+        with pytest.raises(_CustomExc):
+            db.model()
+
+        db.create_model(schema_model, existing_model=existing_model)
+
+    assert db.simplify_model(schema_model) == db.simplify_model(db.model())
+
+
+def test_create_model_cached_model(db: DbBase) -> None:
+    schema_model = _sample_model()
+
+    # Initial call fills the model cache.
+    db.create_model(schema_model, ignore_existing=True)
+    assert schema_model == db._get_cached_model()
+    assert db.simplify_model(db.model()) == db.simplify_model(db._get_cached_model())
+
+    # Subsequent calls to create_model() don't re-call model().
+    with _raise_on_model_fetch(db):
+        # Sanity check: patch is wired up properly.
+        with pytest.raises(_CustomExc):
+            db.model()
+
+        db.create_model(schema_model, ignore_existing=True)
+        db.create_model(schema_model, ignore_existing=True)
+
+    assert db.simplify_model(schema_model) == db.simplify_model(db.model())
+
+    # If an exception is raised while executing, cache is cleared.
+    # Drop an index outside of notanorm's purview.
+    idx = db.get_index_name(
+        "foo", next(ind for ind in db.model()["foo"].indexes if not ind.primary)
+    )
+    with db.capture_sql(execute=False) as sql:
+        db.drop_index_by_name("foo", idx)
+
+    assert db.model()["foo"].indexes == schema_model["foo"].indexes
+
+    for stmt in sql:
+        log.info("Secretly executing: %s", stmt)
+        db._cursor(db._conn()).execute(*stmt)
+
+    # Because of the stale cache, we don't recreate the dropped index.
+    with _raise_on_model_fetch(db):
+        db.create_model(schema_model, ignore_existing=True)
+    assert db.model()["foo"].indexes != schema_model["foo"].indexes
+
+    # Simulate an arbitrary exception.
+    with _raise_on_model_fetch(db):
+        with patch.object(db, "execute", side_effect=err.OperationalError):
+            with pytest.raises(err.OperationalError):
+                db.create_model(schema_model, ignore_existing=True)
+
+    # Try again: this time, we refetch the model and recreate the index.
+    db.create_model(schema_model, ignore_existing=True)
+    assert db.model()["foo"].indexes == schema_model["foo"].indexes
+
+
+def test_create_model_empty_model(db: DbBase) -> None:
+    # If we pass in an empty model, we don't fetch the model or do any other work.
+    with _raise_on_model_fetch(db):
+        db.create_model(notanorm.DbModel())
+
+
+def test_create_table_and_indexes(db: DbBase) -> None:
+    schema_model = _sample_model()
+
+    # If we pass create_indexes=False, that's honored.
+    for name, schema in schema_model.items():
+        db.create_table(name, schema, ignore_existing=False, create_indexes=False)
+
+    assert db.simplify_model(db.model()) != db.simplify_model(schema_model)
+
+    # If we pass nothing, default is create_indexes=True and they do get created.
+    for name, schema in schema_model.items():
+        db.create_table(name, schema, ignore_existing=True)
+
+    assert db.simplify_model(db.model()) == db.simplify_model(schema_model)

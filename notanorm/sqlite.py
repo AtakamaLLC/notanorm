@@ -322,7 +322,9 @@ class SqliteDb(DbBase):
             new_mod[tab] = new_tab
         return new_mod
 
-    def create_table(self, name, schema, ignore_existing=False):
+    def create_table(
+        self, name, schema, ignore_existing=False, create_indexes: bool = True
+    ):
         coldefs = []
         single_primary = None
         for idx in schema.indexes:
@@ -343,7 +345,8 @@ class SqliteDb(DbBase):
         log.info(create)
         self.execute(create)
 
-        self.create_indexes(name, schema)
+        if create_indexes:
+            self.create_indexes(name, schema)
 
     def _create_index(self, table_name, index_name, idx):
         if not idx.primary:

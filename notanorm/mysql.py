@@ -172,7 +172,9 @@ class MySqlDb(DbBase):
         "text": DbColCustomInfo("mysql", "small"),
     }
 
-    def create_table(self, name, schema: DbTable, ignore_existing=False):
+    def create_table(
+        self, name, schema: DbTable, ignore_existing=False, create_indexes: bool = True
+    ):
         coldefs = []
         primary_fields: Tuple[str, ...] = ()
         for idx in schema.indexes:
@@ -229,7 +231,8 @@ class MySqlDb(DbBase):
         create += ")"
         self.query(create)
 
-        self.create_indexes(name, schema)
+        if create_indexes:
+            self.create_indexes(name, schema)
 
     def _create_index(self, table_name, index_name, idx):
         if not idx.primary:

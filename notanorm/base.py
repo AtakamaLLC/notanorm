@@ -679,18 +679,48 @@ class DbBase(
         finally:
             self.__capture = False
 
-    def create_model(self, model: DbModel, ignore_existing=False):
+    def create_model(
+        self,
+        model: DbModel,
+        ignore_existing: bool = False,
+        existing_model: Optional[DbModel] = None,
+    ) -> None:
         """Given a database model, create all the corresponding tables and indexes."""
-        for name, schema in model.items():
-            self.create_table(name, schema, ignore_existing)
+
+        # No tables -> no work to do
+        if not model:
+            return
+
+        try:
+            # Optimization: instead of fetching the model once per table, we fetch it once overall.
+            explicit_existing_model = existing_model is not None
+            if existing_model is None:
+                existing_model = self._get_cached_model(no_capture=True)
+
+            for name, schema in model.items():
+                self.create_table(name, schema, ignore_existing, create_indexes=False)
+                self.create_indexes(name, schema, existing_model=existing_model)
+
+            if not explicit_existing_model:
+                self._set_cached_model(model)
+        except Exception:
+            self.clear_model_cache()
+            raise
 
     @abstractmethod
-    def create_table(self, name, schema: DbTable, ignore_existing=False):
+    def create_table(
+        self, name, schema: DbTable, ignore_existing=False, create_indexes: bool = True
+    ):
         ...
 
-    def create_indexes(self, name, schema: DbTable):
+    def create_indexes(
+        self, name, schema: DbTable, existing_model: Optional[DbModel] = None
+    ) -> None:
+        if existing_model is None:
+            existing_model = self.model(no_capture=True)
+
         try:
-            existing = self.model(no_capture=True)[name].indexes
+            existing = existing_model[name].indexes
         except Exception:
             existing = set()
 
@@ -711,10 +741,12 @@ class DbBase(
         sql = "drop index " + self.quote_key(index_name)
         self.execute(sql)
 
-    def get_index_name(self, table: str, index: DbIndex):
+    def get_index_name(self, table: str, index: DbIndex) -> Optional[str]:
         for idx in self.model()[table].indexes:
             if idx == index:
                 return idx.name
+
+        return None
 
     @classmethod
     def unique_index_name(cls, table, field_names):
@@ -752,14 +784,18 @@ class DbBase(
 
         return model
 
-    def clear_model_cache(self):
+    def clear_model_cache(self) -> None:
         self.__model_cache = None
 
     def execute(
         self, sql: str, parameters=(), _script=False, write=True, no_capture=False
     ):
-        if "alter " in sql.lower() or "create " in sql.lower():
-            self.__model_cache = None
+        sql_lower = sql.lower()
+        model_changers = ("alter ", "create ", "drop ")
+        if (not self.__capture or no_capture) and any(
+            stmt in sql_lower for stmt in model_changers
+        ):
+            self.clear_model_cache()
 
         self.__debug_sql(sql, parameters)
 
@@ -1570,10 +1606,17 @@ class DbBase(
             return None
 
     def _get_table_cols(self, tab: str):
-        if self.__model_cache is None:
-            self.__model_cache = self.model()
-        tab_mod = self.__model_cache[tab]
+        model = self._get_cached_model()
+        tab_mod = model[tab]
         return tab_mod.columns
+
+    def _get_cached_model(self, no_capture: bool = False) -> DbModel:
+        if self.__model_cache is None:
+            self._set_cached_model(self.model(no_capture=no_capture))
+        return self.__model_cache
+
+    def _set_cached_model(self, model: DbModel) -> None:
+        self.__model_cache = model
 
     def get_subq_col_names(self, tab: Union[str, BaseQType]):
         if getattr(tab, "fields", None):
