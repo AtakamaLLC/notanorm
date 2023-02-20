@@ -1,6 +1,7 @@
 import sqlite3
 import re
 import threading
+from collections import defaultdict
 from functools import partial
 from typing import Any, Callable
 
@@ -38,8 +39,17 @@ class SqliteDb(DbBase):
     def _lock_key(self, *args, **kws):
         return args[0]
 
+    def _is_in_gen(self):
+        # Avoid creating dict entry via `in`
+        ident = threading.get_ident()
+        return ident in self.__in_gen and self.__in_gen[ident] > 0
+
+    # For tests
+    def _in_gen_size(self):
+        return len(self.__in_gen)
+
     def _begin(self, conn):
-        if self.generator_guard and threading.get_ident() in self.__in_gen:
+        if self.generator_guard and self._is_in_gen():
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when transacting within a loop using sqlite"
             )
@@ -69,16 +79,23 @@ class SqliteDb(DbBase):
                 )
 
     def query_gen(self, sql: str, *args, factory=None):
+        in_gen_modified = False
         try:
             for row in super().query_gen(sql, *args, factory=factory):
-                if self.generator_guard:
-                    self.__in_gen.add(threading.get_ident())
+                if self.generator_guard and not in_gen_modified:
+                    in_gen_modified = True
+                    self.__in_gen[threading.get_ident()] += 1
                 yield row
         finally:
-            self.__in_gen.discard(threading.get_ident())
+            if in_gen_modified:
+                ident = threading.get_ident()
+                self.__in_gen[ident] -= 1
+                if self.__in_gen[ident] == 0:
+                    # Memory cleanup
+                    del self.__in_gen[ident]
 
     def execute(self, sql, parameters=(), _script=False, write=True, **kwargs):
-        if self.generator_guard and write and threading.get_ident() in self.__in_gen:
+        if self.generator_guard and write and self._is_in_gen():
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when updating within a loop using sqlite"
             )
@@ -114,7 +131,7 @@ class SqliteDb(DbBase):
             # never try to reconnect to memory dbs!
             self.max_reconnect_attempts = 1
 
-        self.__in_gen = set()
+        self.__in_gen = defaultdict(int)
 
         super().__init__(*args, **kws)
 
