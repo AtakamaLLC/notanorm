@@ -121,6 +121,8 @@ class DDLHelper:
         """
         cols: List[DbCol] = []
         idxs = []
+
+        # sqlglot > 11
         for col in ent.find_all(exp.Anonymous):
             if col.name.lower() == "primary key":
                 primary_list = [ent.name for ent in col.find_all(exp.Column)]
@@ -133,6 +135,19 @@ class DDLHelper:
                         unique=False,
                     )
                 )
+
+        # sqlglot < 11
+        for col in ent.find_all(exp.PrimaryKey):
+            primary_list = [ent.name for ent in col.find_all(exp.Identifier)]
+            idxs.append(
+                DbIndex(
+                    fields=tuple(
+                        DbIndexField(n, prefix_len=None) for n in primary_list
+                    ),
+                    primary=True,
+                    unique=False,
+                )
+            )
 
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim, is_uniq = self.__info_to_model(col, dialect)

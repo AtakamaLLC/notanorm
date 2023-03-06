@@ -82,22 +82,20 @@ class SqliteDb(DbBase):
         in_gen_modified = False
         try:
             for row in super().query_gen(sql, *args, factory=factory):
-                if self.generator_guard and not in_gen_modified:
+                if not in_gen_modified:
                     in_gen_modified = True
                     self.__in_gen[threading.get_ident()] += 1
                 yield row
         finally:
-            if self.__accum:
-                accum = self.__accum
-                for a, k in accum:
-                    self.execute(*a, **k)
-                self.__accum = []
             if in_gen_modified:
                 ident = threading.get_ident()
                 self.__in_gen[ident] -= 1
                 if self.__in_gen[ident] == 0:
                     # Memory cleanup
                     del self.__in_gen[ident]
+                    accum = self.__accum.pop(ident, ())
+                    for a, k in accum:
+                        self.execute(*a, **k)
 
     def execute(self, sql, parameters=(), _script=False, write=True, **kwargs):
         if self.generator_guard and write and self._is_in_gen():
@@ -108,7 +106,9 @@ class SqliteDb(DbBase):
             return super().execute(sql, parameters, _script=_script, **kwargs)
         except err.OperationalError as e:
             if "is locked" in str(e) and write:
-                self.__accum.append(((sql, parameters, _script, write), kwargs))
+                self.__accum.setdefault(threading.get_ident(), []).append(
+                    ((sql, parameters, _script, write), kwargs)
+                )
 
     def clone(self):
         assert not self.__is_mem, "cannot clone memory db"
@@ -149,7 +149,7 @@ class SqliteDb(DbBase):
         else:
             self.__timeout = super().timeout
 
-        self.__accum = []
+        self.__accum = {}
 
     @property
     def timeout(self):

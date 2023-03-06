@@ -205,8 +205,13 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
 
 def upserty(uri, i):
     db = open_db(uri)
+    it = db.select_gen("foo")
     for row in db.select_gen("foo"):
-        db.insert("oth", bar=i * 100 + row.bar, baz=0)
+        if row.bar == 0:
+            for row in db.select_gen("foo"):
+                db.insert("oth", bar=i * 100 + row.bar, baz=0)
+        else:
+            db.update("oth", bar=i * 100 + row.bar, baz=1)
     return i
 
 
