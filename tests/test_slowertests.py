@@ -205,15 +205,9 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
 
 def upserty(uri, i):
     db = open_db(uri)
-    try:
-        db.generator_guard = True
-        for row in db.select_gen("foo"):
-            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
-        # this is ok: we passed
-        return i
-    except err.UnsafeGeneratorError:
-        # this is ok: we created a consistent error
-        return -1
+    for row in db.select_gen("foo"):
+        db.insert("oth", bar=i * 100 + row.bar, baz=0)
+    return i
 
 
 def test_generator_proc(db_notmem):
@@ -222,10 +216,12 @@ def test_generator_proc(db_notmem):
     uri = db.uri
     log.debug("using uri" + uri)
 
-    create_and_fill_test_db(db, 20)
-    db.close()
-
     proc_num = 4
+    mult = 4
+    create_and_fill_test_db(db, proc_num * mult)
+    create_and_fill_test_db(db, 0, "oth")
+
+    db.close()
 
     pool = ProcessPool(processes=proc_num)
 
@@ -233,12 +229,16 @@ def test_generator_proc(db_notmem):
 
     func = functools.partial(upserty, uri)
 
-    expected = list(range(proc_num * 2))
+    expected = list(range(proc_num * mult))
 
-    if db.uri_name == "sqlite":
-        expected = [-1] * proc_num * 2
+    assert pool.map(func, range(proc_num * mult)) == expected
 
-    assert pool.map(func, range(proc_num * 2)) == expected
+    expected = list(
+        i * 100 + j for i in range(proc_num * mult) for j in range(proc_num * mult)
+    )
+
+    db = open_db(uri)
+    assert [row.bar for row in db.select("oth")] == expected
 
 
 @pytest.mark.db("sqlite")

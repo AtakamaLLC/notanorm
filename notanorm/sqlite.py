@@ -87,6 +87,11 @@ class SqliteDb(DbBase):
                     self.__in_gen[threading.get_ident()] += 1
                 yield row
         finally:
+            if self.__accum:
+                accum = self.__accum
+                for a, k in accum:
+                    self.execute(*a, **k)
+                self.__accum = []
             if in_gen_modified:
                 ident = threading.get_ident()
                 self.__in_gen[ident] -= 1
@@ -99,7 +104,11 @@ class SqliteDb(DbBase):
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when updating within a loop using sqlite"
             )
-        return super().execute(sql, parameters, _script=_script, **kwargs)
+        try:
+            return super().execute(sql, parameters, _script=_script, **kwargs)
+        except err.OperationalError as e:
+            if "is locked" in str(e) and write:
+                self.__accum.append(((sql, parameters, _script, write), kwargs))
 
     def clone(self):
         assert not self.__is_mem, "cannot clone memory db"
@@ -139,6 +148,8 @@ class SqliteDb(DbBase):
             self.__timeout = kws["timeout"]
         else:
             self.__timeout = super().timeout
+
+        self.__accum = []
 
     @property
     def timeout(self):
