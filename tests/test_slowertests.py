@@ -206,12 +206,9 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
 
 
 def multiproc_coverage():
-    try:
-        from pytest_cov.embed import cleanup_on_sigterm
-    except ImportError:
-        pass
-    else:
-        cleanup_on_sigterm()
+    from pytest_cov.embed import cleanup_on_sigterm
+
+    cleanup_on_sigterm()
 
 
 def upserty(uri, i):
@@ -255,6 +252,9 @@ def test_generator_proc(db_notmem):
 
         db = open_db(uri)
         assert [row.bar for row in db.select("oth")] == expected
+
+        pool.close()
+        pool.join()
 
 
 @pytest.mark.db("sqlite")
