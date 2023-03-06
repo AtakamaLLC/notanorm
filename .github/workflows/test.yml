@@ -23,7 +23,7 @@ jobs:
             mysql: 8.0
           - os: windows-2022
             python: 3.9
-            mysql: 8.0
+            mysql: 5.7
     name: ${{matrix.info.os}} ${{ matrix.info.python }} ${{ matrix.info.mysql }}
     steps:
     - uses: actions/checkout@v2

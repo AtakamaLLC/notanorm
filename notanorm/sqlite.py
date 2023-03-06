@@ -15,6 +15,10 @@ log = logging.getLogger(__name__)
 sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split("."))
 
 
+class SqliteExecuteDeferred:
+    pass
+
+
 class SqliteDb(DbBase):
     uri_name = "sqlite"
     placeholder = "?"
@@ -109,6 +113,7 @@ class SqliteDb(DbBase):
                 self.__accum.setdefault(threading.get_ident(), []).append(
                     ((sql, parameters, _script, write), kwargs)
                 )
+                return SqliteExecuteDeferred
             else:
                 raise
 
