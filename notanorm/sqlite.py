@@ -109,6 +109,8 @@ class SqliteDb(DbBase):
                 self.__accum.setdefault(threading.get_ident(), []).append(
                     ((sql, parameters, _script, write), kwargs)
                 )
+            else:
+                raise
 
     def clone(self):
         assert not self.__is_mem, "cannot clone memory db"
