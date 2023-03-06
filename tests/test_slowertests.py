@@ -73,6 +73,8 @@ def cleanup_db(db):
 
 
 def _test_upsert_i(db_name, i, db_conn, mod):
+    multiproc_coverage()
+
     db = get_db(db_name, db_conn)
 
     with db.transaction() as db:
@@ -203,7 +205,18 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
                 pass
 
 
+def multiproc_coverage():
+    try:
+        from pytest_cov.embed import cleanup_on_sigterm
+    except ImportError:
+        pass
+    else:
+        cleanup_on_sigterm()
+
+
 def upserty(uri, i):
+    multiproc_coverage()
+
     db = open_db(uri)
     for row in db.select_gen("foo"):
         if row.bar == 0:
@@ -227,22 +240,21 @@ def test_generator_proc(db_notmem):
 
     db.close()
 
-    pool = ProcessPool(processes=proc_num)
+    with ProcessPool(processes=proc_num) as pool:
+        import functools
 
-    import functools
+        func = functools.partial(upserty, uri)
 
-    func = functools.partial(upserty, uri)
+        expected = list(range(proc_num * mult))
 
-    expected = list(range(proc_num * mult))
+        assert pool.map(func, range(proc_num * mult)) == expected
 
-    assert pool.map(func, range(proc_num * mult)) == expected
+        expected = list(
+            i * 100 + j for i in range(proc_num * mult) for j in range(proc_num * mult)
+        )
 
-    expected = list(
-        i * 100 + j for i in range(proc_num * mult) for j in range(proc_num * mult)
-    )
-
-    db = open_db(uri)
-    assert [row.bar for row in db.select("oth")] == expected
+        db = open_db(uri)
+        assert [row.bar for row in db.select("oth")] == expected
 
 
 @pytest.mark.db("sqlite")

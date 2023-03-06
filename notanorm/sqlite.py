@@ -105,7 +105,7 @@ class SqliteDb(DbBase):
         try:
             return super().execute(sql, parameters, _script=_script, **kwargs)
         except err.OperationalError as e:
-            if "is locked" in str(e) and write:
+            if "is locked" in str(e) and write and self._is_in_gen():
                 self.__accum.setdefault(threading.get_ident(), []).append(
                     ((sql, parameters, _script, write), kwargs)
                 )
@@ -162,13 +162,9 @@ class SqliteDb(DbBase):
         self.__timeout = val
 
     def __columns(self, table, no_capture):
-        self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
-
         tinfo = self.query(
             "PRAGMA table_info(" + self.quote_key(table) + ")", no_capture=no_capture
         )
-        if len(tinfo) == 0:
-            raise KeyError(f"Table {table} not found in db {self}")
 
         one_pk = True
         for col in tinfo:
