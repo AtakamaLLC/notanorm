@@ -1,6 +1,6 @@
 pytest>=7.1.2
-coverage>=5
-codecov>=6.3.2
+coverage>=6.3.2
+codecov>=2.1
 pytest-cov>=3.0.0
 pytest-xdist>=3.0.2
 black
