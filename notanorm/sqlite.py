@@ -15,6 +15,10 @@ log = logging.getLogger(__name__)
 sqlite_version = tuple(int(v) for v in sqlite3.sqlite_version.split("."))
 
 
+class SqliteExecuteDeferred:
+    pass
+
+
 class SqliteDb(DbBase):
     uri_name = "sqlite"
     placeholder = "?"
@@ -82,7 +86,7 @@ class SqliteDb(DbBase):
         in_gen_modified = False
         try:
             for row in super().query_gen(sql, *args, factory=factory):
-                if self.generator_guard and not in_gen_modified:
+                if not in_gen_modified:
                     in_gen_modified = True
                     self.__in_gen[threading.get_ident()] += 1
                 yield row
@@ -93,13 +97,25 @@ class SqliteDb(DbBase):
                 if self.__in_gen[ident] == 0:
                     # Memory cleanup
                     del self.__in_gen[ident]
+                    accum = self.__accum.pop(ident, ())
+                    for a, k in accum:
+                        self.execute(*a, **k)
 
     def execute(self, sql, parameters=(), _script=False, write=True, **kwargs):
         if self.generator_guard and write and self._is_in_gen():
             raise err.UnsafeGeneratorError(
                 "change your generator to a list when updating within a loop using sqlite"
             )
-        return super().execute(sql, parameters, _script=_script, **kwargs)
+        try:
+            return super().execute(sql, parameters, _script=_script, **kwargs)
+        except err.OperationalError as e:
+            if "is locked" in str(e) and write and self._is_in_gen():
+                self.__accum.setdefault(threading.get_ident(), []).append(
+                    ((sql, parameters, _script, write), kwargs)
+                )
+                return SqliteExecuteDeferred
+            else:
+                raise
 
     def clone(self):
         assert not self.__is_mem, "cannot clone memory db"
@@ -140,6 +156,8 @@ class SqliteDb(DbBase):
         else:
             self.__timeout = super().timeout
 
+        self.__accum = {}
+
     @property
     def timeout(self):
         return self.__timeout
@@ -149,13 +167,9 @@ class SqliteDb(DbBase):
         self.__timeout = val
 
     def __columns(self, table, no_capture):
-        self.query("SELECT name, type from sqlite_master", no_capture=no_capture)
-
         tinfo = self.query(
             "PRAGMA table_info(" + self.quote_key(table) + ")", no_capture=no_capture
         )
-        if len(tinfo) == 0:
-            raise KeyError(f"Table {table} not found in db {self}")
 
         one_pk = True
         for col in tinfo:

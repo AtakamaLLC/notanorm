@@ -73,6 +73,8 @@ def cleanup_db(db):
 
 
 def _test_upsert_i(db_name, i, db_conn, mod):
+    multiproc_coverage()
+
     db = get_db(db_name, db_conn)
 
     with db.transaction() as db:
@@ -203,17 +205,23 @@ def test_transaction_fail_on_begin(db_notmem: "DbBase", db_name):
                 pass
 
 
+def multiproc_coverage():
+    from pytest_cov.embed import cleanup_on_sigterm
+
+    cleanup_on_sigterm()
+
+
 def upserty(uri, i):
+    multiproc_coverage()
+
     db = open_db(uri)
-    try:
-        db.generator_guard = True
-        for row in db.select_gen("foo"):
-            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
-        # this is ok: we passed
-        return i
-    except err.UnsafeGeneratorError:
-        # this is ok: we created a consistent error
-        return -1
+    for row in db.select_gen("foo"):
+        if row.bar == 0:
+            for row in db.select_gen("foo"):
+                db.insert("oth", bar=i * 100 + row.bar, baz=0)
+        else:
+            db.update("oth", bar=i * 100 + row.bar, baz=1)
+    return i
 
 
 def test_generator_proc(db_notmem):
@@ -222,23 +230,31 @@ def test_generator_proc(db_notmem):
     uri = db.uri
     log.debug("using uri" + uri)
 
-    create_and_fill_test_db(db, 20)
+    proc_num = 4
+    mult = 4
+    create_and_fill_test_db(db, proc_num * mult)
+    create_and_fill_test_db(db, 0, "oth")
+
     db.close()
 
-    proc_num = 4
+    with ProcessPool(processes=proc_num) as pool:
+        import functools
 
-    pool = ProcessPool(processes=proc_num)
+        func = functools.partial(upserty, uri)
 
-    import functools
+        expected = list(range(proc_num * mult))
 
-    func = functools.partial(upserty, uri)
+        assert pool.map(func, range(proc_num * mult)) == expected
 
-    expected = list(range(proc_num * 2))
+        expected = list(
+            i * 100 + j for i in range(proc_num * mult) for j in range(proc_num * mult)
+        )
 
-    if db.uri_name == "sqlite":
-        expected = [-1] * proc_num * 2
+        db = open_db(uri)
+        assert [row.bar for row in db.select("oth")] == expected
 
-    assert pool.map(func, range(proc_num * 2)) == expected
+        pool.close()
+        pool.join()
 
 
 @pytest.mark.db("sqlite")
