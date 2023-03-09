@@ -39,6 +39,7 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "SqliteDb",
+    "JsonDb",
     "MySqlDb",
     "DbRow",
     "DbBase",
