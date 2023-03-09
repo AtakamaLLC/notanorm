@@ -1,11 +1,18 @@
+import contextlib
+import copy
+import json
+import os
 import re
 import threading
 from collections import defaultdict
 from functools import partial
 from typing import Any, Callable
 
+import sqlglot.errors
+
+import notanorm.errors
 from .base import DbBase, DbRow, parse_bool, Op
-from .errors import UnknownColumnError, TableNotFoundError
+from .errors import NoColumnError, TableNotFoundError, TableExistsError
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel, DbIndexField
 from .ddl_helper import model_from_ddl, DDLHelper
 from sqlglot import parse, exp
@@ -19,84 +26,115 @@ class QueryRes:
     rowcount = 0
     lastrowid = 0
 
-    def __init__(self, *, generator=None):
-        self.__gen = generator
+    def __init__(self, parent: "JsonDb", *, generator=None):
+        self.parent = parent
+        self.generator = generator
+
+    def execute(self, sql, parameters):
+        self.parent._executeone(self, sql, parameters)
 
     def fetchall(self):
         ret = []
-        if self.__gen:
-            for ent in self.__gen:
+        if self.generator:
+            for ent in self.generator:
                 ret.append(ent)
         return ret
 
     def fetchone(self):
-        if self.__gen:
+        if self.generator:
             try:
-                return next(self.__gen)
+                return next(self.generator)
             except StopIteration:
                 return None
 
     def close(self):
-        self.__gen and self.__gen.close()
+        self.generator and self.generator.close()
 
 
 class JsonDb(DbBase):
     uri_name = "jsondb"
-    placeholder = "?"
     use_pooled_locks = False
     generator_guard = False
     max_reconnect_attempts = 1
     _parse_memo = {}
+    default_values = " () values ()"
 
-    def _begin(self, conn):
-        conn._tx.append([])
+    def _begin(self, conn: "JsonDb"):
+        self._tx.append(copy.deepcopy(self.__dat))
 
-    def execute(self, sql, parameters=(), _script=False, write=True, **kwargs):
+    def commit(self):
+        self._tx = self._tx[0:-1]
+        if not self._tx:
+            self.__write()
+
+    def __write(self):
+        if not self.__is_mem:
+            tmp = self.__file + ".jtmp." + str(threading.get_ident())
+            with open(tmp, "w") as fp:
+                json.dump(self.__dat, fp)
+            os.replace(tmp, self.__file)
+        self.__dirty = False
+
+    def refresh(self):
+        if not self.__is_mem:
+            with contextlib.suppress(FileNotFoundError):
+                with open(self.__file, "r") as fp:
+                    self.__dat = json.load(fp)
+
+    def rollback(self):
+        self.__dat = self._tx[-1]
+        self._tx = self._tx[0:-1]
+
+    def cursor(self):
+        return QueryRes(self)
+
+    def _executemany(self, cursor, sql: str):
+        return self._executeone(cursor, sql, ())
+
+    def _executeone(self, cursor, sql: str, parameters):
         todo = self._parse_memo.get(sql)
         if todo is None:
-            todo = parse(sql)
+            todo = parse(sql, "sqlite")
             self._parse_memo[sql] = todo
 
-        if todo and todo[0].find(exp.Create or todo[0].find(exp.AlterTable)):
+        assert not todo[0].find(exp.AlterTable), "alter not needed for json"
+
+        if todo and todo[0].find(exp.Create):
             model = DDLHelper(todo).model()
             if model:
+                if any(k in self.__model for k in model):
+                    raise TableExistsError(
+                        todo[0].find(exp.Create).find(exp.Table).name
+                    )
                 self.__model.update(model)
-            return QueryRes()
 
-        return self.__execute(todo, parameters)
+        return self.execute_cursor_stmts(cursor, todo, parameters)
 
-    def __execute(self, stmts: list, parameters):
+    def execute_cursor_stmts(self, cursor: QueryRes, stmts: list, parameters):
         for ent in stmts:
             # this is all we support
             op = ent.find(exp.Select)
             if op:
-                return QueryRes(generator=self.__op_select(op, parameters))
+                cursor.generator = self.__op_select(op, parameters)
+            self.__dirty = True
             op = ent.find(exp.Insert)
             if op:
-                return self.__op_insert(op, parameters)
+                return self.__op_insert(cursor, op, parameters)
             op = ent.find(exp.Delete)
             if op:
-                return self.__op_delete(op, parameters)
+                return self.__op_delete(cursor, op, parameters)
             op = ent.find(exp.Update)
             if op:
-                return self.__op_update(op, parameters)
+                return self.__op_update(cursor, op, parameters)
 
-    def __op_insert(self, op, parameters):
+    def __op_insert(self, res, op, parameters):
         cols = []
         vals = []
         tab = op.find(exp.Table)
         scm = op.find(exp.Schema)
+        mod = self.__model.get(tab.name)
         for col in scm.expressions:
-            col_name = col.name
-            mod = self.__model.get(tab.name)
-            if mod:
-                found = False
-                for cmod in mod.columns:
-                    if cmod.name.lower() == col.name.lower():
-                        col_name = cmod.name
-                        found = True
-                if not found:
-                    raise UnknownColumnError(col.name)
+            col_name = self.__col_name(col, mod)
             cols.append(col_name)
         valexp = op.find(exp.Values).expressions[0]
         i = 0
@@ -107,26 +145,81 @@ class JsonDb(DbBase):
             else:
                 vals.append(val.value)
 
-        self.__dat.setdefault(tab.name, []).append(
-            {c: vals[i] for i, c in enumerate(cols)}
-        )
-        ret = QueryRes()
-        ret.rowcount = 1
+        tdat = self.__dat.setdefault(tab.name, [])
+
+        if mod:
+            for i, col in enumerate(mod.columns):
+                if col.name not in cols:
+                    if col.default:
+                        cols.append(col.name)
+                        vals.append(col.default)
+                    if col.autoinc:
+                        nxt = max(r[col.name] for r in tdat) + 1 if tdat else 1
+                        cols.append(col.name)
+                        vals.append(nxt)
+                if col.autoinc:
+                    res.lastrowid = vals[i]
+
+        row = {c: vals[i] for i, c in enumerate(cols)}
+        self.__check_integ(tab.name, row, mod)
+        tdat.append(row)
+        res.rowcount = 1
+
+    def __col_name(self, col, mod):
+        col_name = col.name
+        if mod:
+            found = False
+            for cmod in mod.columns:
+                if cmod.name.lower() == col.name.lower():
+                    col_name = cmod.name
+                    found = True
+            if not found:
+                raise NoColumnError(col.name)
+        return col_name
+
+    def __check_integ_idx(self, tab, row, idx: DbIndex):
+        check = tuple((f, row[f.name]) for f in idx.fields)
+        rows = self.__get_table(tab)
+        for ent in rows:
+            if tuple((f, ent[f.name]) for f in idx.fields) == check:
+                raise notanorm.errors.IntegrityError
+        return False
+
+    def __check_integ(self, tab, row, mod):
+        if mod:
+            for cmod in mod.indexes:
+                if cmod.unique or cmod.primary:
+                    self.__check_integ_idx(tab, row, cmod)
+        return False
+
+    def __op_update(self, ret, op, parameters):
+        sets = {}
+        parameters = list(parameters)
+        tab = op.find(exp.Table)
+        mod = self.__model.get(tab.name)
+        for set_exp in op.expressions:
+            col = set_exp.left
+            col_name = self.__col_name(col, mod)
+            val = self.__val_from(set_exp.right, parameters)
+            sets[col_name] = val
+        where = op.find(exp.Where)
+        where_dict = self.__op_where(where, list(parameters))
+        for row in self.__dat.setdefault(tab.name, []):
+            if all(self.__op(row[k], v) for k, v in where_dict.items()):
+                row.update(sets)
+                ret.rowcount += 1
         return ret
 
-    def __op_delete(self, op, parameters):
+    def __op_delete(self, ret, op, parameters):
         tab = op.find(exp.Table)
         where = op.find(exp.Where)
         where_dict = self.__op_where(where, list(parameters))
         new = []
-        ret = QueryRes()
         for row in self.__get_table(tab.name):
             if not all(v == row[k] for k, v in where_dict.items()):
                 new.append(row)
                 ret.rowcount += 1
         self.__dat[tab.name] = new
-        return ret
-        pass
 
     def __op_where(self, op, parameters: list, *, ret=None) -> dict:
         ret = {} if ret is None else ret
@@ -138,12 +231,12 @@ class JsonDb(DbBase):
                 assert isinstance(op.right, exp.Null)
                 ret[op.left.name] = None
             elif isinstance(op, exp.EQ):
-                val = self.__val_from(op, parameters)
+                val = self.__val_from(op.right, parameters)
                 if isinstance(op.left, exp.Literal):
                     raise RuntimeError("literal comparisons not supported yet")
                 ret[op.left.name] = val
             elif isinstance(op, (exp.GT, exp.GTE, exp.LT, exp.LTE)):
-                val = self.__val_from(op, parameters)
+                val = self.__val_from(op.right, parameters)
                 cod = {exp.GT: ">", exp.GTE: ">=", exp.LT: "<", exp.LTE: "<="}.get(
                     type(op)
                 )
@@ -155,13 +248,13 @@ class JsonDb(DbBase):
 
     @staticmethod
     def __val_from(op, parameters):
-        if isinstance(op.right, exp.Placeholder):
+        if isinstance(op, exp.Placeholder):
             val = parameters.pop(0)
         else:
-            val = op.right.output_name
-            if op.right.is_int:
+            val = op.output_name
+            if op.is_int:
                 val = int(val)
-            elif op.right.is_number:
+            elif op.is_number:
                 val = float(val)
         return val
 
@@ -177,9 +270,40 @@ class JsonDb(DbBase):
         tab = op.args["from"].args["expressions"][0].name
         where = op.find(exp.Where)
         where_dict = self.__op_where(where, params)
-        for row in self.__get_table(tab):
+        rows = self.__get_table(tab)
+        ord = op.find(exp.Order)
+        if ord:
+            rows = self.__sort(ord, rows)
+        lim = op.find(exp.Limit)
+        if lim:
+            lim = self.__val_from(lim.expression, parameters)
+        off = op.find(exp.Offset)
+        if off:
+            off = self.__val_from(off.expression, parameters)
+        # bug in sqlglot flips this for sqlite parse
+        if lim is not None and off is not None:
+            (lim, off) = (off, lim)
+        cntl = 0
+        cnto = 0
+        for row in rows:
             if all(self.__op(row[k], v) for k, v in where_dict.items()):
+                cnto += 1
+                if off is not None and cnto <= off:
+                    continue
+                cntl += 1
+                if lim is not None and cntl > lim:
+                    break
                 yield {aliases.get(k, k): v for k, v in row.items()}
+
+    def __sort(self, ord, rows):
+        keys = []
+        for col in ord.expressions:
+            keys.append((col.this.output_name, col.args.get("desc")))
+
+        def func(row):
+            return tuple(-row[k[0]] if k[1] else row[k[0]] for k in keys)
+
+        return sorted(rows, key=func)
 
     def __get_table(self, tab):
         try:
@@ -225,18 +349,13 @@ class JsonDb(DbBase):
 
     def __init__(self, *args, **kws):
         super().__init__(*args, **kws)
+        self.__dirty = False
+        self._tx = []
         self.__file = args[0]
         self.__dat = {}
         self.__model = DbModel()
         self.__is_mem = self.__file == ":memory:"
-
-    @property
-    def timeout(self):
-        return self.__timeout
-
-    @timeout.setter
-    def timeout(self, val):
-        self.__timeout = val
+        self.refresh()
 
     def __columns(self, table, *_):
         cols = []
@@ -254,12 +373,15 @@ class JsonDb(DbBase):
 
     def model(self, no_capture=False):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
+        if self.__model:
+            return self.__model
         model = DbModel()
         for k in self.__dat:
             cols = self.__columns(k)
             indxs = set()
             model[k] = DbTable(cols, indxs)
-        return model
+        self.__model = model
+        return self.__model
 
     @classmethod
     def _column_def(cls, col: DbCol, single_primary: str):
@@ -283,6 +405,8 @@ class JsonDb(DbBase):
                 )
                 new_cols.append(newcol)
             new_idxes = set()
+            for idx in tdef.indexes:
+                new_idxes.add(DbIndex(idx.fields, idx.unique, idx.primary, idx.name))
             new_tab = DbTable(columns=tuple(new_cols), indexes=new_idxes)
             new_mod[tab] = new_tab
         return new_mod
@@ -290,24 +414,60 @@ class JsonDb(DbBase):
     def create_table(
         self, name, schema, ignore_existing=False, create_indexes: bool = True
     ):
-        pass
+        if name in self.__model and not ignore_existing:
+            raise TableExistsError
+        if create_indexes:
+            idxs = [
+                DbIndex(idx.fields, idx.unique, idx.primary, os.urandom(16).hex())
+                for idx in schema.indexes
+            ]
+            schema = DbTable(schema.columns, set(idxs))
+        else:
+            schema = DbTable(schema.columns, set())
+        self.__model[name] = schema
+
+    def _create_index(self, tab, index_name, idx: DbIndex):
+        idx = DbIndex(idx.fields, idx.unique, idx.primary, os.urandom(16).hex())
+        self.__model[tab].indexes.add(idx)
 
     def _connect(self, *args, **kws):
         return self
 
     def _get_primary(self, table):
         tab = self.__model[table]
-        ret = []
         for idx in tab.indexes:
             if idx.primary:
                 return tuple(fd.name for fd in idx.fields)
-        return None
+        return ()
 
     def version(self):
         return "1.0"
 
-    def _create_index(self, *_, **__):
-        pass
-
     def close(self):
-        pass
+        if self.__dirty:
+            self.__write()
+
+    @staticmethod
+    def translate_error(exp):
+        msg = str(exp)
+        if isinstance(exp, sqlglot.errors.ParseError):
+            return notanorm.errors.OperationalError(msg)
+        return exp
+
+    def rename(self, table_from, table_to):
+        try:
+            if self.__model:
+                self.__model[table_to] = self.__model.pop(table_from)
+            self.__dat[table_to] = self.__dat.pop(table_from)
+            self.__dirty = True
+        except KeyError:
+            raise notanorm.errors.TableNotFoundError
+
+    def drop(self, table):
+        try:
+            self.__dirty = True
+            del self.__dat[table]
+            if self.__model:
+                del self.__model[table]
+        except KeyError:
+            raise notanorm.errors.TableNotFoundError

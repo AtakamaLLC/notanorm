@@ -111,9 +111,14 @@ def test_db_row_obj_case(db):
     assert "bar" in ret
 
 
-def test_db_order(db):
+def skip_json(db):
     if isinstance(db, JsonDb):
         pytest.skip("not supported")
+
+
+def test_db_order(db):
+    skip_json(db)
+
     db.query("create table foo (bar integer)")
     for i in range(10):
         db.insert("foo", bar=i)
@@ -208,8 +213,7 @@ def test_db_select_any_one(db):
 
 
 def test_db_tab_not_found(db):
-    if isinstance(db, JsonDb):
-        pytest.skip("not supported")
+    skip_json(db)
     db.query("create table foo (bar integer)")
     with pytest.raises(notanorm.errors.TableNotFoundError):
         db.select("foox")
@@ -285,8 +289,7 @@ def test_db_select_explicit_field_map(db):
 
 
 def test_db_select_join(db):
-    if isinstance(db, JsonDb):
-        pytest.skip("not supported")
+    skip_json(db)
     db.query("create table foo (col text, d text)")
     db.query("create table baz (col text, d text)")
     db.insert("foo", col="hi", d="foo")
@@ -530,6 +533,7 @@ def test_select_gen_not_lock(db: DbBase):
 
 
 def test_readonly_fail(db, db_name: str):
+    skip_json(db)
     db.query("create table foo (bar text)")
     db.insert("foo", bar="y1")
 
@@ -568,6 +572,7 @@ def test_db_more_than_one(db):
 
 
 def test_db_integ(db):
+    skip_json(db)
     if isinstance(db, SqliteDb):
         db.query("pragma foreign_keys=on;")
     db.query("create table foo (bar integer primary key)")
@@ -576,6 +581,13 @@ def test_db_integ(db):
     db.insert("zop", bar=1)
     with pytest.raises(err.IntegrityError):
         db.insert("zop", bar=2)
+
+
+def test_db_integ_prim(db):
+    db.query("create table foo (bar integer primary key)")
+    db.insert("foo", bar=1)
+    with pytest.raises(err.IntegrityError):
+        db.insert("foo", bar=1)
 
 
 def test_db_annoying_col_names(db):
@@ -782,12 +794,14 @@ def test_sqlite_guard_thread(db_notmem):
 
 
 def test_subq(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
 def test_subq_wildcards(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     assert (
         len(db.select(db.subq("foo", {"bing": "bar", "baz": "baz"}, bar=[1, 3]), baz=0))
@@ -796,6 +810,7 @@ def test_subq_wildcards(db):
 
 
 def test_nested_subq(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(
@@ -806,6 +821,7 @@ def test_nested_subq(db):
 
 
 def test_subq_limited_fields_join(db):
+    skip_json(db)
     # use weird field name on purpose
     create_and_fill_test_db(db, 5, select="integer primary key", baz="integer")
     create_and_fill_test_db(db, 5, "oth")
@@ -826,6 +842,7 @@ def test_subq_limited_fields_join(db):
 
 
 def test_joinq_ambig_unknown_col_join(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "a")
     create_and_fill_test_db(db, 5, "b")
     create_and_fill_test_db(db, 5, "c")
@@ -844,6 +861,7 @@ def test_joinq_ambig_unknown_col_join(db):
 
 
 def test_joinq_non_ambig_col(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
     create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
     create_and_fill_test_db(db, 5, "c", cid="integer primary key", did="integer")
@@ -914,6 +932,7 @@ def test_select_star_in_child(db_sqlite_notmem: DbBase) -> None:
 
 
 def test_joinq_left(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
     create_and_fill_test_db(db, 3, "b", bid="integer primary key", cid="integer")
 
@@ -940,11 +959,13 @@ def test_joinq_right(db_mysql):
 
 
 def test_select_subq(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     assert len(db.select(db.subq("foo", bar=[1, 3]), bar=1)) == 1
 
 
 def test_join_simple(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(db.select(db.join("foo", "oth", bar="bar"), {"foo.bar": 1})) == 1
@@ -958,6 +979,7 @@ def test_join_simple(db):
 
 
 def test_join_subqs(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     res = db.select(
@@ -980,6 +1002,7 @@ def test_join_subqs(db):
 
 
 def test_join_subqs_quoting(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, ";oth")
     res = db.select(
@@ -1002,6 +1025,7 @@ def test_join_subqs_quoting(db):
 
 
 def test_subqify_join(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "x", xid="integer primary key", yid="integer")
     create_and_fill_test_db(db, 5, "y", yid="integer primary key", zid="integer")
     create_and_fill_test_db(
@@ -1018,6 +1042,7 @@ def test_subqify_join(db):
 
 
 def test_multi_join_nested_left_right(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
@@ -1040,6 +1065,7 @@ def test_multi_join_nested_left_right(db):
 
 
 def test_join_explicit_mappings(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(
@@ -1050,6 +1076,7 @@ def test_join_explicit_mappings(db):
 
 
 def test_join_explicit_fields(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(db.join("foo", "oth", bar="bar", _fields=["oth.bar"]))
@@ -1061,12 +1088,14 @@ def test_join_explicit_fields(db):
 
 
 def test_subq_field_map(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     j1 = db.subq("foo", _fields={"xxx": "bar"}, bar=[1, 2])
     assert db.select_one(j1, xxx=1).xxx == 1
 
 
 def test_join_2_subqs_same_tab(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     s1 = db.subq("foo", bar=[1, 2, 3])
     s2 = db.subq("foo", bar=[2, 3, 4])
@@ -1075,6 +1104,7 @@ def test_join_2_subqs_same_tab(db):
 
 
 def test_join_2_subqs(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     s1 = db.subq("foo", bar=[1, 2, 3])
@@ -1084,6 +1114,7 @@ def test_join_2_subqs(db):
 
 
 def test_multi_join_auto_left(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
@@ -1096,6 +1127,7 @@ def test_multi_join_auto_left(db):
 
 
 def test_join_fd_names(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     # this creates a mapping of fields
@@ -1111,6 +1143,7 @@ def test_join_fd_names(db):
 
 
 def test_where_or(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     db.update("foo", bar=3, baz=2)
     assert len(db.select("foo", _where=[{"bar": 1}, {"baz": 2}])) == 2
@@ -1119,6 +1152,7 @@ def test_where_or(db):
 
 
 def test_warn_dup_index(db, caplog):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     db.query("create index ix_1 on foo(bar);")
     db.query("create index ix_2 on foo(bar);")
@@ -1129,6 +1163,7 @@ def test_warn_dup_index(db, caplog):
 
 
 def test_where_complex(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     assert (
         len(db.select("foo", _where=And([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])))
@@ -1203,6 +1238,7 @@ def test_quote_special(db: DbBase) -> None:
 
 
 def test_db_larger_types(db):
+    skip_json(db)
     db.query("create table foo (bar mediumblob)")
     # If mediumblob is accidentally translated to blob, the max size in mysql is
     # 2**16. If mysql is running in strict mode, the insert will fail.
@@ -1250,6 +1286,7 @@ def create_group_tabs(db):
 
 
 def test_raw_fields_group_by(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
     ret = db.select(
         "a",
@@ -1268,6 +1305,7 @@ def test_raw_fields_group_by(db: DbBase):
 
 
 def test_subq_group_by(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
     sub = db.subq(
         "a", {"cnt": "count(*)", "ver": "max(f3)"}, {}, _group_by=["f1", "f2"]
@@ -1277,6 +1315,7 @@ def test_subq_group_by(db: DbBase):
 
 
 def test_group_by_subq(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
     sub = db.subq("a", f1=1)
     ret = db.select(
@@ -1286,6 +1325,7 @@ def test_group_by_subq(db: DbBase):
 
 
 def test_agg_group_by(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
 
     # group by one col == dict with col index into counts
@@ -1338,6 +1378,7 @@ def test_agg_group_by(db: DbBase):
 
 
 def test_type_translation_mysql_dialect(db: DbBase):
+    skip_json(db)
     # mysql-compatible types that can be used with sqlite
     schema = """
         CREATE table foo (
@@ -1361,6 +1402,7 @@ def test_type_translation_mysql_dialect(db: DbBase):
 
 
 def test_quote_group_by(db: DbBase) -> None:
+    skip_json(db)
     schema = """
         CREATE table foo (
             a integer primary key not null,
@@ -1406,6 +1448,7 @@ def test_quote_group_by(db: DbBase) -> None:
 
 
 def test_quote_subq_alias(db: DbBase) -> None:
+    skip_json(db)
     schema = """
         CREATE table foo (
             a integer primary key not null,
@@ -1498,6 +1541,8 @@ def test_quote_order_by(db: DbBase) -> None:
         list(reversed(exp_asc)),
     )
 
+    skip_json(db)
+
     # While we're here, let's test that it works with joins, subqueries, and all that jazz.
     exp_subq_asc = [
         {"a": 500, "foo.;evil": 1, "subq.a": 500, "subq.;evil": 1},
@@ -1581,6 +1626,7 @@ def test_rename_drop(db):
 
 
 def test_drop_index(db):
+    skip_json(db)
     db.execute("create table foo (bar integer)")
     db.execute("create unique index ix_foo_uk on foo(bar)")
     assert db.model()["foo"].indexes.pop().name
@@ -1651,6 +1697,8 @@ def test_create_model_explicit_model(db: DbBase) -> None:
 
 
 def test_create_model_cached_model(db: DbBase) -> None:
+    skip_json(db)
+
     schema_model = _sample_model()
 
     # Initial call fills the model cache.

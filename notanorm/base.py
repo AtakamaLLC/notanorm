@@ -731,7 +731,7 @@ class DbBase(
             self._create_index(name, index_name, idx)
 
     @abstractmethod
-    def _create_index(self, index_name, idx: DbIndex):
+    def _create_index(self, tab, index_name, idx: DbIndex):
         ...
 
     def drop_index(self, table: str, index: DbIndex):

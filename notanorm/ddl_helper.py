@@ -42,7 +42,9 @@ class DDLHelper:
         exp.DataType.Type.DOUBLE: DbType.DOUBLE,
         exp.DataType.Type.FLOAT: DbType.FLOAT,
         exp.DataType.Type.MEDIUMTEXT: DbType.TEXT,
+        exp.DataType.Type.MEDIUMBLOB: DbType.BLOB,
         exp.DataType.Type.LONGTEXT: DbType.TEXT,
+        exp.DataType.Type.LONGBLOB: DbType.BLOB,
     }
 
     if has_varb:
@@ -260,8 +262,12 @@ class DDLHelper:
                 default = str(default.this)
             elif lit.is_string:
                 default = lit.this
+            elif lit.is_int:
+                default = int(lit.output_name)
+            elif lit.is_number:
+                default = float(lit.output_name)
             else:
-                default = str(lit)
+                default = lit.output_name
         return (
             DbCol(
                 name=info.name,

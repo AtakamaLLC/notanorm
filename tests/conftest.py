@@ -17,7 +17,14 @@ def db_sqlite():
 
 @pytest.fixture
 def db_jsondb():
-    db = JsonDb(":jsondb:")
+    db = JsonDb(":memory:")
+    yield db
+    db.close()
+
+
+@pytest.fixture
+def db_jsondb_notmem(tmp_path):
+    db = JsonDb(str(tmp_path / "db"))
     yield db
     db.close()
 
@@ -48,6 +55,24 @@ def db_mysql_noup():
             raise AttributeError
 
     db = get_mysql_db(MySqlDbNoUp)
+
+    assert not hasattr(db, "_upsert_sql")
+
+    yield db
+
+    db.close()
+
+
+@pytest.fixture
+def db_jsondb_noup():
+    from notanorm import MySqlDb
+
+    class JsonDbNoUp(JsonDb):
+        @property
+        def _upsert_sql(self):
+            raise AttributeError
+
+    db = JsonDbNoUp(":memory:")
 
     assert not hasattr(db, "_upsert_sql")
 
