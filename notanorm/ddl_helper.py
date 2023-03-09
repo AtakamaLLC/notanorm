@@ -142,6 +142,19 @@ class DDLHelper:
                     )
                 )
 
+        # sqlglot > 11
+        for col in ent.find_all(exp.PrimaryKey):
+            primary_list = [ent.name for ent in col.find_all(exp.Identifier)]
+            idxs.append(
+                DbIndex(
+                    fields=tuple(
+                        DbIndexField(n, prefix_len=None) for n in primary_list
+                    ),
+                    primary=True,
+                    unique=False,
+                )
+            )
+
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim, is_uniq = self.__info_to_model(col, dialect)
             if is_prim:
@@ -262,9 +275,10 @@ class DDLHelper:
                 default = str(default.this)
             elif lit.is_string:
                 default = lit.this
-            elif lit.is_int:
+            # this is a hack for compatibility with existing code, todo: change this
+            elif lit.is_int and dialect not in ("sqlite", "mysql"):
                 default = int(lit.output_name)
-            elif lit.is_number:
+            elif lit.is_number and dialect not in ("sqlite", "mysql"):
                 default = float(lit.output_name)
             else:
                 default = lit.output_name

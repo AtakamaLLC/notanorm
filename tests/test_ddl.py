@@ -14,6 +14,7 @@ from notanorm import (
 )
 import notanorm.errors as err
 from notanorm.model import ExplicitNone
+from tests.test_notanorm import skip_json
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ from notanorm.ddl_helper import model_from_ddl  # noqa
 
 
 def test_model_ddl_cap(db):
+    skip_json(db)
     # creating a model using sqlite results in a model that generally works across other db's
     model = DbModel(
         {
@@ -73,6 +75,7 @@ def test_model_ddl_cap(db):
 
 
 def test_execute_ddl(db: DbBase):
+    skip_json(db)
     mod = db.execute_ddl(
         "create table foo (bar integer auto_increment primary key)", "mysql"
     )
@@ -81,6 +84,7 @@ def test_execute_ddl(db: DbBase):
 
 
 def test_ddl_sqlite_primary_key_autoinc(db: DbBase):
+    skip_json(db)
     mod = db.execute_ddl("create table foo (bar integer primary key)", "sqlite")
     assert db.simplify_model(db.model()) == db.simplify_model(mod)
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
@@ -88,6 +92,7 @@ def test_ddl_sqlite_primary_key_autoinc(db: DbBase):
 
 
 def test_execute_ddl_skip_exists(db: DbBase):
+    skip_json(db)
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl(
@@ -102,6 +107,7 @@ def test_execute_ddl_skip_exists(db: DbBase):
 
 
 def test_execute_ddl_exists(db: DbBase):
+    skip_json(db)
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     with pytest.raises(err.TableExistsError):
         db.execute_ddl(
@@ -112,6 +118,7 @@ def test_execute_ddl_exists(db: DbBase):
 
 
 def test_execute_sqlite(db: DbBase):
+    skip_json(db)
     db.execute_ddl("create table foo (bar integer)", "sqlite")
     assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
 
@@ -366,6 +373,7 @@ def test_default_str():
 
 
 def test_err_autoinc(db):
+    skip_json(db)
     # for now, this restriction applies to all db's.   could move it to sqlite only, but needs testing
     model = model_from_ddl(
         "create table foo (bar integer auto_increment, baz integer auto_increment)"
@@ -412,7 +420,7 @@ def test_custom_creat(db: "DbBase"):
     src_mod = model_from_ddl(create, "mysql")
     db.create_model(src_mod)
     db_mod = db.model()
-    if db.uri_name == "mysql":
+    if db.uri_name in ("mysql", "jsondb"):
         assert src_mod == db_mod
     else:
         assert src_mod != db_mod

@@ -2,19 +2,15 @@ import contextlib
 import copy
 import json
 import os
-import re
 import threading
-from collections import defaultdict
-from functools import partial
-from typing import Any, Callable
 
 import sqlglot.errors
 
 import notanorm.errors
-from .base import DbBase, DbRow, parse_bool, Op
+from .base import DbBase, Op
 from .errors import NoColumnError, TableNotFoundError, TableExistsError
-from .model import DbType, DbCol, DbTable, DbIndex, DbModel, DbIndexField
-from .ddl_helper import model_from_ddl, DDLHelper
+from .model import DbType, DbCol, DbTable, DbIndex, DbModel
+from .ddl_helper import DDLHelper
 from sqlglot import parse, exp
 
 import logging
@@ -414,8 +410,10 @@ class JsonDb(DbBase):
     def create_table(
         self, name, schema, ignore_existing=False, create_indexes: bool = True
     ):
-        if name in self.__model and not ignore_existing:
-            raise TableExistsError
+        if name in self.__model:
+            if not ignore_existing:
+                raise TableExistsError
+            return
         if create_indexes:
             idxs = [
                 DbIndex(idx.fields, idx.unique, idx.primary, os.urandom(16).hex())
@@ -458,16 +456,18 @@ class JsonDb(DbBase):
         try:
             if self.__model:
                 self.__model[table_to] = self.__model.pop(table_from)
-            self.__dat[table_to] = self.__dat.pop(table_from)
+            self.__dat[table_to] = self.__dat.pop(table_from, [])
+            self.clear_model_cache()
             self.__dirty = True
         except KeyError:
             raise notanorm.errors.TableNotFoundError
 
     def drop(self, table):
         try:
+            self.__dat.pop(table, None)
             self.__dirty = True
-            del self.__dat[table]
             if self.__model:
                 del self.__model[table]
+            self.clear_model_cache()
         except KeyError:
             raise notanorm.errors.TableNotFoundError
