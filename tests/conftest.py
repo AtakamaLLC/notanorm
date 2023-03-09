@@ -3,6 +3,7 @@ import os
 import pytest
 
 from notanorm import SqliteDb
+from notanorm.jsondb import JsonDb
 
 PYTEST_REG = False
 
@@ -10,6 +11,13 @@ PYTEST_REG = False
 @pytest.fixture
 def db_sqlite():
     db = SqliteDb(":memory:")
+    yield db
+    db.close()
+
+
+@pytest.fixture
+def db_jsondb():
+    db = JsonDb(":jsondb:")
     yield db
     db.close()
 

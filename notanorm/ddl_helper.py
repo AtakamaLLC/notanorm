@@ -79,6 +79,12 @@ class DDLHelper:
         self.__sqlglot = None
         self.__model = None
 
+        if type(ddl) is list:
+            # preparsed
+            self.__sqlglot = ddl
+            self.dialect = dialects[0]
+            return
+
         for dialect in dialects:
             try:
                 if dialect == "sqlite":

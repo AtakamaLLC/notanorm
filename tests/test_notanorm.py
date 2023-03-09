@@ -17,6 +17,7 @@ import notanorm.errors
 import notanorm.errors as err
 from notanorm import SqliteDb, DbRow, DbBase, DbType, DbIndex, And, Or, Op, DbIndexField
 from notanorm.connparse import open_db, parse_db_uri
+from notanorm.jsondb import JsonDb
 
 log = logging.getLogger(__name__)
 
@@ -25,13 +26,27 @@ def test_db_basic(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
     assert db.query("select bar from foo")[0].bar == "hi"
+    assert (
+        db.query("select bar from foo where bar=%s" % db.placeholder, "hi")[0].bar
+        == "hi"
+    )
+    assert not db.query("select bar from foo where bar='zz' and 1=1 and 2=2")
+    assert not db.query("select bar from foo where bar=%s" % db.placeholder, "ho")
 
 
 def test_db_delete(db):
     db.query("create table foo (bar text)")
     db.insert("foo", bar="hi")
+    db.insert("foo", bar="ho")
     db.delete("foo", bar="hi")
-    assert not db.select("foo")
+    assert not db.select("foo", bar="hi")
+    assert db.select("foo")[0].bar == "ho"
+
+
+def test_db_col_as(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+    assert db.query("select bar as x from foo")[0].x == "hi"
 
 
 def test_db_version(db):
@@ -97,6 +112,8 @@ def test_db_row_obj_case(db):
 
 
 def test_db_order(db):
+    if isinstance(db, JsonDb):
+        pytest.skip("not supported")
     db.query("create table foo (bar integer)")
     for i in range(10):
         db.insert("foo", bar=i)
@@ -191,6 +208,8 @@ def test_db_select_any_one(db):
 
 
 def test_db_tab_not_found(db):
+    if isinstance(db, JsonDb):
+        pytest.skip("not supported")
     db.query("create table foo (bar integer)")
     with pytest.raises(notanorm.errors.TableNotFoundError):
         db.select("foox")
@@ -266,6 +285,8 @@ def test_db_select_explicit_field_map(db):
 
 
 def test_db_select_join(db):
+    if isinstance(db, JsonDb):
+        pytest.skip("not supported")
     db.query("create table foo (col text, d text)")
     db.query("create table baz (col text, d text)")
     db.insert("foo", col="hi", d="foo")
