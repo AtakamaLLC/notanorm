@@ -12,7 +12,7 @@ test:
 	pytest -n 2 --cov notanorm -v tests
 
 test-all:
-	pytest --cov notanorm -v tests --db mysql --db sqlite
+	pytest --cov notanorm -v tests --db mysql --db sqlite --db jsondb
 
 test-mysql:
 	pytest -v tests --cov notanorm --cov-append --db mysql
