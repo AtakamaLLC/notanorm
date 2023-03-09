@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover
     pass
 
 from .sqlite import SqliteDb
+from .jsondb import JsonDb
 from .base import DbBase, Op, And, Or, ReconnectionArgs
 from .model import (
     DbType,

@@ -65,8 +65,6 @@ def db_mysql_noup():
 
 @pytest.fixture
 def db_jsondb_noup():
-    from notanorm import MySqlDb
-
     class JsonDbNoUp(JsonDb):
         @property
         def _upsert_sql(self):
