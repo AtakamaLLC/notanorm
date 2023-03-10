@@ -1767,3 +1767,27 @@ def test_create_table_and_indexes(db: DbBase) -> None:
         db.create_table(name, schema, ignore_existing=True)
 
     assert db.simplify_model(db.model()) == db.simplify_model(schema_model)
+
+
+def test_db_persist(db_notmem):
+    db = db_notmem
+    schema = """
+        CREATE table foo (
+            tx text,
+            xin integer,
+            fl double,
+            by blob,
+            boo boolean
+        )
+        """
+    db.execute_ddl(schema)
+    db.insert("foo", tx="hi", xin=4, fl=3.2, by=b"dd", boo=True)
+    uri = db.uri
+    db.close()
+    db = open_db(uri)
+    row = db.select("foo")[0]
+    assert row.tx == "hi"
+    assert row.xin == 4
+    assert row.fl == 3.2
+    assert row.by == b"dd"
+    assert row.boo == True

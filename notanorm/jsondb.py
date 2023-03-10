@@ -3,6 +3,8 @@ import copy
 import json
 import os
 import threading
+import base64
+import copy
 
 import sqlglot.errors
 
@@ -63,19 +65,52 @@ class JsonDb(DbBase):
         if not self._tx:
             self.__write()
 
+    def serialize(self, val):
+        if isinstance(val, (int, str, float, bool, type(None))):
+            return val
+        tname = type(val).__name__
+        return {"type": tname, "value": getattr(self, "serialize_" + tname)(val)}
+
+    def deserialize(self, obj):
+        return getattr(self, "deserialize_" + obj["type"])(obj["value"])
+
+    def serialize_bytes(self, val):
+        return base64.b64encode(val).decode("utf8")
+
+    def deserialize_bytes(self, val):
+        return base64.b64decode(val)
+
     def __write(self):
         if not self.__is_mem:
             tmp = self.__file + ".jtmp." + str(threading.get_ident())
-            with open(tmp, "w") as fp:
-                json.dump(self.__dat, fp)
-            os.replace(tmp, self.__file)
+            dat = copy.deepcopy(self.__dat)
+            for tab, rows in dat.items():
+                for i, row in enumerate(rows):
+                    for col, val in row.items():
+                        dat[tab][i][col] = self.serialize(val)
+            try:
+                with open(tmp, "w") as fp:
+                    json.dump(dat, fp)
+                os.replace(tmp, self.__file)
+            except Exception as ex:
+                with contextlib.suppress(Exception):
+                    os.unlink(tmp)
+                raise ex
         self.__dirty = False
 
     def refresh(self):
         if not self.__is_mem:
-            with contextlib.suppress(FileNotFoundError):
+            try:
                 with open(self.__file, "r") as fp:
-                    self.__dat = json.load(fp)
+                    dat = json.load(fp)
+                    for tab, rows in dat.items():
+                        for i, row in enumerate(rows):
+                            for col, val in row.items():
+                                if isinstance(val, dict):
+                                    dat[tab][i][col] = self.deserialize(val)
+                    self.__dat = dat
+            except FileNotFoundError:
+                self.__dirty = True
 
     def rollback(self):
         self.__dat = self._tx[-1]
@@ -305,7 +340,7 @@ class JsonDb(DbBase):
         try:
             return self.__dat[tab]
         except KeyError:
-            if tab in self.__model:
+            if not self.__model or tab in self.__model:
                 return []
             raise TableNotFoundError(tab)
 
@@ -343,13 +378,15 @@ class JsonDb(DbBase):
             for row in self.__dat.get(table, {})
         )
 
-    def __init__(self, *args, **kws):
+    def __init__(self, *args, model=None, ddl=None, **kws):
         super().__init__(*args, **kws)
         self.__dirty = False
         self._tx = []
-        self.__file = args[0]
         self.__dat = {}
-        self.__model = DbModel()
+        if ddl:
+            model = DDLHelper(ddl).model()
+        self.__model = model or DbModel()
+        self.__file = args[0]
         self.__is_mem = self.__file == ":memory:"
         self.refresh()
 
