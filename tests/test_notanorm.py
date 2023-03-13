@@ -1818,7 +1818,7 @@ def _persist_schema(db):
             tx text,
             xin integer,
             fl double,
-            by blob,
+            xby blob,
             boo boolean
         )
         """
@@ -1828,7 +1828,7 @@ def _persist_schema(db):
 def test_db_persist(db_notmem):
     db = db_notmem
     _persist_schema(db)
-    db.insert("foo", tx="hi", xin=4, fl=3.2, by=b"dd", boo=True)
+    db.insert("foo", tx="hi", xin=4, fl=3.2, xby=b"dd", boo=True)
     uri = db.uri
     db.close()
     db = open_db(uri)
@@ -1836,7 +1836,7 @@ def test_db_persist(db_notmem):
     assert row.tx == "hi"
     assert row.xin == 4
     assert row.fl == 3.2
-    assert row.by == b"dd"
+    assert row.xby == b"dd"
     assert row.boo
 
 
@@ -1844,7 +1844,7 @@ def test_db_persist_exec(db_notmem):
     db = db_notmem
     _persist_schema(db)
     db.execute(
-        f"insert into foo (tx, xin, fl, by, boo) values ({db.placeholder}, 4, 3.2, {db.placeholder}, True)",
+        f"insert into foo (tx, xin, fl, xby, boo) values ({db.placeholder}, 4, 3.2, {db.placeholder}, True)",
         ("hi", b"dd"),
     )
     uri = db.uri
@@ -1854,7 +1854,7 @@ def test_db_persist_exec(db_notmem):
     assert row.tx == "hi"
     assert row.xin == 4
     assert row.fl == 3.2
-    assert row.by == b"dd"
+    assert row.xby == b"dd"
     assert row.boo
 
 
