@@ -6,10 +6,9 @@ import random
 import threading
 import base64
 import time
-from typing import Callable
+from typing import Callable, Any
 
 import sqlglot.errors
-from typing_extensions import Any
 
 import notanorm.errors
 from .base import DbBase, Op
