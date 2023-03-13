@@ -1675,12 +1675,12 @@ def test_drop_ddl(db):
     with pytest.raises(err.OperationalError):
         db.drop_index_by_name("foo", nam)
 
-    db.execute(f"drop table foo")
+    db.execute("drop table foo")
     with pytest.raises(err.TableNotFoundError):
         db.select("foo")
 
     with pytest.raises(err.TableNotFoundError):
-        db.execute(f"drop table foo")
+        db.execute("drop table foo")
 
     with pytest.raises(err.DbError):
         db.drop_index_by_name("foo", nam)
