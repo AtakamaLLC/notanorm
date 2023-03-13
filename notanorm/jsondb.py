@@ -6,8 +6,10 @@ import random
 import threading
 import base64
 import time
+from typing import Callable
 
 import sqlglot.errors
+from typing_extensions import Any
 
 import notanorm.errors
 from .base import DbBase, Op
@@ -29,7 +31,7 @@ class QueryRes:
         self.parent = parent
         self.generator = generator
 
-    def execute(self, sql, parameters):
+    def execute(self, sql, parameters=()):
         self.parent._executeone(self, sql, parameters)
 
     def fetchall(self):
@@ -55,7 +57,7 @@ class JsonDb(DbBase):
     use_pooled_locks = False
     generator_guard = False
     max_reconnect_attempts = 1
-    retry_write = 5
+    retry_file_access = 5
     _parse_memo = {}
     default_values = " () values ()"
     closed = False
@@ -85,6 +87,7 @@ class JsonDb(DbBase):
 
     def __write(self):
         if not self.__is_mem:
+            # tmp file is pid + thread, so they don't accumulate forever on crashes
             tmp = (
                 self.__file
                 + ".jtmp."
@@ -98,26 +101,32 @@ class JsonDb(DbBase):
                     for col, val in row.items():
                         dat[tab][i][col] = self.serialize(val)
             try:
-                with open(tmp, "w") as fp:
+                with self.__retry_fileop(lambda: open(tmp, "w")) as fp:
+                    # not safe to retry this!
                     json.dump(dat, fp)
-                for _ in range(self.retry_write):
-                    try:
-                        os.replace(tmp, self.__file)
-                        break
-                    except PermissionError:
-                        sleep_time = self.reconnect_backoff_start
-                        sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
-                        time.sleep(sleep_time)
+                self.__retry_fileop(lambda: os.replace(tmp, self.__file))
             except Exception as ex:
                 with contextlib.suppress(Exception):
                     os.unlink(tmp)
                 raise ex
         self.__dirty = False
 
+    def __retry_fileop(self, func: Callable) -> Any:
+        last_ex = None
+        for _ in range(self.retry_file_access):
+            try:
+                return func()
+            except PermissionError as ex:
+                last_ex = ex
+                sleep_time = self.reconnect_backoff_start
+                sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
+                time.sleep(sleep_time)
+        raise last_ex
+
     def refresh(self):
         if not self.__is_mem:
             try:
-                with open(self.__file, "r") as fp:
+                with self.__retry_fileop(lambda: open(self.__file, "r")) as fp:
                     dat = json.load(fp)
                     for tab, rows in dat.items():
                         for i, row in enumerate(rows):
@@ -182,10 +191,16 @@ class JsonDb(DbBase):
         tab = op.find(exp.Table)
         if tab:
             if op.args["kind"] == "index":
+                found = False
                 for tab_name, info in self.__model.items():
-                    for idx in info.indexes:
+                    for idx in tuple(info.indexes):
                         if idx.name == tab.name:
                             self.drop_index_by_name(tab_name, idx.name)
+                            found = True
+                if not found:
+                    raise notanorm.errors.OperationalError(
+                        "index '%s' not found" % tab.name
+                    )
             else:
                 self.drop(tab.name)
         return ret
@@ -206,14 +221,11 @@ class JsonDb(DbBase):
         for col in scm.expressions:
             col_name = self.__col_name(col, mod)
             cols.append(col_name)
+        parameters = list(parameters)
         valexp = op.find(exp.Values).expressions[0]
-        i = 0
         for val in valexp.expressions:
-            if isinstance(val, exp.Placeholder):
-                vals.append(parameters[i])
-                i += 1
-            else:
-                vals.append(val.value)
+            v = self.__val_from(val, parameters)
+            vals.append(v)
 
         tdat = self.__dat.setdefault(tab.name, [])
 
@@ -302,7 +314,7 @@ class JsonDb(DbBase):
                 ret[op.left.name] = None
             elif isinstance(op, exp.EQ):
                 val = self.__val_from(op.right, parameters)
-                if isinstance(op.left, exp.Literal):
+                if isinstance(op.left, exp.Literal):  # pragma: no cover
                     raise RuntimeError("literal comparisons not supported yet")
                 ret[op.left.name] = val
             elif isinstance(op, (exp.GT, exp.GTE, exp.LT, exp.LTE)):
@@ -311,7 +323,7 @@ class JsonDb(DbBase):
                     type(op)
                 )
                 val = Op(cod, val)
-                if isinstance(op.left, exp.Literal):
+                if isinstance(op.left, exp.Literal):  # pragma: no cover
                     raise RuntimeError("literal comparisons not supported yet")
                 ret[op.left.name] = val
         return ret
@@ -320,6 +332,8 @@ class JsonDb(DbBase):
     def __val_from(op, parameters):
         if isinstance(op, exp.Placeholder):
             val = parameters.pop(0)
+        elif isinstance(op, exp.Boolean):
+            val = op.args["this"]
         else:
             val = op.output_name
             if op.is_int:
@@ -515,7 +529,7 @@ class JsonDb(DbBase):
 
     def _get_primary(self, table):
         if self.__model is None:
-            raise TableNotFoundError("model required for implicit where clauses")
+            return ()
         tab = self.__model[table]
         for idx in tab.indexes:
             if idx.primary:

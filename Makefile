@@ -9,7 +9,7 @@ lint:
 	python -m black --check .
 
 test:
-	pytest -n 2 --cov notanorm -v tests
+	pytest -n 2 --cov notanorm -v tests --db sqlite --db jsondb
 
 test-all:
 	pytest --cov notanorm -v tests --db mysql --db sqlite --db jsondb

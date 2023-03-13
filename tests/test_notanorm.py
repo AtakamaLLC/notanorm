@@ -3,6 +3,7 @@
 
 import copy
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -559,6 +560,12 @@ def test_timeout_rational(db_notmem):
     assert db.max_reconnect_attempts > 1
     assert db.timeout > 1
     assert db.timeout < 60
+
+
+def test_db_cursor_can_exec(db):
+    # this really shouldn't be a guarantee, imo!
+    con = db._conn().cursor()
+    con.execute("create table foo(bar integer)")
 
 
 def test_db_more_than_one(db):
@@ -1623,6 +1630,8 @@ def test_rename_drop(db):
     db.drop("foo2")
     with pytest.raises(err.TableNotFoundError):
         db.select("foo2")
+    with pytest.raises(err.TableNotFoundError):
+        db.rename("foo2", "bazz")
 
 
 def test_drop_index(db):
@@ -1641,6 +1650,40 @@ def test_drop_index(db):
 
     # If an index can't be found, just return None as the name.
     assert db.get_index_name("foo", idx) is None
+
+
+def test_drop_ddl(db):
+    model = notanorm.model_from_ddl(
+        """
+        create table foo (bar integer);
+        create unique index ix_foo_uk on foo(bar);
+    """
+    )
+    db.create_model(model)
+    idx = DbIndex(fields=(DbIndexField("bar"),), unique=True)
+    nam = db.get_index_name("foo", idx)
+    assert nam
+    ddl = f"drop index {nam}"
+    if db.uri_name == "mysql":
+        ddl += " on foo"
+    db.execute(ddl)
+    assert not db.get_index_name("foo", idx)
+
+    with pytest.raises(err.OperationalError):
+        db.execute(ddl)
+
+    with pytest.raises(err.OperationalError):
+        db.drop_index_by_name("foo", nam)
+
+    db.execute(f"drop table foo")
+    with pytest.raises(err.TableNotFoundError):
+        db.select("foo")
+
+    with pytest.raises(err.TableNotFoundError):
+        db.execute(f"drop table foo")
+
+    with pytest.raises(err.DbError):
+        db.drop_index_by_name("foo", nam)
 
 
 def _sample_model() -> notanorm.DbModel:
@@ -1769,8 +1812,7 @@ def test_create_table_and_indexes(db: DbBase) -> None:
     assert db.simplify_model(db.model()) == db.simplify_model(schema_model)
 
 
-def test_db_persist(db_notmem):
-    db = db_notmem
+def _persist_schema(db):
     schema = """
         CREATE table foo (
             tx text,
@@ -1781,6 +1823,11 @@ def test_db_persist(db_notmem):
         )
         """
     db.execute_ddl(schema)
+
+
+def test_db_persist(db_notmem):
+    db = db_notmem
+    _persist_schema(db)
     db.insert("foo", tx="hi", xin=4, fl=3.2, by=b"dd", boo=True)
     uri = db.uri
     db.close()
@@ -1791,3 +1838,87 @@ def test_db_persist(db_notmem):
     assert row.fl == 3.2
     assert row.by == b"dd"
     assert row.boo
+
+
+def test_db_persist_exec(db_notmem):
+    db = db_notmem
+    _persist_schema(db)
+    db.execute(
+        f"insert into foo (tx, xin, fl, by, boo) values ({db.placeholder}, 4, 3.2, {db.placeholder}, True)",
+        ("hi", b"dd"),
+    )
+    uri = db.uri
+    db.close()
+    db = open_db(uri)
+    row = db.select("foo")[0]
+    assert row.tx == "hi"
+    assert row.xin == 4
+    assert row.fl == 3.2
+    assert row.by == b"dd"
+    assert row.boo
+
+
+def test_init_ddl():
+    db = JsonDb(":memory:", ddl="create table foo (bar integer)")
+    db.insert("foo", bar=4)
+    db.drop("foo")
+
+
+def test_no_ddl(db_jsondb):
+    db = db_jsondb
+    db.insert("t", x=5, y="yo")
+    db.insert("t", x=5, y=9)
+    db.insert("z", x=b"bytes")
+
+    with pytest.raises(err.UnknownPrimaryError):
+        db.update("t", x=5, y=9, z=6)
+
+    assert db.model() == notanorm.model_from_ddl(
+        "create table t (x, y); create table z(x)", "sqlite"
+    )
+
+    # this can take a different code path with caching, so check again
+    with pytest.raises(err.UnknownPrimaryError):
+        db.update("t", x=5, y=9, z=6)
+
+
+def test_retry_fileop(db_jsondb_notmem):
+    db = db_jsondb_notmem
+    _persist_schema(db)
+    prev = open
+    first = True
+
+    def one_err_dump(*a, **k):
+        nonlocal first
+        if first:
+            first = False
+            raise PermissionError
+        return prev(*a, **k)
+
+    # jsondb attempts to paves over windows permission errors that occur with many processes
+    with patch("builtins.open", one_err_dump):
+        db.insert("foo", tx="hi")
+        db.close()
+
+    uri = db.uri
+    db = open_db(uri)
+    row = db.select("foo")[0]
+
+    assert row.tx == "hi"
+
+
+def test_retry_fails_eventually(db_jsondb_notmem, tmp_path):
+    db = db_jsondb_notmem
+    _persist_schema(db)
+
+    def perm_err(*a, **k):
+        raise PermissionError
+
+    # jsondb attempts to paves over windows permission errors that occur with many processes
+    with pytest.raises(PermissionError):
+        with patch("os.replace", perm_err):
+            db.insert("foo", tx="hi")
+            db.close()
+
+    # tmp db is cleaned up
+    assert os.listdir(tmp_path) == []
