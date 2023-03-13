@@ -55,7 +55,7 @@ class JsonDb(DbBase):
     use_pooled_locks = False
     generator_guard = False
     max_reconnect_attempts = 1
-    retry_write = 3
+    retry_write = 5
     _parse_memo = {}
     default_values = " () values ()"
     closed = False
@@ -149,11 +149,12 @@ class JsonDb(DbBase):
 
         assert not todo[0].find(exp.AlterTable), "alter not needed for json"
 
-        if todo and todo[0].find(exp.Create):
-            model = DDLHelper(todo, py_defaults=True).model()
-            if model:
-                for k, v in model.items():
-                    self.create_table(k, v)
+        if todo:
+            if todo[0].find(exp.Create):
+                model = DDLHelper(todo, py_defaults=True).model()
+                if model:
+                    for k, v in model.items():
+                        self.create_table(k, v)
 
         return self.execute_cursor_stmts(cursor, todo, parameters)
 
@@ -173,6 +174,28 @@ class JsonDb(DbBase):
             op = ent.find(exp.Update)
             if op:
                 return self.__op_update(cursor, op, parameters)
+            op = ent.find(exp.Drop)
+            if op:
+                return self.__op_drop(cursor, op, parameters)
+
+    def __op_drop(self, ret, op, parameters):
+        tab = op.find(exp.Table)
+        if tab:
+            if op.args["kind"] == "index":
+                for tab_name, info in self.__model.items():
+                    for idx in info.indexes:
+                        if idx.name == tab.name:
+                            self.drop_index_by_name(tab_name, idx.name)
+            else:
+                self.drop(tab.name)
+        return ret
+
+    def drop_index_by_name(self, table: str, index_name: str):
+        mod = self.__get_tab_mod(table)
+        idx = [i for i in mod.indexes if i.name == index_name]
+        if not idx:
+            raise notanorm.errors.OperationalError
+        mod.indexes.discard(idx[0])
 
     def __op_insert(self, res, op, parameters):
         cols = []
@@ -426,9 +449,6 @@ class JsonDb(DbBase):
             )
         return tuple(cols)
 
-    def __indexes(self, table, no_capture):
-        return set()
-
     def model(self, no_capture=False):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
         if self.__model is not None:
@@ -442,14 +462,6 @@ class JsonDb(DbBase):
             model[k] = DbTable(cols, indxs)
         self.__model = model
         return self.__model
-
-    @classmethod
-    def _column_def(cls, col: DbCol, single_primary: str):
-        coldef = cls.quote_key(col.name)
-        typ = cls._type_map[col.typ]
-        if typ:
-            coldef += " " + typ
-        return coldef
 
     @staticmethod
     def simplify_model(model: DbModel):
