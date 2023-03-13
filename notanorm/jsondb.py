@@ -2,9 +2,10 @@ import contextlib
 import copy
 import json
 import os
+import random
 import threading
 import base64
-import copy
+import time
 
 import sqlglot.errors
 
@@ -54,8 +55,10 @@ class JsonDb(DbBase):
     use_pooled_locks = False
     generator_guard = False
     max_reconnect_attempts = 1
+    retry_write = 3
     _parse_memo = {}
     default_values = " () values ()"
+    closed = False
 
     def _begin(self, conn: "JsonDb"):
         self._tx.append(copy.deepcopy(self.__dat))
@@ -82,7 +85,13 @@ class JsonDb(DbBase):
 
     def __write(self):
         if not self.__is_mem:
-            tmp = self.__file + ".jtmp." + str(threading.get_ident())
+            tmp = (
+                self.__file
+                + ".jtmp."
+                + str(self.__pid)
+                + "."
+                + str(threading.get_ident())
+            )
             dat = copy.deepcopy(self.__dat)
             for tab, rows in dat.items():
                 for i, row in enumerate(rows):
@@ -91,7 +100,14 @@ class JsonDb(DbBase):
             try:
                 with open(tmp, "w") as fp:
                     json.dump(dat, fp)
-                os.replace(tmp, self.__file)
+                for _ in range(self.retry_write):
+                    try:
+                        os.replace(tmp, self.__file)
+                        break
+                    except PermissionError:
+                        sleep_time = self.reconnect_backoff_start
+                        sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
+                        time.sleep(sleep_time)
             except Exception as ex:
                 with contextlib.suppress(Exception):
                     os.unlink(tmp)
@@ -123,6 +139,9 @@ class JsonDb(DbBase):
         return self._executeone(cursor, sql, ())
 
     def _executeone(self, cursor, sql: str, parameters):
+        if self.closed:
+            raise notanorm.errors.DbClosedError
+
         todo = self._parse_memo.get(sql)
         if todo is None:
             todo = parse(sql, "sqlite")
@@ -131,13 +150,10 @@ class JsonDb(DbBase):
         assert not todo[0].find(exp.AlterTable), "alter not needed for json"
 
         if todo and todo[0].find(exp.Create):
-            model = DDLHelper(todo).model()
+            model = DDLHelper(todo, py_defaults=True).model()
             if model:
-                if any(k in self.__model for k in model):
-                    raise TableExistsError(
-                        todo[0].find(exp.Create).find(exp.Table).name
-                    )
-                self.__model.update(model)
+                for k, v in model.items():
+                    self.create_table(k, v)
 
         return self.execute_cursor_stmts(cursor, todo, parameters)
 
@@ -163,7 +179,7 @@ class JsonDb(DbBase):
         vals = []
         tab = op.find(exp.Table)
         scm = op.find(exp.Schema)
-        mod = self.__model.get(tab.name)
+        mod = self.__get_tab_mod(tab.name)
         for col in scm.expressions:
             col_name = self.__col_name(col, mod)
             cols.append(col_name)
@@ -210,7 +226,7 @@ class JsonDb(DbBase):
 
     def __check_integ_idx(self, tab, row, idx: DbIndex):
         check = tuple((f, row[f.name]) for f in idx.fields)
-        rows = self.__get_table(tab)
+        rows = self.__get_tab_dat(tab)
         for ent in rows:
             if tuple((f, ent[f.name]) for f in idx.fields) == check:
                 raise notanorm.errors.IntegrityError
@@ -227,7 +243,7 @@ class JsonDb(DbBase):
         sets = {}
         parameters = list(parameters)
         tab = op.find(exp.Table)
-        mod = self.__model.get(tab.name)
+        mod = self.__get_tab_mod(tab.name)
         for set_exp in op.expressions:
             col = set_exp.left
             col_name = self.__col_name(col, mod)
@@ -246,7 +262,7 @@ class JsonDb(DbBase):
         where = op.find(exp.Where)
         where_dict = self.__op_where(where, list(parameters))
         new = []
-        for row in self.__get_table(tab.name):
+        for row in self.__get_tab_dat(tab.name):
             if not all(v == row[k] for k, v in where_dict.items()):
                 new.append(row)
                 ret.rowcount += 1
@@ -301,7 +317,7 @@ class JsonDb(DbBase):
         tab = op.args["from"].args["expressions"][0].name
         where = op.find(exp.Where)
         where_dict = self.__op_where(where, params)
-        rows = self.__get_table(tab)
+        rows = self.__get_tab_dat(tab)
         ord = op.find(exp.Order)
         if ord:
             rows = self.__sort(ord, rows)
@@ -336,12 +352,20 @@ class JsonDb(DbBase):
 
         return sorted(rows, key=func)
 
-    def __get_table(self, tab):
+    def __get_tab_dat(self, tab):
         try:
             return self.__dat[tab]
         except KeyError:
-            if not self.__model or tab in self.__model:
+            if self.__model is None or tab in self.__model:
                 return []
+            raise TableNotFoundError(tab)
+
+    def __get_tab_mod(self, tab):
+        if self.__model is None:
+            return None
+        try:
+            return self.__model[tab]
+        except KeyError:
             raise TableNotFoundError(tab)
 
     def __op(self, k, v):
@@ -380,19 +404,20 @@ class JsonDb(DbBase):
 
     def __init__(self, *args, model=None, ddl=None, **kws):
         super().__init__(*args, **kws)
+        self.__pid = os.getpid()
         self.__dirty = False
         self._tx = []
         self.__dat = {}
         if ddl:
-            model = DDLHelper(ddl).model()
-        self.__model = model or DbModel()
+            model = DDLHelper(ddl, py_defaults=True).model()
+        self.__model = model
         self.__file = args[0]
         self.__is_mem = self.__file == ":memory:"
         self.refresh()
 
-    def __columns(self, table, *_):
+    def __implicit_columns(self, table, *_):
         cols = []
-        for k, v in self.__get_table(table)[0].items():
+        for k, v in self.__get_tab_dat(table)[0].items():
             cols.append(
                 DbCol(
                     name=k,
@@ -406,11 +431,13 @@ class JsonDb(DbBase):
 
     def model(self, no_capture=False):
         """Get sqlite db model: dict of tables, each a dict of rows, each with type, unique, autoinc, primary"""
-        if self.__model:
+        if self.__model is not None:
             return self.__model
+
+        # implicit model from json
         model = DbModel()
         for k in self.__dat:
-            cols = self.__columns(k)
+            cols = self.__implicit_columns(k)
             indxs = set()
             model[k] = DbTable(cols, indxs)
         self.__model = model
@@ -447,28 +474,36 @@ class JsonDb(DbBase):
     def create_table(
         self, name, schema, ignore_existing=False, create_indexes: bool = True
     ):
+        if self.__model is None:
+            self.__model = DbModel()
+
         if name in self.__model:
             if not ignore_existing:
                 raise TableExistsError
-            return
+        else:
+            if not create_indexes:
+                schema = DbTable(schema.columns, set())
+            self.__model[name] = schema
+
         if create_indexes:
             idxs = [
                 DbIndex(idx.fields, idx.unique, idx.primary, os.urandom(16).hex())
                 for idx in schema.indexes
             ]
             schema = DbTable(schema.columns, set(idxs))
-        else:
-            schema = DbTable(schema.columns, set())
-        self.__model[name] = schema
+            self.__model[name] = schema
 
     def _create_index(self, tab, index_name, idx: DbIndex):
-        idx = DbIndex(idx.fields, idx.unique, idx.primary, os.urandom(16).hex())
+        idx = DbIndex(idx.fields, idx.unique, idx.primary, index_name)
         self.__model[tab].indexes.add(idx)
 
     def _connect(self, *args, **kws):
+        self.closed = False
         return self
 
     def _get_primary(self, table):
+        if self.__model is None:
+            raise TableNotFoundError("model required for implicit where clauses")
         tab = self.__model[table]
         for idx in tab.indexes:
             if idx.primary:
@@ -481,6 +516,7 @@ class JsonDb(DbBase):
     def close(self):
         if self.__dirty:
             self.__write()
+        self.closed = True
 
     @staticmethod
     def translate_error(exp):
@@ -491,7 +527,7 @@ class JsonDb(DbBase):
 
     def rename(self, table_from, table_to):
         try:
-            if self.__model:
+            if self.__model is not None:
                 self.__model[table_to] = self.__model.pop(table_from)
             self.__dat[table_to] = self.__dat.pop(table_from, [])
             self.clear_model_cache()
@@ -503,7 +539,7 @@ class JsonDb(DbBase):
         try:
             self.__dat.pop(table, None)
             self.__dirty = True
-            if self.__model:
+            if self.__model is not None:
                 del self.__model[table]
             self.clear_model_cache()
         except KeyError:

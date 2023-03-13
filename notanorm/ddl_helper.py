@@ -71,7 +71,9 @@ class DDLHelper:
         ("mysql", exp.DataType.Type.TEXT): DbColCustomInfo("mysql", "small"),
     }
 
-    def __init__(self, ddl, *dialects):
+    def __init__(self, ddl, *dialects, py_defaults=False):
+        self.py_defaults = py_defaults
+
         if not dialects:
             # guess dialect
             dialects = ("mysql", "sqlite")
@@ -238,18 +240,17 @@ class DDLHelper:
             tab.name,
         )
 
-    @classmethod
-    def __info_to_model(cls, info, dialect) -> Tuple[DbCol, bool, bool]:
+    def __info_to_model(self, info, dialect) -> Tuple[DbCol, bool, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         this = typ and typ.this
-        fixed = this in cls.FIXED_MAP
-        size = cls.SIZE_MAP.get(this, 0)
-        custom = cls.CUSTOM_MAP.get((dialect, this), None)
+        fixed = this in self.FIXED_MAP
+        size = self.SIZE_MAP.get(this, 0)
+        custom = self.CUSTOM_MAP.get((dialect, this), None)
         if not this:
             typ = DbType.ANY
         else:
-            typ = cls.TYPE_MAP[this]
+            typ = self.TYPE_MAP[this]
         notnull = info.find(exp.NotNullColumnConstraint)
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
@@ -276,9 +277,9 @@ class DDLHelper:
             elif lit.is_string:
                 default = lit.this
             # this is a hack for compatibility with existing code, todo: change this
-            elif lit.is_int and dialect not in ("sqlite", "mysql"):
+            elif lit.is_int and self.py_defaults:
                 default = int(lit.output_name)
-            elif lit.is_number and dialect not in ("sqlite", "mysql"):
+            elif lit.is_number and self.py_defaults:
                 default = float(lit.output_name)
             else:
                 default = lit.output_name

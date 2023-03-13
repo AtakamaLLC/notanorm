@@ -499,6 +499,7 @@ class DbBase(
     use_collation_locks = False
     max_index_name = 1024
     __lock_pool = defaultdict(threading.RLock)
+    __closed = False
 
     @property
     def timeout(self):
@@ -527,7 +528,6 @@ class DbBase(
         self.__capture_exec = None
         self.__capture_stmts = []
         assert self.reconnect_backoff_factor > 1
-        self.__closed = False
         self._conn_p = None
         self._conn_args = args
         self._conn_kws = kws
@@ -698,11 +698,19 @@ class DbBase(
                 existing_model = self._get_cached_model(no_capture=True)
 
             for name, schema in model.items():
-                self.create_table(name, schema, ignore_existing, create_indexes=False)
-                self.create_indexes(name, schema, existing_model=existing_model)
-
-            if not explicit_existing_model:
+                if ignore_existing:
+                    self.create_table(
+                        name, schema, ignore_existing, create_indexes=False
+                    )
+                    self.create_indexes(name, schema, existing_model=existing_model)
+                else:
+                    self.create_table(
+                        name, schema, ignore_existing, create_indexes=True
+                    )
+            if not ignore_existing:
                 self._set_cached_model(model)
+            else:
+                self.clear_model_cache()
         except Exception:
             self.clear_model_cache()
             raise
