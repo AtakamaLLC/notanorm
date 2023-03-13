@@ -698,15 +698,8 @@ class DbBase(
                 existing_model = self._get_cached_model(no_capture=True)
 
             for name, schema in model.items():
-                if ignore_existing:
-                    self.create_table(
-                        name, schema, ignore_existing, create_indexes=False
-                    )
-                    self.create_indexes(name, schema, existing_model=existing_model)
-                else:
-                    self.create_table(
-                        name, schema, ignore_existing, create_indexes=True
-                    )
+                self.create_table(name, schema, ignore_existing, create_indexes=False)
+                self.create_indexes(name, schema, existing_model=existing_model)
             if not explicit_existing_model:
                 if not ignore_existing:
                     self._set_cached_model(model)
