@@ -1790,4 +1790,4 @@ def test_db_persist(db_notmem):
     assert row.xin == 4
     assert row.fl == 3.2
     assert row.by == b"dd"
-    assert row.boo == True
+    assert row.boo is True
