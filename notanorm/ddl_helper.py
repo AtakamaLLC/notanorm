@@ -83,7 +83,7 @@ class DDLHelper:
         self.__sqlglot = None
         self.__model = None
 
-        if type(ddl) is list:
+        if isinstance(ddl, list):
             # preparsed
             self.__sqlglot = ddl
             self.dialect = dialects[0]

@@ -3,7 +3,6 @@ import copy
 import json
 import os
 import random
-import threading
 import base64
 import time
 from typing import Callable, Any
@@ -87,13 +86,7 @@ class JsonDb(DbBase):
     def __write(self):
         if not self.__is_mem:
             # tmp file is pid + thread, so they don't accumulate forever on crashes
-            tmp = (
-                self.__file
-                + ".jtmp."
-                + str(self.__pid)
-                + "."
-                + str(threading.get_ident())
-            )
+            tmp = self.__file + ".jtmp." + os.urandom(16).hex()
             dat = copy.deepcopy(self.__dat)
             for tab, rows in dat.items():
                 for i, row in enumerate(rows):
@@ -134,7 +127,8 @@ class JsonDb(DbBase):
                                     dat[tab][i][col] = self.deserialize(val)
                     self.__dat = dat
             except FileNotFoundError:
-                self.__dirty = True
+                if not self.read_only:
+                    self.__dirty = True
 
     def rollback(self):
         self.__dat = self._tx[-1]
@@ -172,6 +166,7 @@ class JsonDb(DbBase):
             op = ent.find(exp.Select)
             if op:
                 cursor.generator = self.__op_select(op, parameters)
+            self.__check_read_only()
             self.__dirty = True
             op = ent.find(exp.Insert)
             if op:
@@ -363,7 +358,7 @@ class JsonDb(DbBase):
         off = op.find(exp.Offset)
         if off:
             off = self.__val_from(off.expression, parameters)
-        # bug in sqlglot flips this for sqlite parse
+        # bug in sqlglot 10+11 flips this for sqlite parse
         if lim is not None and off is not None:
             (lim, off) = (off, lim)
         cntl = 0
@@ -438,9 +433,8 @@ class JsonDb(DbBase):
             for row in self.__dat.get(table, {})
         )
 
-    def __init__(self, *args, model=None, ddl=None, **kws):
+    def __init__(self, *args, model=None, ddl=None, read_only=False, **kws):
         super().__init__(*args, **kws)
-        self.__pid = os.getpid()
         self.__dirty = False
         self._tx = []
         self.__dat = {}
@@ -449,6 +443,7 @@ class JsonDb(DbBase):
         self.__model = model
         self.__file = args[0]
         self.__is_mem = self.__file == ":memory:"
+        self.read_only = read_only
         self.refresh()
 
     def __implicit_columns(self, table, *_):
@@ -551,6 +546,7 @@ class JsonDb(DbBase):
         return exp
 
     def rename(self, table_from, table_to):
+        self.__check_read_only()
         try:
             if self.__model is not None:
                 self.__model[table_to] = self.__model.pop(table_from)
@@ -561,6 +557,7 @@ class JsonDb(DbBase):
             raise notanorm.errors.TableNotFoundError
 
     def drop(self, table):
+        self.__check_read_only()
         try:
             self.__dat.pop(table, None)
             self.__dirty = True
@@ -569,3 +566,7 @@ class JsonDb(DbBase):
             self.clear_model_cache()
         except KeyError:
             raise notanorm.errors.TableNotFoundError
+
+    def __check_read_only(self):
+        if self.read_only:
+            raise notanorm.errors.DbReadOnlyError

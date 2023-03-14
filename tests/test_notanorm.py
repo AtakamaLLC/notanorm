@@ -534,19 +534,30 @@ def test_select_gen_not_lock(db: DbBase):
 
 
 def test_readonly_fail(db, db_name: str):
-    skip_json(db)
-    db.query("create table foo (bar text)")
+    db.query("create table foo (bar text, baz integer default 0)")
     db.insert("foo", bar="y1")
 
     if db_name == "sqlite":
         db.query("PRAGMA query_only=ON;")
     elif db_name == "mysql":
         db.query("SET SESSION TRANSACTION READ ONLY;")
-    else:
-        raise NotImplementedError
+    elif db_name == "jsondb":
+        db.read_only = True
 
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.update("foo", {"bar": "y1"}, baz=2)
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.delete("foo", {"bar": "y1"})
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.drop("foo")
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.rename("foo", "xxx")
 
 
 def test_missing_column(db):
