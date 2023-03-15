@@ -15,6 +15,7 @@ from .errors import NoColumnError, TableNotFoundError, TableExistsError
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel
 from .ddl_helper import DDLHelper
 from sqlglot import parse, exp
+from .evil_open import evil_open
 
 import logging
 
@@ -93,9 +94,11 @@ class JsonDb(DbBase):
                     for col, val in row.items():
                         dat[tab][i][col] = self.serialize(val)
             try:
-                with self.__retry_fileop(lambda: open(tmp, "w")) as fp:
+                with self.__retry_fileop(lambda: open(tmp, "w", encoding="utf8")) as fp:
                     # not safe to retry this!
                     json.dump(dat, fp)
+                    fp.flush()
+                    os.fsync(fp.fileno())
                 self.__retry_fileop(lambda: os.replace(tmp, self.__file))
             except Exception as ex:
                 with contextlib.suppress(Exception):
@@ -118,7 +121,9 @@ class JsonDb(DbBase):
     def refresh(self):
         if not self.__is_mem:
             try:
-                with self.__retry_fileop(lambda: open(self.__file, "r")) as fp:
+                with self.__retry_fileop(
+                    lambda: evil_open(self.__file, "r", encoding="utf8")
+                ) as fp:
                     dat = json.load(fp)
                     for tab, rows in dat.items():
                         for i, row in enumerate(rows):
