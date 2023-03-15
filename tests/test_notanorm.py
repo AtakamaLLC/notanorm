@@ -544,6 +544,8 @@ def test_readonly_fail(db, db_name: str):
     elif db_name == "jsondb":
         db.read_only = True
 
+    assert db.select("foo")
+
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
 

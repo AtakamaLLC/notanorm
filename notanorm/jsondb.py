@@ -166,6 +166,7 @@ class JsonDb(DbBase):
             op = ent.find(exp.Select)
             if op:
                 cursor.generator = self.__op_select(op, parameters)
+                return cursor
             self.__check_read_only()
             self.__dirty = True
             op = ent.find(exp.Insert)
