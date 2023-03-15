@@ -162,6 +162,7 @@ class JsonDb(DbBase):
                 if model:
                     for k, v in model.items():
                         self.create_table(k, v)
+                return cursor
 
         return self.execute_cursor_stmts(cursor, todo, parameters)
 
@@ -186,6 +187,7 @@ class JsonDb(DbBase):
             op = ent.find(exp.Drop)
             if op:
                 return self.__op_drop(cursor, op, parameters)
+            raise NotImplementedError(f"{ent} not supported")
 
     def __op_drop(self, ret, op, parameters):
         tab = op.find(exp.Table)
@@ -272,6 +274,12 @@ class JsonDb(DbBase):
             for cmod in mod.indexes:
                 if cmod.unique or cmod.primary:
                     self.__check_integ_idx(tab, row, cmod)
+            for col in mod.columns:
+                if col.notnull and col.default is None:
+                    if row.get(col.name) is None:
+                        raise notanorm.errors.IntegrityError(
+                            f"{col.name} must not be null"
+                        )
         return False
 
     def __op_update(self, ret, op, parameters):
@@ -309,6 +317,10 @@ class JsonDb(DbBase):
             op = op.this
             if isinstance(op, exp.And):
                 self.__op_where(op.left, parameters, ret=ret)
+            elif isinstance(op, exp.Paren):
+                raise NotImplementedError
+            elif isinstance(op, exp.Or):
+                raise NotImplementedError
             elif isinstance(op, exp.Is):
                 assert isinstance(op.right, exp.Null)
                 ret[op.left.name] = None

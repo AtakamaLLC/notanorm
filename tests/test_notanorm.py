@@ -610,6 +610,17 @@ def test_db_integ_prim(db):
         db.insert("foo", bar=1)
 
 
+def test_db_integ_notnul(db):
+    db.query("create table foo (bar integer not null)")
+    db.insert("foo", bar=1)
+    with pytest.raises(err.IntegrityError):
+        db.insert("foo", bar=None)
+
+    db.query("create table oth (bar integer not null default 4)")
+    db.insert("oth")
+    assert db.select("oth")[0].bar == 4
+
+
 def test_db_annoying_col_names(db):
     db.query('create table "group" (bar integer primary key, "group" integer)')
     db.insert("group", bar=1, group=1)
@@ -1267,6 +1278,16 @@ def test_db_larger_types(db):
     assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
 
 
+def test_db_larger_type_from_model(db):
+    schema_model = notanorm.model_from_ddl("create table foo (bar mediumblob)", "mysql")
+    db.create_model(schema_model)
+    # If mediumblob is accidentally translated to blob, the max size in mysql is
+    # 2**16. If mysql is running in strict mode, the insert will fail.
+    # Otherwise, the comparison will fail.
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
+    assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
+
+
 def test_limit_rowcnt(db: DbBase):
     create_and_fill_test_db(db, 5)
     assert len(db.select("foo", _limit=3)) == 3
@@ -1753,8 +1774,6 @@ def test_create_model_explicit_model(db: DbBase) -> None:
 
 
 def test_create_model_cached_model(db: DbBase) -> None:
-    skip_json(db)
-
     schema_model = _sample_model()
 
     # Initial call fills the model cache.

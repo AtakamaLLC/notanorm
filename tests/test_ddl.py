@@ -75,24 +75,23 @@ def test_model_ddl_cap(db):
 
 
 def test_execute_ddl(db: DbBase):
-    skip_json(db)
     mod = db.execute_ddl(
         "create table foo (bar integer auto_increment primary key)", "mysql"
     )
     assert db.simplify_model(db.model()) == db.simplify_model(mod)
-    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+    if db.uri_name != "jsondb":
+        assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
 
 
 def test_ddl_sqlite_primary_key_autoinc(db: DbBase):
-    skip_json(db)
     mod = db.execute_ddl("create table foo (bar integer primary key)", "sqlite")
     assert db.simplify_model(db.model()) == db.simplify_model(mod)
-    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
-    assert db.simplify_model(db.model())["foo"].columns[0].autoinc
+    if db.uri_name != "jsondb":
+        assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+        assert db.simplify_model(db.model())["foo"].columns[0].autoinc
 
 
 def test_execute_ddl_skip_exists(db: DbBase):
-    skip_json(db)
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     db.execute_ddl(
@@ -102,12 +101,15 @@ def test_execute_ddl_skip_exists(db: DbBase):
     """,
         "mysql",
     )
-    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
-    assert db.simplify_model(db.model())["baz"].columns[0].typ == DbType.INTEGER
+    if db.uri_name != "jsondb":
+        assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+        assert db.simplify_model(db.model())["baz"].columns[0].typ == DbType.INTEGER
+    else:
+        assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.ANY
+        assert db.simplify_model(db.model())["baz"].columns[0].typ == DbType.ANY
 
 
 def test_execute_ddl_exists(db: DbBase):
-    skip_json(db)
     db.execute_ddl("create table foo (bar integer auto_increment primary key)", "mysql")
     with pytest.raises(err.TableExistsError):
         db.execute_ddl(
@@ -118,9 +120,11 @@ def test_execute_ddl_exists(db: DbBase):
 
 
 def test_execute_sqlite(db: DbBase):
-    skip_json(db)
     db.execute_ddl("create table foo (bar integer)", "sqlite")
-    assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+    if db.uri_name != "jsondb":
+        assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.INTEGER
+    else:
+        assert db.simplify_model(db.model())["foo"].columns[0].typ == DbType.ANY
 
 
 def test_multi_key():
