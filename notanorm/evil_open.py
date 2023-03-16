@@ -13,9 +13,11 @@ if is_windows():
     FILE_SHARE_READ = 1
     FILE_SHARE_WRITE = 2
     FILE_SHARE_DELETE = 4
+    CREATE_NEW = 1
     CREATE_ALWAYS = 2
     OPEN_EXISTING = 3
     OPEN_ALWAYS = 4
+    TRUNCATE_EXISTING = 5
     INVALID_HANDLE_VALUE = -1
     NULL = 0
 
@@ -80,34 +82,39 @@ if is_windows():
 
             return file_descriptor
 
-        def evil_open(path, mode, encoding=None):
+        def os_open(path, flags):
             """Works just like open, except share mode is read/write/delete (more unix-like)"""
-            if "w" in mode:
-                wdisp = CREATE_ALWAYS
-            elif "a" in mode:
+
+            if flags & os.O_RDWR:
+                wflags = GENERIC_READ | GENERIC_WRITE
+            elif flags & os.O_WRONLY:
+                wflags = GENERIC_WRITE
+            else:
+                wflags = GENERIC_READ
+
+            if flags & os.O_CREAT:
                 wdisp = OPEN_ALWAYS
+                if flags & os.O_EXCL:
+                    wdisp = CREATE_NEW
+                elif flags & os.O_TRUNC:
+                    wdisp = CREATE_ALWAYS
             else:
                 wdisp = OPEN_EXISTING
-
-            if "r" in mode and "+" not in mode:
-                wflags = GENERIC_READ
-            else:
-                wflags = GENERIC_READ | GENERIC_WRITE
+                if flags & os.O_TRUNC:
+                    wdisp = TRUNCATE_EXISTING
 
             share = FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE
 
             file_descriptor = win32_os_fopen(path, wflags, wdisp, share)
 
-            if "a" in mode:
+            if flags & os.O_APPEND:
                 os.lseek(file_descriptor, 0, os.SEEK_END)
 
-            # open the file descriptor
-            fh = io.open(file_descriptor, mode, encoding=encoding)
+            return file_descriptor
 
-            # sadly, the name property is not settable
-            fh.path = path
-
-            return fh
+        def evil_open(path, mode, encoding=None):
+            # works just like io.open, but with a nicer share mode
+            return io.open(path, mode, encoding=encoding, opener=os_open)
 
     except ImportError:
         evil_open = open
