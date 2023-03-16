@@ -21,7 +21,7 @@ if is_windows():
 
     try:
         import ctypes
-        from ctypes.wintypes import HANDLE, ULONG, DWORD, BOOL, LPCSTR, LPCWSTR, LPVOID
+        from ctypes.wintypes import HANDLE, DWORD, LPCSTR, LPCWSTR, LPVOID
         from pathlib import Path
         import msvcrt
 
