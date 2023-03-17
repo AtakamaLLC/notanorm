@@ -1,7 +1,7 @@
 import io
 import pytest
 import os
-from notanorm.evil_open import evil_open
+from notanorm.evil_open import evil_open, is_windows
 
 
 def _test_open_read_write(tmp_path, data):
@@ -18,10 +18,11 @@ def _test_open_read_write(tmp_path, data):
         with pytest.raises(io.UnsupportedOperation):
             fh.read()
 
-    # trad open raises the right error
-    with open(fil, "a" + flag, encoding=enc) as fh:
-        with pytest.raises(PermissionError):
-            os.rename(fil, tmp_path / "zzz")
+    if is_windows():
+        # trad open raises the right error
+        with open(fil, "a" + flag, encoding=enc) as fh:
+            with pytest.raises(PermissionError):
+                os.rename(fil, tmp_path / "zzz")
 
     with pytest.raises(FileNotFoundError):
         evil_open(tmp_path / "zzz", "r" + flag)
