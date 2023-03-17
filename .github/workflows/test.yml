@@ -40,5 +40,5 @@ jobs:
         make lint
     - name: Test
       run: |
-        ./ci-test.sh
-        ./ci-cov.sh
+        bash ./ci-test.sh
+        bash ./ci-cov.sh
