@@ -66,7 +66,7 @@ class JsonDb(DbBase):
 
     def commit(self):
         self._tx = self._tx[0:-1]
-        if not self._tx:
+        if not self._tx and self.__dirty:
             self.__write()
 
     def serialize(self, val):
@@ -83,6 +83,10 @@ class JsonDb(DbBase):
 
     def deserialize_bytes(self, val):
         return base64.b64decode(val)
+
+    def __del__(self):
+        if self.__dirty:
+            self.__write()
 
     def __write(self):
         if not self.__is_mem:
