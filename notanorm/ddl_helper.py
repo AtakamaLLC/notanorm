@@ -68,6 +68,7 @@ class DDLHelper:
     # custom info for weird types and the drivers that might care aboutthem
     CUSTOM_MAP = {
         ("mysql", exp.DataType.Type.MEDIUMTEXT): DbColCustomInfo("mysql", "medium"),
+        ("mysql", exp.DataType.Type.MEDIUMBLOB): DbColCustomInfo("mysql", "medium"),
         ("mysql", exp.DataType.Type.TEXT): DbColCustomInfo("mysql", "small"),
     }
 
