@@ -405,6 +405,12 @@ def test_db_update_none_val(db):
     assert db.select_one("foo", bar=None).baz == 3, "update w none"
 
 
+def test_db_update_no_tab(db):
+    db.query("create table foo (bar integer, baz integer)")
+    with pytest.raises(err.TableNotFoundError):
+        db.update("wrongtab", {"bar": 1}, baz=2)
+
+
 def test_tab_exists(db):
     db.query("create table foo (bar integer)")
     with pytest.raises(err.TableExistsError):

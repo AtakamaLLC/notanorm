@@ -69,3 +69,34 @@ def test_open_rename_while(tmp_path):
 
     with open(tmp_path / "y", "r") as fh:
         assert fh.read() == "ok"
+
+
+def test_os_open(tmp_path, open_func=os.open):
+    fil = str(tmp_path / "x")
+
+    h = open_func(fil, os.O_CREAT | os.O_WRONLY)
+    os.write(h, b"hi")
+    os.close(h)
+
+    h = open_func(fil, os.O_RDONLY)
+    assert os.read(h, 10) == b"hi"
+    os.close(h)
+
+    h = open_func(fil, os.O_TRUNC | os.O_RDWR)
+    assert os.read(h, 10) == b""
+    os.close(h)
+
+    with pytest.raises(OSError):
+        open_func(fil, os.O_TRUNC)
+
+    h = open_func(fil, os.O_CREAT)
+    with pytest.raises(OSError):
+        os.write(h, b"hi")
+
+
+if is_windows():
+
+    def test_win_os_open(tmp_path):
+        from notanorm.evil_open import os_open
+
+        test_os_open(tmp_path, open_func=os_open)

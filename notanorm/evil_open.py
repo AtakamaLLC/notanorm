@@ -24,7 +24,6 @@ if is_windows():
     try:
         import ctypes
         from ctypes.wintypes import HANDLE, DWORD, LPCWSTR, LPVOID
-        from pathlib import Path
         import msvcrt
 
         def create_file(
@@ -65,9 +64,6 @@ if is_windows():
             )
 
         def win32_os_fopen(path, wflags, wdisp, share):
-            if isinstance(path, Path):
-                path = str(path)
-
             # get an handle using win32 API, specifyng the SHARED access!
             handle = create_file(path, wflags, share, None, wdisp, 0, None)
             if handle == INVALID_HANDLE_VALUE:  # pragma: no cover
