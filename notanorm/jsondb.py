@@ -201,7 +201,7 @@ class JsonDb(DbBase):
                 for tab_name, info in self.__model.items():
                     for idx in tuple(info.indexes):
                         if idx.name == tab.name:
-                            self.drop_index_by_name(tab_name, idx.name)
+                            self._drop_index_by_name(tab_name, idx.name)
                             found = True
                 if not found:
                     raise notanorm.errors.OperationalError(
@@ -211,7 +211,7 @@ class JsonDb(DbBase):
                 self.drop(tab.name)
         return ret
 
-    def drop_index_by_name(self, table: str, index_name: str):
+    def _drop_index_by_name(self, table: str, index_name: str):
         mod = self.__get_tab_mod(table)
         idx = [i for i in mod.indexes if i.name == index_name]
         if not idx:
@@ -383,6 +383,7 @@ class JsonDb(DbBase):
         # bug in sqlglot 10+11 flips this for sqlite parse
         if lim is not None and off is not None:
             (lim, off) = (off, lim)
+
         cntl = 0
         cnto = 0
         for row in rows:

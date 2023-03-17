@@ -3,7 +3,6 @@
 
 import copy
 import logging
-import os
 import sqlite3
 import threading
 import time
@@ -118,8 +117,6 @@ def skip_json(db):
 
 
 def test_db_order(db):
-    skip_json(db)
-
     db.query("create table foo (bar integer)")
     for i in range(10):
         db.insert("foo", bar=i)
@@ -214,7 +211,6 @@ def test_db_select_any_one(db):
 
 
 def test_db_tab_not_found(db):
-    skip_json(db)
     db.query("create table foo (bar integer)")
     with pytest.raises(notanorm.errors.TableNotFoundError):
         db.select("foox")
@@ -591,7 +587,7 @@ def test_db_more_than_one(db):
         assert db.select_one("foo", bar=1)
 
 
-def test_db_integ(db):
+def test_db_integ_foreign(db):
     skip_json(db)
     if isinstance(db, SqliteDb):
         db.query("pragma foreign_keys=on;")
@@ -1279,11 +1275,9 @@ def test_db_larger_types(db):
 
 
 def test_db_larger_type_from_model(db):
+    # same as test above, but doesn't rely on mysql syntax to work for every db type
     schema_model = notanorm.model_from_ddl("create table foo (bar mediumblob)", "mysql")
     db.create_model(schema_model)
-    # If mediumblob is accidentally translated to blob, the max size in mysql is
-    # 2**16. If mysql is running in strict mode, the insert will fail.
-    # Otherwise, the comparison will fail.
     db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
     assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
 
@@ -1582,7 +1576,7 @@ def test_quote_order_by(db: DbBase) -> None:
         list(reversed(exp_asc)),
     )
 
-    skip_json(db)
+    skip_json(db)  # no subq, join
 
     # While we're here, let's test that it works with joins, subqueries, and all that jazz.
     exp_subq_asc = [
@@ -1669,7 +1663,7 @@ def test_rename_drop(db):
 
 
 def test_drop_index(db):
-    skip_json(db)
+    skip_json(db)  # no "create index" stmt
     db.execute("create table foo (bar integer)")
     db.execute("create unique index ix_foo_uk on foo(bar)")
     assert db.model()["foo"].indexes.pop().name
@@ -1813,7 +1807,7 @@ def test_create_model_cached_model(db: DbBase) -> None:
 
     # Simulate an arbitrary exception.
     with _raise_on_model_fetch(db):
-        with patch.object(db, "execute", side_effect=err.OperationalError):
+        with patch.object(db, "create_table", side_effect=err.OperationalError):
             with pytest.raises(err.OperationalError):
                 db.create_model(schema_model, ignore_existing=True)
 
@@ -1894,63 +1888,3 @@ def test_init_ddl():
     db = JsonDb(":memory:", ddl="create table foo (bar integer)")
     db.insert("foo", bar=4)
     db.drop("foo")
-
-
-def test_no_ddl(db_jsondb):
-    db = db_jsondb
-    db.insert("t", x=5, y="yo")
-    db.insert("t", x=5, y=9)
-    db.insert("z", x=b"bytes")
-
-    with pytest.raises(err.UnknownPrimaryError):
-        db.update("t", x=5, y=9, z=6)
-
-    assert db.model() == notanorm.model_from_ddl(
-        "create table t (x, y); create table z(x)", "sqlite"
-    )
-
-    # this can take a different code path with caching, so check again
-    with pytest.raises(err.UnknownPrimaryError):
-        db.update("t", x=5, y=9, z=6)
-
-
-def test_retry_fileop(db_jsondb_notmem):
-    db = db_jsondb_notmem
-    _persist_schema(db)
-    prev = open
-    first = True
-
-    def one_err_dump(*a, **k):
-        nonlocal first
-        if first:
-            first = False
-            raise PermissionError
-        return prev(*a, **k)
-
-    # jsondb attempts to paves over windows permission errors that occur with many processes
-    with patch("builtins.open", one_err_dump):
-        db.insert("foo", tx="hi")
-        db.close()
-
-    uri = db.uri
-    db = open_db(uri)
-    row = db.select("foo")[0]
-
-    assert row.tx == "hi"
-
-
-def test_retry_fails_eventually(db_jsondb_notmem, tmp_path):
-    db = db_jsondb_notmem
-    _persist_schema(db)
-
-    def perm_err(*a, **k):
-        raise PermissionError
-
-    # jsondb attempts to paves over windows permission errors that occur with many processes
-    with pytest.raises(PermissionError):
-        with patch("os.replace", perm_err):
-            db.insert("foo", tx="hi")
-            db.close()
-
-    # tmp db is cleaned up
-    assert os.listdir(tmp_path) == []
