@@ -155,7 +155,8 @@ class JsonDb(DbBase):
                     self.__dirty = True
 
     def rollback(self):
-        self.__dat = self._tx[-1]
+        self.__dat.clear()
+        self.__dat.update(self._tx[-1])
         self._tx = self._tx[0:-1]
 
     def cursor(self):
