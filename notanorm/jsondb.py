@@ -123,6 +123,9 @@ class JsonDb(DbBase):
         raise last_ex
 
     def refresh(self):
+        if self.__dirty:
+            # pointless to read from disk when my data will overwrite it
+            return
         if not self.__is_mem:
             try:
                 with self.__retry_fileop(
