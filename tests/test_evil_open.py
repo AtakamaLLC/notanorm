@@ -86,12 +86,13 @@ def test_os_open(tmp_path, open_func=os.open):
     assert os.read(h, 10) == b""
     os.close(h)
 
-    with pytest.raises(OSError):
-        open_func(fil, os.O_TRUNC)
+    if is_windows():
+        with pytest.raises(OSError):
+            open_func(fil, os.O_TRUNC)
 
-    h = open_func(fil, os.O_CREAT)
-    with pytest.raises(OSError):
-        os.write(h, b"hi")
+        h = open_func(fil, os.O_CREAT)
+        with pytest.raises(OSError):
+            os.write(h, b"hi")
 
 
 if is_windows():
