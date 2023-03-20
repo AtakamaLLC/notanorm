@@ -1,5 +1,6 @@
 import gc
 import os
+import logging as log
 from unittest.mock import patch
 
 import pytest
@@ -77,3 +78,78 @@ def test_finalize_on_del(tmp_path):
     gc.collect()
     db = open_db(uri)
     assert db.select("foo")[0].tx == "hi"
+
+
+def test_refresh_ignores_dirty(tmp_path):
+    db1 = JsonDb(str(tmp_path / "db"))
+    db1.commit()
+    db1.insert("foo", tx="hi")
+
+    uri = db1.uri
+
+    db2 = open_db(uri)
+    db2.insert("foo", tx="ho")
+
+    assert db1.select("foo")[0].tx == "hi"
+    assert db2.select("foo")[0].tx == "ho"
+
+    # neither one knows about each other, we don't use shared mem
+    db1.refresh()
+    db2.refresh()
+
+    assert db1.select("foo")[0].tx == "hi"
+    assert db2.select("foo")[0].tx == "ho"
+
+    db1.close()
+    db2.close()
+
+    db2 = open_db(uri)
+    assert db2.select("foo")[0].tx == "ho"
+
+
+def test_shared_mem(tmp_path):
+    db1 = JsonDb(str(tmp_path / "db"), global_memory=True)
+    db1.commit()
+    db1.insert("foo", tx="hi")
+
+    uri = db1.uri
+
+    log.info("uri: %s", uri)
+
+    db2 = open_db(uri)
+    db2.insert("foo", tx="ho")
+
+    class KeyDict(dict):
+        def __hash__(self):
+            return hash(frozenset(self.items()))
+
+    assert set([KeyDict(r) for r in db1.select("foo")]) == {
+        KeyDict({"tx": "hi"}),
+        KeyDict({"tx": "ho"}),
+    }
+    assert set([KeyDict(r) for r in db2.select("foo")]) == {
+        KeyDict({"tx": "hi"}),
+        KeyDict({"tx": "ho"}),
+    }
+
+    db1.refresh()
+    db2.refresh()
+
+    assert set([KeyDict(r) for r in db1.select("foo")]) == {
+        KeyDict({"tx": "hi"}),
+        KeyDict({"tx": "ho"}),
+    }
+    assert set([KeyDict(r) for r in db2.select("foo")]) == {
+        KeyDict({"tx": "hi"}),
+        KeyDict({"tx": "ho"}),
+    }
+
+    db1.close()
+
+    db2.close()
+
+    db2 = open_db(uri)
+    assert set([KeyDict(r) for r in db2.select("foo")]) == {
+        KeyDict({"tx": "hi"}),
+        KeyDict({"tx": "ho"}),
+    }

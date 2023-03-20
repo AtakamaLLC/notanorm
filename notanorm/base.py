@@ -635,6 +635,7 @@ class DbBase(
             self.uri_name
             + ":"
             + ",".join(str(v) for v in self._conn_args)
+            + ("," if self._conn_args and self._conn_kws else "")
             + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
         )
 

@@ -4,13 +4,16 @@ import json
 import os
 import random
 import base64
+import weakref
+import io
 import time
+from functools import partial
 from typing import Callable, Any
 
 import sqlglot.errors
 
 import notanorm.errors
-from .base import DbBase, Op
+from .base import DbBase, Op, parse_bool
 from .errors import NoColumnError, TableNotFoundError, TableExistsError
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel
 from .ddl_helper import DDLHelper
@@ -51,6 +54,10 @@ class QueryRes:
         self.generator and self.generator.close()
 
 
+class WeakDict(dict):
+    pass
+
+
 class JsonDb(DbBase):
     uri_name = "jsondb"
     use_pooled_locks = False
@@ -58,6 +65,7 @@ class JsonDb(DbBase):
     max_reconnect_attempts = 1
     retry_file_access = 5
     _parse_memo = {}
+    _global_memory = weakref.WeakValueDictionary()
     default_values = " () values ()"
     closed = False
 
@@ -98,7 +106,10 @@ class JsonDb(DbBase):
                     for col, val in row.items():
                         dat[tab][i][col] = self.serialize(val)
             try:
-                with self.__retry_fileop(lambda: open(tmp, "w", encoding="utf8")) as fp:
+                # io.open is available during gc collect more often than builtin open
+                with self.__retry_fileop(
+                    lambda: io.open(tmp, "w", encoding="utf8")
+                ) as fp:
                     # not safe to retry this!
                     json.dump(dat, fp)
                     fp.flush()
@@ -137,7 +148,8 @@ class JsonDb(DbBase):
                             for col, val in row.items():
                                 if isinstance(val, dict):
                                     dat[tab][i][col] = self.deserialize(val)
-                    self.__dat = dat
+                    self.__dat.clear()
+                    self.__dat.update(dat)
             except FileNotFoundError:
                 if not self.read_only:
                     self.__dirty = True
@@ -459,7 +471,38 @@ class JsonDb(DbBase):
             for row in self.__dat.get(table, {})
         )
 
-    def __init__(self, *args, model=None, ddl=None, read_only=False, **kws):
+    @classmethod
+    def uri_adjust(cls, args, kws):
+        typ: Callable[[Any], Any]
+        rm = []
+        for nam, typ in [
+            ("read_only", bool),
+            ("ddl", str),
+            ("global_memory", bool),
+        ]:
+            if nam in kws:
+                if typ is bool:
+                    typ = partial(parse_bool, nam)
+                    kws[nam] = typ(kws[nam])
+                if kws[nam] is None:
+                    rm.append(nam)
+        for nam in rm:
+            kws.pop(nam, None)
+
+    def __init__(
+        self, *args, model=None, ddl=None, read_only=False, global_memory=False, **kws
+    ):
+        kws.update(
+            {
+                k: v
+                for k, v in {
+                    "read_only": read_only,
+                    "ddl": ddl,
+                    "global_memory": global_memory,
+                }.items()
+                if v is not None
+            }
+        )
         super().__init__(*args, **kws)
         self.__dirty = False
         self._tx = []
@@ -468,9 +511,12 @@ class JsonDb(DbBase):
             model = DDLHelper(ddl, py_defaults=True).model()
         self.__model = model
         self.__file = args[0]
+        if global_memory:
+            self.__dat = self._global_memory.setdefault(self.__file, WeakDict())
         self.__is_mem = self.__file == ":memory:"
         self.read_only = read_only
-        self.refresh()
+        if not global_memory or not self.__dat:
+            self.refresh()
 
     def __implicit_columns(self, table, *_):
         cols = []
@@ -563,6 +609,7 @@ class JsonDb(DbBase):
         if self.__dirty:
             self.__write()
         self.closed = True
+        self.__dat = None
 
     @staticmethod
     def translate_error(exp):
