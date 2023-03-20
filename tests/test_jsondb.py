@@ -153,3 +153,11 @@ def test_shared_mem(tmp_path):
         KeyDict({"tx": "hi"}),
         KeyDict({"tx": "ho"}),
     }
+
+
+def test_readonly_refresh(tmp_path):
+    db = JsonDb(str(tmp_path / "db"), read_only=True)
+    db.refresh()
+    db.commit()
+    db.close()
+    assert not (tmp_path / "db").exists()
