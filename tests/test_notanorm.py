@@ -1873,6 +1873,31 @@ def test_db_persist(db_notmem):
     assert row.boo
 
 
+def test_db_persist_with_tx(db_notmem):
+    db = db_notmem
+    _persist_schema(db)
+
+    with db.transaction():
+        db.insert("foo", tx="hi", xin=4, fl=3.2, xby=b"dd", boo=True)
+
+        with db.transaction():
+            db.update("foo", {"tx": "hi"}, xin=5)
+
+    with pytest.raises(AssertionError):
+        with db.transaction():
+            db.update("foo", {"tx": "hi"}, xin=6)
+            assert False
+
+    uri = db.uri
+    db = open_db(uri)
+    row = db.select("foo")[0]
+    assert row.tx == "hi"
+    assert row.xin == 5
+    assert row.fl == 3.2
+    assert row.xby == b"dd"
+    assert row.boo
+
+
 def test_db_persist_exec(db_notmem):
     db = db_notmem
     _persist_schema(db)

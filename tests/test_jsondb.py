@@ -155,6 +155,23 @@ def test_shared_mem(tmp_path):
     }
 
 
+def test_shared_mem_dirty_2_handles(tmp_path):
+    db1 = JsonDb(str(tmp_path / "db"), global_memory=True)
+    db1.commit()
+    db1.insert("foo", tx="hi")
+
+    uri = db1.uri
+
+    log.info("uri: %s", uri)
+
+    # this implicitly flushes db1's handle
+    db2 = open_db(uri)
+    db2.close()
+
+    db2 = open_db(uri)
+    db2.select("foo")[0].tx == "hi"
+
+
 def test_readonly_refresh(tmp_path):
     db = JsonDb(str(tmp_path / "db"), read_only=True)
     db.refresh()

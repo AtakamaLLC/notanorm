@@ -7,8 +7,9 @@ import base64
 import weakref
 import io
 import time
+from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Any
+from typing import Callable, Any, Union, Optional
 
 import sqlglot.errors
 
@@ -58,6 +59,12 @@ class WeakDict(dict):
     pass
 
 
+@dataclass
+class HandleState:
+    dat: Union[WeakDict, dict]
+    dirty: bool
+
+
 class JsonDb(DbBase):
     uri_name = "jsondb"
     use_pooled_locks = False
@@ -65,7 +72,7 @@ class JsonDb(DbBase):
     max_reconnect_attempts = 1
     retry_file_access = 5
     _parse_memo = {}
-    _global_memory = weakref.WeakValueDictionary()
+    _global_memory = weakref.WeakValueDictionary[str, HandleState]()
     default_values = " () values ()"
     closed = False
 
@@ -74,7 +81,7 @@ class JsonDb(DbBase):
 
     def commit(self):
         self._tx = self._tx[0:-1]
-        if not self._tx and self.__dirty:
+        if not self._tx and self.__state.dirty:
             self.__write()
 
     def serialize(self, val):
@@ -93,7 +100,7 @@ class JsonDb(DbBase):
         return base64.b64decode(val)
 
     def __del__(self):
-        if self.__dirty:
+        if self.__state.dirty:
             self.__write()
 
     def __write(self):
@@ -119,7 +126,7 @@ class JsonDb(DbBase):
                 with contextlib.suppress(Exception):
                     os.unlink(tmp)
                 raise ex
-        self.__dirty = False
+        self.__state.dirty = False
 
     def __retry_fileop(self, func: Callable) -> Any:
         last_ex = None
@@ -134,7 +141,7 @@ class JsonDb(DbBase):
         raise last_ex
 
     def refresh(self):
-        if self.__dirty:
+        if self.__state.dirty:
             # pointless to read from disk when my data will overwrite it
             return
         if not self.__is_mem:
@@ -152,7 +159,7 @@ class JsonDb(DbBase):
                     self.__dat.update(dat)
             except FileNotFoundError:
                 if not self.read_only:
-                    self.__dirty = True
+                    self.__state.dirty = True
 
     def rollback(self):
         self.__dat.clear()
@@ -194,7 +201,7 @@ class JsonDb(DbBase):
                 cursor.generator = self.__op_select(op, parameters)
                 return cursor
             self.__check_read_only()
-            self.__dirty = True
+            self.__state.dirty = True
             op = ent.find(exp.Insert)
             if op:
                 return self.__op_insert(cursor, op, parameters)
@@ -505,17 +512,29 @@ class JsonDb(DbBase):
             }
         )
         super().__init__(*args, **kws)
-        self.__dirty = False
         self._tx = []
-        self.__dat = {}
         if ddl:
             model = DDLHelper(ddl, py_defaults=True).model()
         self.__model = model
         self.__file = args[0]
+
+        self.__is_mem = self.__file.startswith(":memory:")
+
+        # if the user specifies ":memory:<key>" then it's global + memory
+        assert not (
+            global_memory and self.__file == ":memory:"
+        ), "global + :memory: is invalid"
+
         if global_memory:
-            self.__dat = self._global_memory.setdefault(self.__file, WeakDict())
-        self.__is_mem = self.__file == ":memory:"
+            self.__state = self._global_memory.setdefault(
+                self.__file, HandleState(WeakDict(), False)
+            )
+        else:
+            self.__state = HandleState(WeakDict(), False)
+
+        self.__dat = self.__state.dat
         self.read_only = read_only
+
         if not global_memory or not self.__dat:
             self.refresh()
 
@@ -607,7 +626,7 @@ class JsonDb(DbBase):
         return "1.0"
 
     def close(self):
-        if self.__dirty:
+        if self.__state.dirty and not self.read_only:
             self.__write()
         self.closed = True
         self.__dat = None
@@ -626,7 +645,7 @@ class JsonDb(DbBase):
                 self.__model[table_to] = self.__model.pop(table_from)
             self.__dat[table_to] = self.__dat.pop(table_from, [])
             self.clear_model_cache()
-            self.__dirty = True
+            self.__state.dirty = True
         except KeyError:
             raise notanorm.errors.TableNotFoundError
 
@@ -634,7 +653,7 @@ class JsonDb(DbBase):
         self.__check_read_only()
         try:
             self.__dat.pop(table, None)
-            self.__dirty = True
+            self.__state.dirty = True
             if self.__model is not None:
                 del self.__model[table]
             self.clear_model_cache()
