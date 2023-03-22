@@ -488,13 +488,13 @@ class DbBase(
     """Abstract base class for database connections."""
 
     __known_drivers = {}
-    uri_name = None
-    uri_conn_func = None
+    uri_name: Optional[str] = None
+    uri_conn_func: Optional[Callable] = None
     placeholder = "?"
     default_values = "default values"
-    debug_sql = None
-    debug_args = None
-    r_lock = None
+    debug_sql: Optional[str] = None
+    debug_args: Optional[tuple] = None
+    r_lock: Optional[threading.RLock] = None
     use_pooled_locks = False
     use_collation_locks = False
     max_index_name = 1024

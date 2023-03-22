@@ -9,7 +9,7 @@ import io
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Any, Union, Mapping
+from typing import Callable, Any, Union, Mapping, Optional, List, Dict
 
 import sqlglot.errors
 
@@ -18,7 +18,7 @@ from .base import DbBase, Op, parse_bool
 from .errors import NoColumnError, TableNotFoundError, TableExistsError
 from .model import DbType, DbCol, DbTable, DbIndex, DbModel
 from .ddl_helper import DDLHelper
-from sqlglot import parse, exp
+from sqlglot import parse, exp, Expression
 from .evil_open import evil_open
 
 import logging
@@ -72,7 +72,7 @@ class JsonDb(DbBase):
     generator_guard = False
     max_reconnect_attempts = 1
     retry_file_access = 5
-    _parse_memo = {}
+    _parse_memo: Dict[str, List[Optional[Expression]]] = {}
     _global_memory: Mapping[str, HandleState] = weakref.WeakValueDictionary()
     default_values = " () values ()"
     closed = False
@@ -129,7 +129,7 @@ class JsonDb(DbBase):
         self.__state.dirty = False
 
     def __retry_fileop(self, func: Callable) -> Any:
-        last_ex = None
+        last_ex: Optional[Exception] = None
         for _ in range(self.retry_file_access):
             try:
                 return func()
@@ -138,6 +138,7 @@ class JsonDb(DbBase):
                 sleep_time = self.reconnect_backoff_start
                 sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
                 time.sleep(sleep_time)
+        assert isinstance(last_ex, Exception)
         raise last_ex
 
     def refresh(self):
@@ -169,10 +170,10 @@ class JsonDb(DbBase):
     def cursor(self):
         return QueryRes(self)
 
-    def _executemany(self, cursor, sql: str):
+    def _executemany(self, cursor: Any, sql: str):
         return self._executeone(cursor, sql, ())
 
-    def _executeone(self, cursor, sql: str, parameters):
+    def _executeone(self, cursor: Any, sql: str, parameters: tuple):
         if self.closed:
             raise notanorm.errors.DbClosedError
 
@@ -358,9 +359,7 @@ class JsonDb(DbBase):
                 ret[op.left.name] = val
             elif isinstance(op, (exp.GT, exp.GTE, exp.LT, exp.LTE)):
                 val = self.__val_from(op.right, parameters)
-                cod = {exp.GT: ">", exp.GTE: ">=", exp.LT: "<", exp.LTE: "<="}.get(
-                    type(op)
-                )
+                cod = {exp.GT: ">", exp.GTE: ">=", exp.LT: "<", exp.LTE: "<="}[type(op)]
                 val = Op(cod, val)
                 if isinstance(op.left, exp.Literal):  # pragma: no cover
                     raise RuntimeError("literal comparisons not supported yet")
@@ -566,8 +565,8 @@ class JsonDb(DbBase):
     @staticmethod
     def simplify_model(model: DbModel):
         new_mod = DbModel()
+        tdef: DbTable
         for tab, tdef in model.items():
-            tdef: DbTable
             new_cols = []
             for coldef in tdef.columns:
                 # sizes & fixed-width specifiers are ignored in sqlite
