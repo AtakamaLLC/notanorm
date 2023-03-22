@@ -1,6 +1,7 @@
 import gc
 import os
 import logging as log
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -56,7 +57,7 @@ def test_retry_fails_eventually(db_jsondb_notmem, tmp_path):
     db = db_jsondb_notmem
     _persist_schema(db)
 
-    def perm_err(*a, **k):
+    def perm_err(*_a, **__k):
         raise PermissionError
 
     # jsondb attempts to pave over windows permission errors that occur with many processes
@@ -88,7 +89,7 @@ def test_refresh_ignores_dirty(tmp_path):
 
     uri = db1.uri
 
-    db2 = open_db(uri)
+    db2: JsonDb = cast(JsonDb, open_db(uri))
     db2.insert("foo", tx="ho")
 
     assert db1.select("foo")[0].tx == "hi"
@@ -104,7 +105,7 @@ def test_refresh_ignores_dirty(tmp_path):
     db1.close()
     db2.close()
 
-    db2 = open_db(uri)
+    db2: JsonDb = cast(JsonDb, open_db(uri))
     assert db2.select("foo")[0].tx == "ho"
 
 
@@ -117,7 +118,7 @@ def test_shared_mem(tmp_path):
 
     log.info("uri: %s", uri)
 
-    db2 = open_db(uri)
+    db2: JsonDb = cast(JsonDb, open_db(uri))
     db2.insert("foo", tx="ho")
 
     class KeyDict(dict):
@@ -149,7 +150,7 @@ def test_shared_mem(tmp_path):
 
     db2.close()
 
-    db2 = open_db(uri)
+    db2: JsonDb = cast(JsonDb, open_db(uri))
     assert set([KeyDict(r) for r in db2.select("foo")]) == {
         KeyDict({"tx": "hi"}),
         KeyDict({"tx": "ho"}),
@@ -170,7 +171,7 @@ def test_shared_mem_dirty_2_handles(tmp_path):
     db2.close()
 
     db2 = open_db(uri)
-    db2.select("foo")[0].tx == "hi"
+    assert db2.select("foo")[0].tx == "hi"
 
 
 def test_readonly_refresh(tmp_path):
