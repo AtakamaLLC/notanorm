@@ -42,7 +42,9 @@ class DDLHelper:
         exp.DataType.Type.DOUBLE: DbType.DOUBLE,
         exp.DataType.Type.FLOAT: DbType.FLOAT,
         exp.DataType.Type.MEDIUMTEXT: DbType.TEXT,
+        exp.DataType.Type.MEDIUMBLOB: DbType.BLOB,
         exp.DataType.Type.LONGTEXT: DbType.TEXT,
+        exp.DataType.Type.LONGBLOB: DbType.BLOB,
     }
 
     if has_varb:
@@ -66,10 +68,13 @@ class DDLHelper:
     # custom info for weird types and the drivers that might care aboutthem
     CUSTOM_MAP = {
         ("mysql", exp.DataType.Type.MEDIUMTEXT): DbColCustomInfo("mysql", "medium"),
+        ("mysql", exp.DataType.Type.MEDIUMBLOB): DbColCustomInfo("mysql", "medium"),
         ("mysql", exp.DataType.Type.TEXT): DbColCustomInfo("mysql", "small"),
     }
 
-    def __init__(self, ddl, *dialects):
+    def __init__(self, ddl, *dialects, py_defaults=False):
+        self.py_defaults = py_defaults
+
         if not dialects:
             # guess dialect
             dialects = ("mysql", "sqlite")
@@ -78,6 +83,12 @@ class DDLHelper:
 
         self.__sqlglot = None
         self.__model = None
+
+        if isinstance(ddl, list):
+            # preparsed
+            self.__sqlglot = ddl
+            self.dialect = dialects[0]
+            return
 
         for dialect in dialects:
             try:
@@ -133,6 +144,19 @@ class DDLHelper:
                         unique=False,
                     )
                 )
+
+        # sqlglot > 11
+        for col in ent.find_all(exp.PrimaryKey):
+            primary_list = [ent.name for ent in col.find_all(exp.Identifier)]
+            idxs.append(
+                DbIndex(
+                    fields=tuple(
+                        DbIndexField(n, prefix_len=None) for n in primary_list
+                    ),
+                    primary=True,
+                    unique=False,
+                )
+            )
 
         for col in ent.find_all(exp.ColumnDef):
             dbcol, is_prim, is_uniq = self.__info_to_model(col, dialect)
@@ -217,18 +241,17 @@ class DDLHelper:
             tab.name,
         )
 
-    @classmethod
-    def __info_to_model(cls, info, dialect) -> Tuple[DbCol, bool, bool]:
+    def __info_to_model(self, info, dialect) -> Tuple[DbCol, bool, bool]:
         """Turn a sqlglot parsed ColumnDef into a model entry."""
         typ = info.find(exp.DataType)
         this = typ and typ.this
-        fixed = this in cls.FIXED_MAP
-        size = cls.SIZE_MAP.get(this, 0)
-        custom = cls.CUSTOM_MAP.get((dialect, this), None)
+        fixed = this in self.FIXED_MAP
+        size = self.SIZE_MAP.get(this, 0)
+        custom = self.CUSTOM_MAP.get((dialect, this), None)
         if not this:
             typ = DbType.ANY
         else:
-            typ = cls.TYPE_MAP[this]
+            typ = self.TYPE_MAP[this]
         notnull = info.find(exp.NotNullColumnConstraint)
         autoinc = info.find(exp.AutoIncrementColumnConstraint)
         is_primary = info.find(exp.PrimaryKeyColumnConstraint)
@@ -254,8 +277,13 @@ class DDLHelper:
                 default = str(default.this)
             elif lit.is_string:
                 default = lit.this
+            # this is a hack for compatibility with existing code, todo: change this
+            elif lit.is_int and self.py_defaults:
+                default = int(lit.output_name)
+            elif lit.is_number and self.py_defaults:
+                default = float(lit.output_name)
             else:
-                default = str(lit)
+                default = lit.output_name
         return (
             DbCol(
                 name=info.name,

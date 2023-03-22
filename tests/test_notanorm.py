@@ -17,6 +17,7 @@ import notanorm.errors
 import notanorm.errors as err
 from notanorm import SqliteDb, DbRow, DbBase, DbType, DbIndex, And, Or, Op, DbIndexField
 from notanorm.connparse import open_db, parse_db_uri
+from notanorm.jsondb import JsonDb
 
 log = logging.getLogger(__name__)
 
@@ -25,13 +26,27 @@ def test_db_basic(db):
     db.query("create table foo (bar text)")
     db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
     assert db.query("select bar from foo")[0].bar == "hi"
+    assert (
+        db.query("select bar from foo where bar=%s" % db.placeholder, "hi")[0].bar
+        == "hi"
+    )
+    assert not db.query("select bar from foo where bar='zz' and 1=1 and 2=2")
+    assert not db.query("select bar from foo where bar=%s" % db.placeholder, "ho")
 
 
 def test_db_delete(db):
     db.query("create table foo (bar text)")
     db.insert("foo", bar="hi")
+    db.insert("foo", bar="ho")
     db.delete("foo", bar="hi")
-    assert not db.select("foo")
+    assert not db.select("foo", bar="hi")
+    assert db.select("foo")[0].bar == "ho"
+
+
+def test_db_col_as(db):
+    db.query("create table foo (bar text)")
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, "hi")
+    assert db.query("select bar as x from foo")[0].x == "hi"
 
 
 def test_db_version(db):
@@ -94,6 +109,11 @@ def test_db_row_obj_case(db):
     assert "Bar" in ret.keys()
     assert "bar" not in ret.keys()
     assert "bar" in ret
+
+
+def skip_json(db):
+    if isinstance(db, JsonDb):
+        pytest.skip("not supported")
 
 
 def test_db_order(db):
@@ -266,6 +286,7 @@ def test_db_select_explicit_field_map(db):
 
 
 def test_db_select_join(db):
+    skip_json(db)
     db.query("create table foo (col text, d text)")
     db.query("create table baz (col text, d text)")
     db.insert("foo", col="hi", d="foo")
@@ -357,9 +378,10 @@ def test_db_upsert(db_sqlup):
 
 
 def test_db_insert_no_vals(db):
-    db.query("create table foo (bar integer default 1)")
+    db.query("create table foo (bar integer default 1, baz double default 2.2)")
     db.insert("foo")
     assert db.select_one("foo").bar == 1
+    assert db.select_one("foo").baz == 2.2
 
 
 def test_db_insert_lrid(db):
@@ -381,6 +403,12 @@ def test_db_update_none_val(db):
     assert db.count("foo", bar=None) == 1, "count w none"
     db.update("foo", {"bar": None}, baz=3)
     assert db.select_one("foo", bar=None).baz == 3, "update w none"
+
+
+def test_db_update_no_tab(db):
+    db.query("create table foo (bar integer, baz integer)")
+    with pytest.raises(err.TableNotFoundError):
+        db.update("wrongtab", {"bar": 1}, baz=2)
 
 
 def test_tab_exists(db):
@@ -509,18 +537,32 @@ def test_select_gen_not_lock(db: DbBase):
 
 
 def test_readonly_fail(db, db_name: str):
-    db.query("create table foo (bar text)")
+    db.query("create table foo (bar text, baz integer default 0)")
     db.insert("foo", bar="y1")
 
     if db_name == "sqlite":
         db.query("PRAGMA query_only=ON;")
     elif db_name == "mysql":
         db.query("SET SESSION TRANSACTION READ ONLY;")
-    else:
-        raise NotImplementedError
+    elif db_name == "jsondb":
+        db.read_only = True
+
+    assert db.select("foo")
 
     with pytest.raises(err.DbReadOnlyError):
         db.insert("foo", bar="y2")
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.update("foo", {"bar": "y1"}, baz=2)
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.delete("foo", {"bar": "y1"})
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.drop("foo")
+
+    with pytest.raises(err.DbReadOnlyError):
+        db.rename("foo", "xxx")
 
 
 def test_missing_column(db):
@@ -536,6 +578,12 @@ def test_timeout_rational(db_notmem):
     assert db.timeout < 60
 
 
+def test_db_cursor_can_exec(db):
+    # this really shouldn't be a guarantee, imo!
+    con = db._conn().cursor()
+    con.execute("create table foo(bar integer)")
+
+
 def test_db_more_than_one(db):
     db.query("create table foo (bar text)")
     db.insert("foo", bar=1)
@@ -546,7 +594,8 @@ def test_db_more_than_one(db):
         assert db.select_one("foo", bar=1)
 
 
-def test_db_integ(db):
+def test_db_integ_foreign(db):
+    skip_json(db)
     if isinstance(db, SqliteDb):
         db.query("pragma foreign_keys=on;")
     db.query("create table foo (bar integer primary key)")
@@ -555,6 +604,24 @@ def test_db_integ(db):
     db.insert("zop", bar=1)
     with pytest.raises(err.IntegrityError):
         db.insert("zop", bar=2)
+
+
+def test_db_integ_prim(db):
+    db.query("create table foo (bar integer primary key)")
+    db.insert("foo", bar=1)
+    with pytest.raises(err.IntegrityError):
+        db.insert("foo", bar=1)
+
+
+def test_db_integ_notnul(db):
+    db.query("create table foo (bar integer not null)")
+    db.insert("foo", bar=1)
+    with pytest.raises(err.IntegrityError):
+        db.insert("foo", bar=None)
+
+    db.query("create table oth (bar integer not null default 4)")
+    db.insert("oth")
+    assert db.select("oth")[0].bar == 4
 
 
 def test_db_annoying_col_names(db):
@@ -761,12 +828,14 @@ def test_sqlite_guard_thread(db_notmem):
 
 
 def test_subq(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(db.select("foo", bar=db.subq("oth", ["bar"], bar=[1, 3]), baz=0)) == 2
 
 
 def test_subq_wildcards(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     assert (
         len(db.select(db.subq("foo", {"bing": "bar", "baz": "baz"}, bar=[1, 3]), baz=0))
@@ -775,6 +844,7 @@ def test_subq_wildcards(db):
 
 
 def test_nested_subq(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(
@@ -785,6 +855,7 @@ def test_nested_subq(db):
 
 
 def test_subq_limited_fields_join(db):
+    skip_json(db)
     # use weird field name on purpose
     create_and_fill_test_db(db, 5, select="integer primary key", baz="integer")
     create_and_fill_test_db(db, 5, "oth")
@@ -805,6 +876,7 @@ def test_subq_limited_fields_join(db):
 
 
 def test_joinq_ambig_unknown_col_join(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "a")
     create_and_fill_test_db(db, 5, "b")
     create_and_fill_test_db(db, 5, "c")
@@ -823,6 +895,7 @@ def test_joinq_ambig_unknown_col_join(db):
 
 
 def test_joinq_non_ambig_col(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
     create_and_fill_test_db(db, 5, "b", bid="integer primary key", cid="integer")
     create_and_fill_test_db(db, 5, "c", cid="integer primary key", did="integer")
@@ -893,6 +966,7 @@ def test_select_star_in_child(db_sqlite_notmem: DbBase) -> None:
 
 
 def test_joinq_left(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "a", aid="integer primary key", bid="integer")
     create_and_fill_test_db(db, 3, "b", bid="integer primary key", cid="integer")
 
@@ -919,11 +993,13 @@ def test_joinq_right(db_mysql):
 
 
 def test_select_subq(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     assert len(db.select(db.subq("foo", bar=[1, 3]), bar=1)) == 1
 
 
 def test_join_simple(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     assert len(db.select(db.join("foo", "oth", bar="bar"), {"foo.bar": 1})) == 1
@@ -937,6 +1013,7 @@ def test_join_simple(db):
 
 
 def test_join_subqs(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     res = db.select(
@@ -959,6 +1036,7 @@ def test_join_subqs(db):
 
 
 def test_join_subqs_quoting(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, ";oth")
     res = db.select(
@@ -981,6 +1059,7 @@ def test_join_subqs_quoting(db):
 
 
 def test_subqify_join(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5, "x", xid="integer primary key", yid="integer")
     create_and_fill_test_db(db, 5, "y", yid="integer primary key", zid="integer")
     create_and_fill_test_db(
@@ -997,6 +1076,7 @@ def test_subqify_join(db):
 
 
 def test_multi_join_nested_left_right(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
@@ -1019,6 +1099,7 @@ def test_multi_join_nested_left_right(db):
 
 
 def test_join_explicit_mappings(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(
@@ -1029,6 +1110,7 @@ def test_join_explicit_mappings(db):
 
 
 def test_join_explicit_fields(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     j1 = db.subq(db.join("foo", "oth", bar="bar", _fields=["oth.bar"]))
@@ -1040,12 +1122,14 @@ def test_join_explicit_fields(db):
 
 
 def test_subq_field_map(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     j1 = db.subq("foo", _fields={"xxx": "bar"}, bar=[1, 2])
     assert db.select_one(j1, xxx=1).xxx == 1
 
 
 def test_join_2_subqs_same_tab(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     s1 = db.subq("foo", bar=[1, 2, 3])
     s2 = db.subq("foo", bar=[2, 3, 4])
@@ -1054,6 +1138,7 @@ def test_join_2_subqs_same_tab(db):
 
 
 def test_join_2_subqs(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     s1 = db.subq("foo", bar=[1, 2, 3])
@@ -1063,6 +1148,7 @@ def test_join_2_subqs(db):
 
 
 def test_multi_join_auto_left(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     create_and_fill_test_db(db, 5, "thrd")
@@ -1075,6 +1161,7 @@ def test_multi_join_auto_left(db):
 
 
 def test_join_fd_names(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     create_and_fill_test_db(db, 5, "oth")
     # this creates a mapping of fields
@@ -1090,6 +1177,7 @@ def test_join_fd_names(db):
 
 
 def test_where_or(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     db.update("foo", bar=3, baz=2)
     assert len(db.select("foo", _where=[{"bar": 1}, {"baz": 2}])) == 2
@@ -1098,6 +1186,7 @@ def test_where_or(db):
 
 
 def test_warn_dup_index(db, caplog):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     db.query("create index ix_1 on foo(bar);")
     db.query("create index ix_2 on foo(bar);")
@@ -1108,6 +1197,7 @@ def test_warn_dup_index(db, caplog):
 
 
 def test_where_complex(db):
+    skip_json(db)
     create_and_fill_test_db(db, 5)
     assert (
         len(db.select("foo", _where=And([{"bar": Op(">", 1)}, {"bar": Op("<", 5)}])))
@@ -1182,10 +1272,19 @@ def test_quote_special(db: DbBase) -> None:
 
 
 def test_db_larger_types(db):
+    skip_json(db)
     db.query("create table foo (bar mediumblob)")
     # If mediumblob is accidentally translated to blob, the max size in mysql is
     # 2**16. If mysql is running in strict mode, the insert will fail.
     # Otherwise, the comparison will fail.
+    db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
+    assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
+
+
+def test_db_larger_type_from_model(db):
+    # same as test above, but doesn't rely on mysql syntax to work for every db type
+    schema_model = notanorm.model_from_ddl("create table foo (bar mediumblob)", "mysql")
+    db.create_model(schema_model)
     db.query("insert into foo (bar) values (%s)" % db.placeholder, b"a" * (2**16 + 4))
     assert db.query("select bar from foo")[0].bar == b"a" * (2**16 + 4)
 
@@ -1229,6 +1328,7 @@ def create_group_tabs(db):
 
 
 def test_raw_fields_group_by(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
     ret = db.select(
         "a",
@@ -1247,6 +1347,7 @@ def test_raw_fields_group_by(db: DbBase):
 
 
 def test_subq_group_by(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
     sub = db.subq(
         "a", {"cnt": "count(*)", "ver": "max(f3)"}, {}, _group_by=["f1", "f2"]
@@ -1256,6 +1357,7 @@ def test_subq_group_by(db: DbBase):
 
 
 def test_group_by_subq(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
     sub = db.subq("a", f1=1)
     ret = db.select(
@@ -1265,6 +1367,7 @@ def test_group_by_subq(db: DbBase):
 
 
 def test_agg_group_by(db: DbBase):
+    skip_json(db)
     create_group_tabs(db)
 
     # group by one col == dict with col index into counts
@@ -1317,6 +1420,7 @@ def test_agg_group_by(db: DbBase):
 
 
 def test_type_translation_mysql_dialect(db: DbBase):
+    skip_json(db)
     # mysql-compatible types that can be used with sqlite
     schema = """
         CREATE table foo (
@@ -1340,6 +1444,7 @@ def test_type_translation_mysql_dialect(db: DbBase):
 
 
 def test_quote_group_by(db: DbBase) -> None:
+    skip_json(db)
     schema = """
         CREATE table foo (
             a integer primary key not null,
@@ -1385,6 +1490,7 @@ def test_quote_group_by(db: DbBase) -> None:
 
 
 def test_quote_subq_alias(db: DbBase) -> None:
+    skip_json(db)
     schema = """
         CREATE table foo (
             a integer primary key not null,
@@ -1477,6 +1583,8 @@ def test_quote_order_by(db: DbBase) -> None:
         list(reversed(exp_asc)),
     )
 
+    skip_json(db)  # no subq, join
+
     # While we're here, let's test that it works with joins, subqueries, and all that jazz.
     exp_subq_asc = [
         {"a": 500, "foo.;evil": 1, "subq.a": 500, "subq.;evil": 1},
@@ -1557,9 +1665,12 @@ def test_rename_drop(db):
     db.drop("foo2")
     with pytest.raises(err.TableNotFoundError):
         db.select("foo2")
+    with pytest.raises(err.TableNotFoundError):
+        db.rename("foo2", "bazz")
 
 
 def test_drop_index(db):
+    skip_json(db)  # no "create index" stmt
     db.execute("create table foo (bar integer)")
     db.execute("create unique index ix_foo_uk on foo(bar)")
     assert db.model()["foo"].indexes.pop().name
@@ -1574,6 +1685,40 @@ def test_drop_index(db):
 
     # If an index can't be found, just return None as the name.
     assert db.get_index_name("foo", idx) is None
+
+
+def test_drop_ddl(db):
+    model = notanorm.model_from_ddl(
+        """
+        create table foo (bar integer);
+        create unique index ix_foo_uk on foo(bar);
+    """
+    )
+    db.create_model(model)
+    idx = DbIndex(fields=(DbIndexField("bar"),), unique=True)
+    nam = db.get_index_name("foo", idx)
+    assert nam
+    ddl = f"drop index {nam}"
+    if db.uri_name == "mysql":
+        ddl += " on foo"
+    db.execute(ddl)
+    assert not db.get_index_name("foo", idx)
+
+    with pytest.raises(err.OperationalError):
+        db.execute(ddl)
+
+    with pytest.raises(err.OperationalError):
+        db.drop_index_by_name("foo", nam)
+
+    db.execute("drop table foo")
+    with pytest.raises(err.TableNotFoundError):
+        db.select("foo")
+
+    with pytest.raises(err.TableNotFoundError):
+        db.execute("drop table foo")
+
+    with pytest.raises(err.DbError):
+        db.drop_index_by_name("foo", nam)
 
 
 def _sample_model() -> notanorm.DbModel:
@@ -1669,7 +1814,7 @@ def test_create_model_cached_model(db: DbBase) -> None:
 
     # Simulate an arbitrary exception.
     with _raise_on_model_fetch(db):
-        with patch.object(db, "execute", side_effect=err.OperationalError):
+        with patch.object(db, "create_table", side_effect=err.OperationalError):
             with pytest.raises(err.OperationalError):
                 db.create_model(schema_model, ignore_existing=True)
 
@@ -1698,3 +1843,80 @@ def test_create_table_and_indexes(db: DbBase) -> None:
         db.create_table(name, schema, ignore_existing=True)
 
     assert db.simplify_model(db.model()) == db.simplify_model(schema_model)
+
+
+def _persist_schema(db):
+    schema = """
+        CREATE table foo (
+            tx text,
+            xin integer,
+            fl double,
+            xby blob,
+            boo boolean
+        )
+        """
+    db.execute_ddl(schema)
+
+
+def test_db_persist(db_notmem):
+    db = db_notmem
+    _persist_schema(db)
+    db.insert("foo", tx="hi", xin=4, fl=3.2, xby=b"dd", boo=True)
+    uri = db.uri
+    db.close()
+    db = open_db(uri)
+    row = db.select("foo")[0]
+    assert row.tx == "hi"
+    assert row.xin == 4
+    assert row.fl == 3.2
+    assert row.xby == b"dd"
+    assert row.boo
+
+
+def test_db_persist_with_tx(db_notmem):
+    db = db_notmem
+    _persist_schema(db)
+
+    with db.transaction():
+        db.insert("foo", tx="hi", xin=4, fl=3.2, xby=b"dd", boo=True)
+
+        with db.transaction():
+            db.update("foo", {"tx": "hi"}, xin=5)
+
+    with pytest.raises(AssertionError):
+        with db.transaction():
+            db.update("foo", {"tx": "hi"}, xin=6)
+            assert False
+
+    uri = db.uri
+    db = open_db(uri)
+    row = db.select("foo")[0]
+    assert row.tx == "hi"
+    assert row.xin == 5
+    assert row.fl == 3.2
+    assert row.xby == b"dd"
+    assert row.boo
+
+
+def test_db_persist_exec(db_notmem):
+    db = db_notmem
+    _persist_schema(db)
+    db.execute(
+        f"insert into foo (tx, xin, fl, xby, boo) values ({db.placeholder}, 4, 3.2, {db.placeholder}, True)",
+        ("hi", b"dd"),
+    )
+    uri = db.uri
+    db.close()
+    db = open_db(uri)
+    row = db.select("foo")[0]
+    assert row.tx == "hi"
+    assert row.xin == 4
+    assert row.fl == 3.2
+    assert row.xby == b"dd"
+    assert row.boo
+
+
+def test_init_ddl():
+    db = JsonDb(":memory:", ddl="create table foo (bar integer)")
+    db.insert("foo", bar=4)
+    db.drop("foo")

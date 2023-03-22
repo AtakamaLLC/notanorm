@@ -208,7 +208,7 @@ def upserty(uri, i):
     try:
         db.generator_guard = True
         for row in db.select_gen("foo"):
-            db.upsert("foo", bar=row.bar, baz=row.baz + 1)
+            db.upsert("foo", {"bar": row.bar}, baz=row.baz + 1)
         # this is ok: we passed
         return i
     except err.UnsafeGeneratorError:

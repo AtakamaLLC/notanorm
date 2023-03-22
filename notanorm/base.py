@@ -488,17 +488,18 @@ class DbBase(
     """Abstract base class for database connections."""
 
     __known_drivers = {}
-    uri_name = None
-    uri_conn_func = None
+    uri_name: Optional[str] = None
+    uri_conn_func: Optional[Callable] = None
     placeholder = "?"
     default_values = "default values"
-    debug_sql = None
-    debug_args = None
-    r_lock = None
+    debug_sql: Optional[str] = None
+    debug_args: Optional[tuple] = None
+    r_lock: Optional[threading.RLock] = None
     use_pooled_locks = False
     use_collation_locks = False
     max_index_name = 1024
     __lock_pool = defaultdict(threading.RLock)
+    __closed = False
 
     @property
     def timeout(self):
@@ -527,7 +528,6 @@ class DbBase(
         self.__capture_exec = None
         self.__capture_stmts = []
         assert self.reconnect_backoff_factor > 1
-        self.__closed = False
         self._conn_p = None
         self._conn_args = args
         self._conn_kws = kws
@@ -635,6 +635,7 @@ class DbBase(
             self.uri_name
             + ":"
             + ",".join(str(v) for v in self._conn_args)
+            + ("," if self._conn_args and self._conn_kws else "")
             + ",".join(k + "=" + str(v) for k, v in self._conn_kws.items())
         )
 
@@ -700,7 +701,6 @@ class DbBase(
             for name, schema in model.items():
                 self.create_table(name, schema, ignore_existing, create_indexes=False)
                 self.create_indexes(name, schema, existing_model=existing_model)
-
             if not explicit_existing_model:
                 self._set_cached_model(model)
         except Exception:
@@ -731,7 +731,7 @@ class DbBase(
             self._create_index(name, index_name, idx)
 
     @abstractmethod
-    def _create_index(self, index_name, idx: DbIndex):
+    def _create_index(self, tab, index_name, idx: DbIndex):
         ...
 
     def drop_index(self, table: str, index: DbIndex):
