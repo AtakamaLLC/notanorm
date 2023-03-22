@@ -9,7 +9,7 @@ import io
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Any, Union
+from typing import Callable, Any, Union, Mapping
 
 import sqlglot.errors
 
@@ -73,7 +73,7 @@ class JsonDb(DbBase):
     max_reconnect_attempts = 1
     retry_file_access = 5
     _parse_memo = {}
-    _global_memory = weakref.WeakValueDictionary[str, HandleState]()
+    _global_memory: Mapping[str, HandleState] = weakref.WeakValueDictionary()
     default_values = " () values ()"
     closed = False
 
