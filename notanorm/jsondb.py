@@ -9,7 +9,7 @@ import io
 import time
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable, Any, Union, Optional
+from typing import Callable, Any, Union
 
 import sqlglot.errors
 
@@ -56,6 +56,7 @@ class QueryRes:
 
 
 class WeakDict(dict):
+    # a dict cannot be a weak value member, so we need this class to be the __dat container when using global_memory
     pass
 
 
@@ -81,8 +82,8 @@ class JsonDb(DbBase):
 
     def commit(self):
         self._tx = self._tx[0:-1]
-        if not self._tx and self.__state.dirty:
-            self.__write()
+        if not self._tx:
+            self.flush()
 
     def serialize(self, val):
         if isinstance(val, (int, str, float, bool, type(None))):
@@ -100,8 +101,7 @@ class JsonDb(DbBase):
         return base64.b64decode(val)
 
     def __del__(self):
-        if self.__state.dirty:
-            self.__write()
+        getattr(self, "flush", lambda: None)()
 
     def __write(self):
         if not self.__is_mem:
@@ -159,7 +159,7 @@ class JsonDb(DbBase):
                     self.__dat.update(dat)
             except FileNotFoundError:
                 if not self.read_only:
-                    self.__state.dirty = True
+                    self.__write()
 
     def rollback(self):
         self.__dat.clear()
@@ -626,10 +626,13 @@ class JsonDb(DbBase):
         return "1.0"
 
     def close(self):
-        if self.__state.dirty and not self.read_only:
-            self.__write()
+        self.flush()
         self.closed = True
         self.__dat = None
+
+    def flush(self):
+        if self.__state.dirty and not self.read_only:
+            self.__write()
 
     @staticmethod
     def translate_error(exp):

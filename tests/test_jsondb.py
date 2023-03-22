@@ -62,11 +62,12 @@ def test_retry_fails_eventually(db_jsondb_notmem, tmp_path):
     # jsondb attempts to pave over windows permission errors that occur with many processes
     with pytest.raises(PermissionError):
         with patch("os.replace", perm_err):
-            db.insert("foo", tx="hi")
-            db.close()
+            with patch("io.open", perm_err):
+                db.insert("foo", tx="hi")
+                db.close()
 
     # tmp db is cleaned up even tho permission error happened
-    assert os.listdir(tmp_path) == []
+    assert os.listdir(tmp_path) == ["db"]
 
 
 def test_finalize_on_del(tmp_path):
