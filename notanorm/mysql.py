@@ -37,6 +37,9 @@ except (ImportError, NameError):
 
     pymysql_force_flags = pymysql.constants.CLIENT.MULTI_STATEMENTS
 
+# mysqlclient and pymysql use different defaults - standardize on this default
+DEFAULT_CHARSET = "utf8mb4"
+
 
 class MySqlDb(DbBase):
     uri_name = "mysql"
@@ -119,10 +122,10 @@ class MySqlDb(DbBase):
 
         return exp
 
-    def _connect(self, *args, **kws):
+    def _connect(self, *args, charset=DEFAULT_CHARSET, **kws):
         if pymysql_force_flags:
             kws["client_flag"] = kws.get("client_flag", 0) | pymysql_force_flags
-        conn = MySQLLib.connect(*args, **kws)
+        conn = MySQLLib.connect(*args, charset=charset, **kws)
         conn.autocommit(True)
         conn.cursor().execute("SET SESSION sql_mode = 'ANSI';")
         return conn
