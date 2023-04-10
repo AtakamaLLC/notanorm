@@ -122,6 +122,9 @@ class MySqlDb(DbBase):
     def _connect(self, *args, **kws):
         if pymysql_force_flags:
             kws["client_flag"] = kws.get("client_flag", 0) | pymysql_force_flags
+        print(
+            f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>_connect {type(MySQLLib)}  args={args}  kws={kws}"
+        )
         conn = MySQLLib.connect(*args, **kws)
         conn.autocommit(True)
         conn.cursor().execute("SET SESSION sql_mode = 'ANSI';")
