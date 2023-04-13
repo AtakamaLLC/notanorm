@@ -39,11 +39,10 @@ jobs:
       run: |
         make lint
     - name: Test
+      env:
+        COVERAGE_FILE: ".coverage.${{ matrix.info.os }}.${{ matrix.info.python }}.${{ matrix.info.mysql }}"
       run: |
         bash ./ci-test.sh
-        bash ./ci-cov.sh
-      env:
-        COVERAGE_FILE ".coverage.${{ matrix.info.os }}.${{ matrix.info.python }}.${{ matrix.info.mysql }}"
     - uses: actions/upload-artifact@v3
       with:
         name: coverage
