@@ -43,7 +43,7 @@ jobs:
         bash ./ci-test.sh
         bash ./ci-cov.sh
       env:
-        COVERAGE_FILE ".coverage.${{ matrix.info.os }}.${{ matrix.python_version }}.${{ matrix.info.mysql }}"
+        COVERAGE_FILE ".coverage.${{ matrix.info.os }}.${{ matrix.info.python }}.${{ matrix.info.mysql }}"
     - uses: actions/upload-artifact@v3
       with:
         name: coverage
