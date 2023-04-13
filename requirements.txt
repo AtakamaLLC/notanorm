@@ -1,6 +1,5 @@
 pytest
 coverage>=5
-codecov
 pytest-cov
 pytest-xdist
 black
