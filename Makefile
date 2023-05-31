@@ -6,13 +6,13 @@ requirements-pymysql:
 
 lint:
 	python -m flake8
-	python -m black --check .
+	python -m black --check notanorm tests *.py
 
 test:
-	pytest -n 2 --cov notanorm -v tests
+	pytest -n 2 --cov notanorm -v tests --db sqlite --db jsondb
 
 test-all:
-	pytest --cov notanorm -v tests --db mysql --db sqlite
+	pytest --cov notanorm -v tests --db mysql --db sqlite --db jsondb
 
 test-mysql:
 	pytest -v tests --cov notanorm --cov-append --db mysql

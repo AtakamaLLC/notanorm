@@ -7,6 +7,7 @@ import pytest
 
 from notanorm import DbModel, DbCol, DbType, DbTable, DbIndex, DbBase, DbIndexField
 from notanorm.errors import SchemaError
+from tests.test_notanorm import skip_json
 
 log = logging.getLogger(__name__)
 
@@ -192,7 +193,7 @@ def test_model_ddl_cross(db):
     db.create_model(model)
     extracted_model = db.model()
 
-    db.execute("drop table foo")
+    db.drop("foo")
 
     db.create_model(extracted_model)
     check = db.model()
@@ -348,6 +349,7 @@ def test_model_create_indexes(db: "DbBase", caplog):
 
 
 def test_model_cap(db):
+    skip_json(db)
     model = DbModel(
         {
             "foo": DbTable(
@@ -380,7 +382,7 @@ def test_model_any(db):
             )
         }
     )
-    if db.uri_name != "sqlite":
+    if db.uri_name not in ("sqlite", "jsondb"):
         with pytest.raises(SchemaError):
             db.create_model(mod)
     else:

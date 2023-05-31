@@ -110,6 +110,8 @@ class MySqlDb(DbBase):
                 return err.DbConnectionError(msg)
             if err_code == 1051:
                 return err.TableNotFoundError(msg)
+            if err_code == 1048:
+                return err.IntegrityError(msg)
             return err.OperationalError(msg)
         if isinstance(exp, InterfaceError):
             return err.DbConnectionError(msg)
@@ -172,6 +174,7 @@ class MySqlDb(DbBase):
     _int_map = {1: "tinyint", 2: "smallint", 4: "integer", 8: "bigint"}
     _type_map_custom = {
         "mediumtext": DbColCustomInfo("mysql", "medium"),
+        "mediumblob": DbColCustomInfo("mysql", "medium"),
         "text": DbColCustomInfo("mysql", "small"),
     }
 
@@ -205,6 +208,10 @@ class MySqlDb(DbBase):
                 else:
                     typ = "varbinary"
                 typ += "(%s)" % col.size
+            elif (
+                col.custom and col.typ == DbType.BLOB and col.custom.dialect == "mysql"
+            ):
+                typ = "mediumblob"
             elif col.size and col.typ == DbType.INTEGER and col.size in self._int_map:
                 typ = self._int_map[col.size]
             else:

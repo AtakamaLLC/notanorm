@@ -30,14 +30,17 @@ from . import errors
 from .connparse import open_db
 
 try:
-    # if you want this, install sqlglot
+    # if you want this stuff, install sqlglot
     if tuple(sys.version_info[:2]) > (3, 6):
         from .ddl_helper import model_from_ddl
+        from .jsondb import JsonDb
 except ImportError:  # pragma: no cover
     pass
 
+
 __all__ = [
     "SqliteDb",
+    "JsonDb",
     "MySqlDb",
     "DbRow",
     "DbBase",

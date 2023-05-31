@@ -121,3 +121,14 @@ print(db.model())
 sqlite3 drivers come with python
 
 To use mysql, `pip install mysqlclient`, or if that is not available, `pip install pymysql`
+
+#### JsonDb driver
+
+The "jsondb" driver is available if sqlglot is installed.
+
+When using jsondb, be aware that there is no attempt at concurrency controls, and no attempt
+to monitor for on-disk changes.   Likewise, joins and subqueries are not yet supported.
+
+The caller is on the hook to refresh() and commit() or do changes 
+in a transaction().   The driver was designed for the use case of 
+porting existing sqlite code to use a json file instead.
