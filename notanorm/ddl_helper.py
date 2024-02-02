@@ -262,7 +262,7 @@ class DDLHelper:
         # so this is from the grammar of types:  VARCHAR(32) results in a "type.kind.args.expressions" tuple
         expr = info.args["kind"] and info.args["kind"].args.get("expressions")
         if expr:
-            size = int(expr[0].this)
+            size = int(expr[0].name)
 
         if default:
             lit = default.find(exp.Literal)
