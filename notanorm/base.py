@@ -389,7 +389,8 @@ class DbRow(dict):
     __vals = None
 
     # noinspection PyDefaultArgument
-    def __init__(self, dct={}):  # pylint: disable=dangerous-default-value
+    def __init__(self, dct=None):  # pylint: disable=dangerous-default-value
+        dct = {} if dct is None else dct
         super().__init__()
         for k, v in dct.items():
             super().__setitem__(CIKey(k), v)
