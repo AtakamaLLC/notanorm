@@ -5,7 +5,6 @@ NOTE: Make sure to close the db handle when you are done.
 import contextlib
 import os
 import time
-import random
 import threading
 import logging
 from dataclasses import dataclass
@@ -34,6 +33,7 @@ from .errors import (
 )
 from .model import DbModel, DbTable, DbIndex
 from . import errors as err
+import secrets
 
 
 log = logging.getLogger(__name__)
@@ -389,7 +389,8 @@ class DbRow(dict):
     __vals = None
 
     # noinspection PyDefaultArgument
-    def __init__(self, dct={}):  # pylint: disable=dangerous-default-value
+    def __init__(self, dct=None):  # pylint: disable=dangerous-default-value
+        dct = {} if dct is None else dct
         super().__init__()
         for k, v in dct.items():
             super().__setitem__(CIKey(k), v)
@@ -842,7 +843,7 @@ class DbBase(
                         raise
                     sleep_time = backoff
                     if self.recon_jitter:
-                        sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
+                        sleep_time = secrets.SystemRandom().uniform(sleep_time * 0.5, sleep_time * 1.5)
                     time.sleep(sleep_time)
                     backoff *= self.reconnect_backoff_factor
                 else:
