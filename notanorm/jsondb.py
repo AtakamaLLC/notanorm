@@ -2,7 +2,6 @@ import contextlib
 import copy
 import json
 import os
-import random
 import base64
 import weakref
 import io
@@ -22,6 +21,7 @@ from sqlglot import parse, exp, Expression
 from .evil_open import evil_open
 
 import logging
+import secrets
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class JsonDb(DbBase):
             except PermissionError as ex:
                 last_ex = ex
                 sleep_time = self.reconnect_backoff_start
-                sleep_time = random.uniform(sleep_time * 0.5, sleep_time * 1.5)
+                sleep_time = secrets.SystemRandom().uniform(sleep_time * 0.5, sleep_time * 1.5)
                 time.sleep(sleep_time)
         assert isinstance(last_ex, Exception)
         raise last_ex
